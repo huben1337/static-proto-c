@@ -1,0 +1,1223 @@
+#include <stdio.h>
+#include <stdlib.h>
+#include <stdint.h>
+#include <string.h>
+#include <iostream>
+#include <iomanip>
+#include <filesystem>
+#include <format>
+#include <assert.h>
+#include <unordered_map>
+#include <stdarg.h>
+#include <vector>
+
+template <typename T>
+__forceinline auto add_offset(void* start, size_t offset) {
+    return (T*)((uint8_t*)start + offset);
+}
+
+template<size_t N>
+struct StringLiteral {
+    constexpr StringLiteral(const char (&str)[N]) {
+        std::copy_n(str, N, value);
+    }
+    
+    char value[N];
+
+    constexpr char *ptr() const {
+        return (char*)(value);
+    }
+};
+template <const std::string& str>
+constexpr auto make_string_literal () {
+    constexpr auto N = str.length();
+    return StringLiteral<N>(str.c_str());
+}
+
+#define UNEXPECTED_INPUT(msg) show_input_error(msg, YYCURSOR); exit(1);
+
+#define INTERNAL_ERROR(msg) printf(msg); exit(1);
+
+template<typename T>
+inline constexpr bool is_char_ptr_t = std::is_same_v<T, char*> || std::is_same_v<T, const char*>;
+
+template <typename End>
+requires (std::is_integral_v<End> || is_char_ptr_t<End>)
+std::string extract_string (const char *offset, End end_or_length) {
+    size_t length = 0;
+    if constexpr (is_char_ptr_t<End>) {
+        length = end_or_length - offset;
+    } else {
+        length = end_or_length;
+    }
+    return std::string(offset, length);
+}
+
+template <typename T>
+requires std::is_integral_v<T> && std::is_unsigned_v<T>
+struct StringSection {
+    const char* offset;
+    T length;
+
+    StringSection () = default;
+
+    StringSection(const char* start, const char* end) : offset(start), length(end - start) {}
+    StringSection(const char* start, T length) : offset(start), length(length) {}
+};
+
+template <typename T>
+std::string extract_string (StringSection<T> string_section) {
+    auto [offset, length] = string_section;
+    return std::string(offset, length);
+}
+
+
+template <typename AEnd, typename BEnd>
+requires (std::is_integral_v<AEnd> || is_char_ptr_t<AEnd>) && (std::is_integral_v<BEnd> || is_char_ptr_t<BEnd>)
+__forceinline bool string_section_eq(const char* a_start, AEnd a_end_or_length, const char* b_start, BEnd b_end_or_length) {
+    size_t a_length = 0;
+    size_t b_length = 0;
+    
+    if constexpr (is_char_ptr_t<AEnd>) {
+        a_length = a_end_or_length - a_start;
+    } else {
+        a_length = a_end_or_length;
+    }
+    
+    if constexpr (is_char_ptr_t<BEnd>) {
+        b_length = b_end_or_length - b_start;
+    } else {
+        b_length = b_end_or_length;
+    }
+    
+
+    if (a_length != b_length) return false;
+    for (size_t i = 0; i < a_length; i++) {
+        if (a_start[i] != b_start[i]) return false;
+    }
+    
+    return true;
+}
+
+
+const char *input_start;
+std::string file_path_string;
+
+void show_input_error (const char *msg, const char *error, char *error_end = 0) {
+    if (!input_start) {
+        INTERNAL_ERROR("input_start not set\n");
+    }
+    if (file_path_string.empty()) {
+        INTERNAL_ERROR("file_name not set\n");
+    }
+
+    const char *start = error;
+    while (1) {
+        if (start == input_start) break;
+        if (*start == '\n') {
+            start++;
+            break;
+        }
+        start--;
+    }
+
+    uint64_t line = 0;
+    for (auto i = input_start; i < start; i++) {
+        if (*i == '\n') {
+            line++;
+        }
+    }
+
+    uint64_t column = error - start;
+
+    const char *end = error;
+    while (1) {
+        if (*end == 0) goto print;
+        if (*end == '\n') break; 
+        end++;
+    }
+    print:
+    printf("\n\033[97m%s:%d:%d\033[0m \033[91merror:\033[97m %s\033[0m\n  %s\n\033[%dC\033[31m^\033[0m", file_path_string.c_str(), line + 1, column + 1, msg, extract_string(start, end).c_str(), column + 2);
+    exit(1);
+}
+
+/*!re2c
+    re2c:tags = 1;
+    re2c:define:YYMARKER = YYCURSOR;
+    re2c:yyfill:enable = 0;
+    re2c:define:YYCTYPE = char;
+
+    any_white_space = [ \t\r\n];
+    white_space = [ \t];
+    end = "\x00";
+*/
+
+enum KEYWORDS : uint8_t {
+    STRUCT,
+    ENUM,
+    UNION,
+};
+
+enum FIELD_TYPE : uint8_t {
+    INT8,
+    INT16,
+    INT32,
+    INT64,
+    UINT8,
+    UINT16,
+    UINT32,
+    UINT64,
+    FLOAT32,
+    FLOAT64,
+    BOOL,
+    STRING,
+    IDENTIFIER,
+    ARRAY,
+    VARIANT
+};
+
+
+
+struct Range {
+    uint32_t min;
+    uint32_t max;
+};
+
+
+template <typename T>
+requires (std::is_integral_v<T> && std::is_unsigned_v<T>) || std::is_pointer_v<T>
+struct Section {
+    T start;
+    T end;
+};
+
+template <typename T, typename U, U max = std::numeric_limits<U>::max()>
+requires std::is_integral_v<U> && std::is_unsigned_v<U>
+struct Memory {
+    private:
+    U capacity;
+    U position = 0;
+    T* memory;
+    bool in_heap;
+
+    public:
+    Memory (U capacity) : capacity(capacity), in_heap(true) {
+        memory = (T*) malloc(capacity * sizeof(T));
+        if (!memory) {
+            INTERNAL_ERROR("memory allocation failed\n");
+        }
+    }
+
+    template <U N>
+    Memory (T (&memory)[N]) : capacity(N), memory(memory), in_heap(false) {}
+
+    
+
+    auto c_memory () {
+        return memory;
+    }
+
+    auto get (U index) {
+        return memory + index;
+    }
+
+    auto set (U index, T value) {
+        memory[index] = value;
+    }
+
+    /*!
+     * \brief Returns the current index of the memory block.
+     *
+     * \returns The current index of the memory block.
+     */
+    auto get_current () {
+        return position;
+    }
+
+    auto get_next () {
+        if (position == capacity) {
+            if (capacity >= (max / 2)) {
+                INTERNAL_ERROR("memory overflow\n");
+            }
+            capacity *= 2;
+            grow(capacity);
+        }
+        return position++;
+    }
+
+    auto get_next_many (U count) {
+        U next = position;
+        position += count;
+        if (position < next) {
+            INTERNAL_ERROR("[Memory] position wrapped\n");
+        }
+        if (position >= capacity) {
+            if (position >= (max / 2)) {
+                INTERNAL_ERROR("memory overflow\n");
+            }
+            capacity = position * 2;
+            grow(capacity);
+        }
+        return next;
+    }
+
+    auto clear () {
+        position = 0;
+    }
+
+    void free () {
+        if (in_heap) {
+            std::free(memory);
+        }
+    }
+
+    private:
+    auto grow (U size) {
+        if (in_heap) {
+            memory = (T*) realloc(memory, capacity * sizeof(T));
+            // printf("reallocated memory in heap: to %d\n", capacity);
+        } else {
+            auto new_memory = (T*) malloc(capacity * sizeof(T));
+            memcpy(new_memory, memory, position * sizeof(T));
+            memory = new_memory;
+            in_heap = true;
+            // printf("reallocated memory from stack: to %d\n", capacity);
+        }
+        if (!memory) INTERNAL_ERROR("memory allocation failed\n");
+    }
+};
+
+typedef Memory<uint8_t, uint32_t> Buffer;
+
+typedef uint32_t struct_field_idx_t;
+typedef uint32_t enum_field_idx_t;
+typedef uint32_t range_idx_t;
+typedef uint32_t type_idx_t;
+typedef uint16_t identifier_idx_t;
+typedef uint16_t array_depth_t;
+typedef uint16_t variant_count_t;
+
+struct IdentifiedDefinition {
+    StringSection<uint16_t> name;
+    KEYWORDS keyword;
+
+    constexpr auto as_struct () const;
+    constexpr auto as_enum () const;
+    constexpr auto as_union () const;
+};
+
+
+struct Type {
+    FIELD_TYPE type;
+
+    constexpr auto as_string () const;
+    constexpr auto as_identifier () const;
+    constexpr auto as_array () const;
+    constexpr auto as_variant () const;
+};
+
+struct TypeContainer {
+
+    template <typename T>
+    requires std::is_base_of_v<Type, T>
+    T* reserve_type (Buffer &buffer) {
+        auto idx = buffer.get_next_many(sizeof(T));
+        auto mem = buffer.get(idx);
+        return (T*)mem;
+    }
+};
+
+struct StringType : Type {
+    StringType (Range range) : Type({STRING}), range(range) {}
+    Range range;
+};
+
+constexpr auto Type::as_string () const {
+    return (StringType*)this;
+}
+
+struct IdentifiedType : Type {
+	IdentifiedType (IdentifiedDefinition *identifier) : Type({IDENTIFIER}), identifier(identifier) {}
+    IdentifiedDefinition *identifier;
+};
+
+
+constexpr auto Type::as_identifier () const {
+    return (IdentifiedType*)this;
+}
+
+struct ArrayType : Type, TypeContainer {
+    Range range;
+
+    auto inner_type () {
+        return (Type*)(this + 1);
+    }
+};
+
+constexpr auto Type::as_array () const {
+    return (ArrayType*)this;
+}
+
+struct VariantType : Type, TypeContainer {
+	VariantType (variant_count_t variant_count) :
+        Type({VARIANT}),
+        variant_count(variant_count)
+    {};
+    variant_count_t variant_count;
+
+    Type *first_variant() {
+        return (Type*)(this + 1);
+    }
+};
+
+constexpr auto Type::as_variant () const {
+    return (VariantType*)this;
+}
+
+
+
+/*template <typename T>
+requires std::is_base_of_v<Type, T>*/
+struct StructField : TypeContainer {
+    StringSection<uint16_t> name;
+
+    Type *type () {
+        return (Type*)(this + 1);
+    }
+};
+
+struct EnumField {
+    uint64_t value = 0;
+    StringSection<uint16_t> name;
+    
+    bool is_negative = false;
+
+    auto next () {
+        return this + 1;
+    }
+};
+
+
+
+
+template <typename T>
+struct DefinitionWithFields : IdentifiedDefinition {
+    // using T = std::conditional_t<kw == STRUCT || kw == UNION, std::conditional_t<kw == ENUM, EnumField, <error-type>>;
+    uint16_t field_count;
+
+    static DefinitionWithFields* create(Buffer &buffer) {
+        auto idx = buffer.get_next_many(sizeof(DefinitionWithFields));
+        auto def = (DefinitionWithFields*)buffer.get(idx);
+        def->field_count = 0;
+        return def;
+    }
+
+    T* reserve_field(Buffer &buffer) {
+        field_count++;
+        auto idx = buffer.get_next_many(sizeof(T));
+        return (T*)buffer.get(idx);
+    }
+
+    T* first_field() {
+        return (T*)(this + 1);
+    }
+};
+
+typedef DefinitionWithFields<StructField> StructDefinition;
+typedef DefinitionWithFields<StructField> UnionDefinition;
+typedef DefinitionWithFields<EnumField> EnumDefinition;
+
+
+constexpr auto IdentifiedDefinition::as_struct () const {
+    return (StructDefinition*)this;
+}
+constexpr auto IdentifiedDefinition::as_enum () const {
+    return (EnumDefinition*)this;
+}
+constexpr auto IdentifiedDefinition::as_union () const {
+    return (UnionDefinition*)this;
+}
+
+
+
+
+typedef std::unordered_map<std::string, IdentifiedDefinition*> IdentifierMap;
+
+#define VALUE_VAR value
+#define RETURN_RESULT return { YYCURSOR - 1, is_negative ? -VALUE_VAR : VALUE_VAR };
+#define CHECK_RANGE if (VALUE_VAR > max) { UNEXPECTED_INPUT("value out of range"); }
+#define PUSH_DEC(VAL) VALUE_VAR = VALUE_VAR * 10 + VAL; CHECK_RANGE
+#define PUSH_BIN(VAL) VALUE_VAR = (VALUE_VAR << 1) | VAL; CHECK_RANGE
+#define PUSH_OCT(VAL) VALUE_VAR = (VALUE_VAR << 3) | VAL; CHECK_RANGE
+#define PUSH_HEX(VAL) VALUE_VAR = (VALUE_VAR << 4) | VAL; CHECK_RANGE
+
+template <typename T>
+struct LexResult {
+    char *cursor;
+    T value;
+};
+
+/**
+ * \brief Parses an integer from the input string.
+ *
+ * This function attempts to parse an integer from the given input string
+ * starting at the position pointed to by YYCURSOR. It supports parsing
+ * integers in decimal, binary, octal, and hexadecimal formats. The function
+ * handles optional negative signs for signed integer types.
+ *
+ * \tparam T The integer type to parse, which must be an integral type.
+ * \param YYCURSOR Pointer to the current position in the input string.
+ * \returns A LexResult containing the parsed integer value and the updated
+ *          cursor position. If the input does not represent a valid integer,
+ *          an error is triggered.
+ */
+template <typename T, const T max = std::numeric_limits<T>::max()>
+requires std::is_integral_v<T>
+LexResult<T> parse_int (char *YYCURSOR) {
+    T VALUE_VAR = 0;
+    bool is_negative = false;
+
+    if constexpr (std::is_signed_v<T>) {
+        /*!local:re2c
+            "-"                { goto minus_sign; }
+            "0b"               { goto bin_entry; }
+            "0"                { goto oct; }
+            [1-9]              { PUSH_DEC(yych - '0'); goto dec; }
+            "0x"               { goto hex_entry; }
+            *                  { UNEXPECTED_INPUT("expected integer literal"); }
+        */
+        minus_sign:
+        is_negative = true;
+    }
+
+    /*!local:re2c
+        "0b"               { goto bin_entry; }
+        "0"                { goto oct; }
+        [1-9]              { PUSH_DEC(yych - '0'); goto dec; }
+        "0x"               { goto hex_entry; }
+        *                  { UNEXPECTED_INPUT("expected unsigned integer literal"); }
+    */
+    
+bin_entry:
+    /*!local:re2c
+        [01]        { PUSH_BIN(yych - '0'); goto bin; }
+        *           { UNEXPECTED_INPUT("expected binary digit"); }
+    */
+bin:
+    /*!local:re2c
+        [01]        { PUSH_BIN(yych - '0'); goto bin; }
+        *           { RETURN_RESULT; }
+    */
+oct:
+    /*!local:re2c
+        [0-7]       { PUSH_OCT(yych - '0'); goto oct; }
+        *           { RETURN_RESULT; }
+    */
+dec:
+    /*!local:re2c
+        [0-9]       { PUSH_DEC(yych - '0'); goto dec; }
+        *           { RETURN_RESULT; }
+    */
+hex_entry:
+    /*!local:re2c
+        [0-9]       { PUSH_HEX(yych - '0');      goto hex; }
+        [a-f]       { PUSH_HEX(yych - 'a' + 10); goto hex; }
+        [A-F]       { PUSH_HEX(yych - 'A' + 10); goto hex; }
+        *           { UNEXPECTED_INPUT("expected hex digit"); }
+    */
+hex:
+    /*!local:re2c
+        [0-9]       { PUSH_HEX(yych - '0');      goto hex; }
+        [a-f]       { PUSH_HEX(yych - 'a' + 10); goto hex; }
+        [A-F]       { PUSH_HEX(yych - 'A' + 10); goto hex; }
+        *           { RETURN_RESULT; }
+    */
+}
+#undef RETURN_RESULT
+#undef VALUE_VAR
+
+
+#define CHECK_SYMBOL                                                \
+if (yych == symbol) {                                               \
+    return ++YYCURSOR;                                              \
+} else {                                                            \
+    UNEXPECTED_INPUT(error_message.value)    \
+}
+
+template<char symbol>
+constexpr auto lex_symbol_error = StringLiteral({'e','x','p','e', 'c', 't', 'e', 'd', ' ', 's', 'y', 'm', 'b', 'o', 'l', ':', ' ', symbol});
+
+
+/**
+ * \brief Lexes a specific symbol, allowing any amount of whitespace before it.
+ *
+ * This function attempts to lex a specified symbol in the input string
+ * starting at the position pointed to by YYCURSOR. It skips over any amount
+ * of whitespace before checking for the symbol.
+ *
+ * \tparam symbol The character symbol to lex.
+ * \param YYCURSOR Pointer to the current position in the input.
+ * \returns A pointer to the position immediately following the symbol,
+ *          or triggers an error if the symbol is not found.
+ */
+template <char symbol, StringLiteral error_message = lex_symbol_error<symbol>>
+__forceinline char *lex_symbol (char *YYCURSOR) {
+    /*!local:re2c
+        any_white_space* { CHECK_SYMBOL }
+    */
+}
+
+/**
+ * \brief Lexes a specific symbol on the same line.
+ *
+ * This function attempts to lex a specified symbol that is expected to appear
+ * on the same line as the current position in the input. It skips over any
+ * leading whitespace before checking for the symbol.
+ *
+ * \tparam symbol The character symbol to lex.
+ * \param YYCURSOR Pointer to the current position in the input.
+ * \returns A pointer to the position immediately following the symbol,
+ *          or triggers an error if the symbol is not found.
+ */
+template <char symbol, StringLiteral error_message = lex_symbol_error<symbol>>
+__forceinline char *lex_same_line_symbol (char *YYCURSOR) {
+    /*!local:re2c
+        white_space* { CHECK_SYMBOL }
+    */
+}
+#undef CHECK_SYMBOL
+
+/**
+ * \brief Skips over any white space characters in the input.
+ *
+ * This function advances the cursor over any sequence of white space
+ * characters, including spaces and tabs, in the given input.
+ *
+ * \param YYCURSOR Pointer to the current position in the input.
+ * \returns A pointer to the position immediately following any skipped
+ *          white space characters, or the same position if no white space
+ *          was found.
+ */
+__forceinline char *skip_white_space (char *YYCURSOR) {
+    /*!local:re2c
+        white_space* { return YYCURSOR; }
+    */
+}
+
+/**
+ * \brief Skips over any white space characters in the input.
+ *
+ * This function advances the cursor over any sequence of white space
+ * characters, including spaces, tabs, carriage returns, and newlines,
+ * in the given input.
+ *
+ * \param YYCURSOR Pointer to the current position in the input.
+ * \returns A pointer to the position immediately following any skipped
+ *          white space characters, or the same position if no white space
+ *          was found.
+ */
+__forceinline char *skip_any_white_space (char *YYCURSOR) {
+    /*!local:re2c
+        any_white_space* { return YYCURSOR; }
+    */
+}
+
+__forceinline LexResult<Range> lex_range_argument (char *YYCURSOR) {
+
+    YYCURSOR = skip_white_space(YYCURSOR);
+    
+    auto firstArgPos = YYCURSOR;
+    auto parsed_0 = parse_int<uint32_t>(YYCURSOR);
+    YYCURSOR = parsed_0.cursor;
+    auto min = parsed_0.value;
+    auto max = min;
+
+    YYCURSOR = skip_white_space(YYCURSOR);
+
+    if (*YYCURSOR == '.') {
+        YYCURSOR++;
+        if (*YYCURSOR != '.') {
+            UNEXPECTED_INPUT("expected '..' to mark range");
+        }
+        
+        YYCURSOR = skip_white_space(YYCURSOR + 1);
+
+        auto parsed_1 = parse_int<uint32_t>(YYCURSOR);
+        YYCURSOR = parsed_1.cursor;
+        max = parsed_1.value;
+        if (max <= min) show_input_error("invalid range", firstArgPos, YYCURSOR - 1);
+    }
+
+    /*!local:re2c
+        white_space* ">" { return { YYCURSOR, {min, max} }; }
+        white_space* "," { UNEXPECTED_INPUT("string only accepts one argument"); }
+        * { UNEXPECTED_INPUT("expected end of argument list"); }
+    */
+}
+
+__forceinline LexResult<StringSection<uint16_t>> lex_struct_or_enum_name (char *YYCURSOR) {
+    /*!local:re2c
+        white_space* [a-zA-Z_] { goto name_start; }
+
+        * { UNEXPECTED_INPUT("expected name"); }
+    */
+    name_start:
+    auto start = YYCURSOR - 1;
+    /*!local:re2c
+        [a-zA-Z0-9_]*  { goto name_end; }
+    */
+    name_end:
+    size_t length = YYCURSOR - start;
+    if (length > std::numeric_limits<uint16_t>::max()) {
+        UNEXPECTED_INPUT("name too long");
+    }
+    /*!local:re2c
+        white_space* "{" { goto done; }
+
+        * { UNEXPECTED_INPUT("expected '{'"); }
+    */
+    done:
+    return { YYCURSOR, {start, length} };
+}
+
+template <KEYWORDS keyword>
+__forceinline char *lex_identifier (char *YYCURSOR, IdentifierMap &identifier_map, IdentifiedDefinition* definition) {
+    auto nameResult = lex_struct_or_enum_name(YYCURSOR);
+    auto nameStart = (char *) nameResult.value.offset;
+    auto nameEnd = nameStart + nameResult.value.length;
+    YYCURSOR = nameResult.cursor;
+
+    definition->name = nameResult.value;
+    definition->keyword = keyword;
+
+    char endBackup = *nameEnd;
+    *nameEnd = 0;
+    auto inserted = identifier_map.insert({nameStart, definition}).second;
+    *nameEnd = endBackup;
+
+    if (!inserted) {
+        show_input_error("identifier already defined", nameStart - 1);
+    }
+
+    return YYCURSOR;
+}
+
+template <typename T, typename U>
+requires std::is_integral_v<U> && 
+         std::is_unsigned_v<U> &&
+         std::is_same_v<decltype(T::name), StringSection<uint16_t>>
+__forceinline bool field_exists (Memory<T, U> fields, U start_idx, const char *name_start, size_t name_length) {
+    auto stop_idx = fields.get_current();
+    for (; start_idx < stop_idx; start_idx++) {
+        auto field = fields.get(start_idx);
+        if (string_section_eq(field->name.offset, field->name.length, name_start, name_length)) {
+            return true;
+        }
+    }
+    return false;
+}
+
+inline char *lex_type (char *YYCURSOR, Buffer &buffer, TypeContainer *type_container, IdentifierMap &identifier_map) {
+    const char *identifierStart = YYCURSOR;
+    #define SIMPLE_TYPE(TYPE) type_container->reserve_type<Type>(buffer)->type = FIELD_TYPE::TYPE; return YYCURSOR;
+    /*!local:re2c
+        name = [a-zA-Z_][a-zA-Z0-9_]*;
+                    
+        "int8"      { SIMPLE_TYPE(INT8)       }
+        "int16"     { SIMPLE_TYPE(INT16)      }
+        "int32"     { SIMPLE_TYPE(INT32)      }
+        "int64"     { SIMPLE_TYPE(INT64)      }
+        "uint8"     { SIMPLE_TYPE(UINT8)      }
+        "uint16"    { SIMPLE_TYPE(UINT16)     }
+        "uint32"    { SIMPLE_TYPE(UINT32)     }
+        "uint64"    { SIMPLE_TYPE(UINT64)     }
+        "float32"   { SIMPLE_TYPE(FLOAT32)    }
+        "float64"   { SIMPLE_TYPE(FLOAT64)    }
+        "bool"      { SIMPLE_TYPE(BOOL)       }
+        "string"    { goto string;            }
+        "array"     { goto array;             }
+        "variant"   { goto variant;           }
+        name        { goto identifier;        }
+
+        * { UNEXPECTED_INPUT("expected field type"); }
+    */
+    #undef SIMPLE_TYPE
+
+    string: {
+
+        YYCURSOR = lex_same_line_symbol<'<', "expected argument list">(YYCURSOR);
+
+        auto range_result = lex_range_argument(YYCURSOR);
+        YYCURSOR = range_result.cursor;
+
+        auto string_type = type_container->reserve_type<StringType>(buffer);
+
+        string_type->type = STRING;
+        string_type->range = range_result.value;
+
+        return YYCURSOR;
+    }
+
+    array: {
+        array_depth_t array_depth = 0;
+
+        auto array_type = type_container->reserve_type<ArrayType>(buffer);
+        array_type->type = ARRAY;
+
+        YYCURSOR = lex_same_line_symbol<'<', "expected argument list">(YYCURSOR);
+
+        YYCURSOR = skip_white_space(YYCURSOR);
+
+        YYCURSOR = lex_type(YYCURSOR, buffer, array_type, identifier_map);
+
+        YYCURSOR = lex_same_line_symbol<',', "expected length argument">(YYCURSOR);
+
+        auto range_result = lex_range_argument(YYCURSOR);
+        YYCURSOR = range_result.cursor;
+
+        array_type->range = range_result.value;
+
+        return YYCURSOR;
+    }
+
+    variant: {
+
+        YYCURSOR = lex_same_line_symbol<'<', "expected argument list">(YYCURSOR);
+
+        auto variant_type = type_container->reserve_type<VariantType>(buffer);
+        variant_type->type = VARIANT;
+        variant_count_t variant_count = 0;
+
+        while (1) {
+            variant_count++;
+            YYCURSOR = skip_white_space(YYCURSOR);
+            YYCURSOR = lex_type(YYCURSOR, buffer, variant_type, identifier_map);
+
+            /*!local:re2c
+                white_space* "," { continue; }
+                white_space* ">" { break; }
+                * { UNEXPECTED_INPUT("expected ',' or '>'"); }
+            */
+            
+        }
+
+        variant_type->variant_count = variant_count;
+
+        return YYCURSOR;
+    }
+
+    identifier: {
+        auto identiferEnd = YYCURSOR;
+        auto endBackup = *identiferEnd;
+        *identiferEnd = 0;
+
+        auto referencedIdentifierIdx = identifier_map.find(identifierStart);
+        *identiferEnd = endBackup;
+        if (referencedIdentifierIdx == identifier_map.end()) {
+            show_input_error("identifier not defined", identifierStart - 1);
+        }
+
+        auto identified_type = type_container->reserve_type<IdentifiedType>(buffer);
+        identified_type->type = IDENTIFIER;
+        identified_type->identifier = referencedIdentifierIdx->second;
+        
+        return YYCURSOR;
+    }
+}
+
+template <typename T>
+T *skip_type (Type *type) {
+    switch (type->type)
+    {
+    case STRING:
+        return add_offset<T>(type, sizeof(StringType));
+    case IDENTIFIER:
+        return add_offset<T>(type, sizeof(IdentifiedType));
+    case ARRAY: {
+        return skip_type<T>(type->as_array()->inner_type());
+    }
+    case VARIANT: {
+        auto variant_type = type->as_variant();
+        auto types_count = variant_type->variant_count;
+        Type *type = variant_type->first_variant();
+        for (variant_count_t i = 0; i < types_count; i++) {
+            type = skip_type<Type>(type);
+        }
+        return (T*)type;
+    }
+    default:
+        return (T*)(type + 1);
+    }
+}
+
+__forceinline char *lex_struct_or_union(
+    char *YYCURSOR,
+    DefinitionWithFields<StructField> *definition,
+    IdentifierMap &identifier_map,
+    Buffer &buffer
+) {
+
+    while (1) {
+        YYCURSOR = skip_any_white_space(YYCURSOR);
+
+        /*!local:re2c
+            [a-zA-Z_]   { goto name_start; }
+            "}"         { goto struct_end; }
+
+            * { UNEXPECTED_INPUT("expected field name or '}'"); }
+        */
+
+        struct_end: {
+            if (definition->field_count == 0) {
+                show_input_error("expected at least one field", YYCURSOR - 1);
+            }
+            return YYCURSOR;
+        }
+
+        name_start:
+        char *start = YYCURSOR - 1;
+        /*!local:re2c
+            [a-zA-Z0-9_]*  { goto name_end; }
+        */
+        name_end:
+        char *end = YYCURSOR;
+        size_t length = end - start;
+        if (length > std::numeric_limits<uint16_t>::max()) {
+            UNEXPECTED_INPUT("field name too long");
+        }
+        {
+            auto field = definition->first_field();
+            for (uint32_t i = 0; i < definition->field_count; i++) {
+                if (string_section_eq(field->name.offset, field->name.length, start, length)) {
+                    show_input_error("field already defined", start);
+                }
+                field = skip_type<StructField>(field->type());
+            }
+        }
+        /*!local:re2c
+            white_space* ":" { goto struct_field; }
+            * { UNEXPECTED_INPUT("expected ':'"); }
+        */
+
+        struct_field:
+        YYCURSOR = skip_any_white_space(YYCURSOR);
+
+        StructField *field = definition->reserve_field(buffer);
+        field->name = {start, length};
+        
+        YYCURSOR = lex_type(YYCURSOR, buffer, field, identifier_map);
+
+        field_end:
+        YYCURSOR = lex_same_line_symbol<';'>(YYCURSOR);
+    }
+}
+
+__forceinline auto set_member_value (char *start, uint64_t value, bool is_negative) {
+    if (value == std::numeric_limits<uint64_t>::max()) {
+        show_input_error("enum member value too large", start);
+    }
+    if (is_negative) {
+        if (value == 1) {
+            is_negative = false;
+        }
+        value--;
+    } else {
+        value++;
+    }
+    return std::pair(value, is_negative);
+}
+
+__forceinline auto add_member (EnumDefinition *definition, Buffer &buffer, char *start, char *end, uint64_t value, bool is_negative) {
+    auto field = definition->reserve_field(buffer);
+    field->name = {start, end};
+    field->value = value;
+    field->is_negative = is_negative;
+}
+
+__forceinline char *lex_enum (
+    char *YYCURSOR,
+    EnumDefinition *definition,
+    IdentifierMap &identifier_map,
+    Buffer &buffer
+) {
+
+    uint64_t value = 1;
+    bool is_negative = true;
+
+    while (1) {
+        YYCURSOR = skip_any_white_space(YYCURSOR);
+
+        /*!local:re2c
+            [a-zA-Z_]   { goto name_start; }
+            "}"         { goto enum_end; }
+
+            * { UNEXPECTED_INPUT("expected field name or '}'"); }
+        */
+
+        enum_end: {
+            if (definition->field_count == 0) {
+                show_input_error("expected at least one member", YYCURSOR - 1);
+            }
+            return YYCURSOR;
+        }
+
+        name_start:
+        char *start = YYCURSOR - 1;
+        /*!local:re2c
+            [a-zA-Z0-9_]*  { goto name_end; }
+        */
+        name_end:
+        char *end = YYCURSOR;
+        size_t length = end - start;
+        {
+            auto field = definition->first_field();
+            for (uint32_t i = 0; i < definition->field_count; i++) {
+                if (string_section_eq(field->name.offset, field->name.length, start, length)) {
+                    show_input_error("field already defined", start);
+                }
+                field = field->next();
+            }
+        }
+        /*!local:re2c
+            white_space* "," { goto default_value; }
+            white_space* "=" { goto custom_value; }
+            white_space* "}" { goto default_last_member; }
+            * { UNEXPECTED_INPUT("expected custom value or ','"); }
+        */
+
+        default_value: {
+            std::tie(value, is_negative) = set_member_value(start, value, is_negative);
+            goto enum_member;
+        }
+
+        custom_value: {
+            YYCURSOR = skip_white_space(YYCURSOR);
+            is_negative = *YYCURSOR == '-';
+            LexResult<uint64_t> parsed;
+            if (is_negative) {
+                parsed = parse_int<uint64_t, std::numeric_limits<int64_t>::max()>(YYCURSOR + 1);
+            } else {
+                parsed = parse_int<uint64_t>(YYCURSOR);
+            }
+            value = parsed.value;
+            YYCURSOR = parsed.cursor;
+
+            /*!local:re2c
+                white_space* "," { goto enum_member; }
+                white_space* "}" { goto last_member; }
+                * { UNEXPECTED_INPUT("expected ',' or end of enum definition"); }
+            */
+        }
+
+        default_last_member: {
+            std::tie(value, is_negative) = set_member_value(start, value, is_negative);
+            goto last_member;
+        }
+
+        last_member: {
+            add_member(definition, buffer, start, end, value, is_negative);
+            goto enum_end;
+        }
+
+        enum_member: {
+            add_member(definition, buffer, start, end, value, is_negative);
+        }
+    }
+}
+
+int printf_with_indent (uint32_t indent, const char *__format, ...) {
+    printf("\033[%dC", indent);
+    va_list args;
+    va_start(args, __format);
+    vprintf(__format, args);
+    va_end(args);
+    return 0;
+}
+
+
+
+template <typename T>
+T *print_type (Type *type, uint32_t indent, std::string prefix = "- type: ") {
+    printf("\n");
+    printf_with_indent(indent, prefix.c_str());
+    switch (type->type)
+    {
+    case FIELD_TYPE::STRING: {
+        auto range = type->as_string()->range;
+        if (range.min == range.max) {
+            printf("string<%d>", range.min);
+        } else {
+            printf("string<%d..%d>", range.min, range.max);
+        }
+        return add_offset<T>(type, sizeof(StringType));
+    }
+    case FIELD_TYPE::ARRAY: {
+        auto array_type = type->as_array();
+        printf("array\n");
+        printf_with_indent(indent + 2, "- length: ");
+        auto [min, max] = array_type->range;
+        if (min == max) {
+            printf("%d", min);
+        } else {
+            printf("%d..%d", min, max);
+        }
+        return print_type<T>(array_type->inner_type(), indent + 2, "- inner:");
+    }
+    case FIELD_TYPE::VARIANT: {
+        auto variant_type = type->as_variant();
+        // Type **types = variant_type->types;
+        auto types_count = variant_type->variant_count;
+        Type *type = variant_type->first_variant();
+        printf("variant %d", types_count);
+        for (variant_count_t i = 0; i < types_count; i++) {
+            type = print_type<Type>(type, indent + 2, "- option: ");
+        }
+        return (T*)type;
+    }
+    case FIELD_TYPE::IDENTIFIER: {
+        auto name = type->as_identifier()->identifier->name;
+        printf(extract_string(name).c_str());
+        return add_offset<T>(type, sizeof(IdentifiedType));
+    }
+    default:
+        static const std::string types[] = { "int8", "int16", "int32", "int64", "uint8", "uint16", "uint32", "uint64", "float32", "float64", "bool", "string" };
+        printf(types[type->type].c_str());
+        return (T*)(type + 1);
+    }
+    
+}
+
+void print_parse_result (IdentifierMap &identifier_map) {
+    for (auto [name, identifier] : identifier_map) {
+        printf("\n\n");
+        auto keyword = identifier->keyword;
+        switch (keyword) {
+            case UNION: {
+                printf("union: ");
+                goto print_struct_or_union;
+            }
+            case STRUCT: {
+                printf("struct: ");
+                print_struct_or_union:
+                printf(name.c_str());
+                auto struct_definition = identifier->as_struct();
+                auto field = struct_definition->first_field();
+                for (uint32_t i = 0; i < struct_definition->field_count; i++) {
+                    auto name = extract_string(field->name);
+                    printf("\n");
+                    printf_with_indent(2, "- field: ");
+                    printf(name.c_str());
+                    field = print_type<StructField>(field->type(), 4);
+                }
+                break;
+            }
+
+            case ENUM: {
+                printf("enum: %s\n", name.c_str());
+                auto enum_definition = identifier->as_enum();
+                EnumField *field = enum_definition->first_field();
+                for (uint32_t i = 0; i < enum_definition->field_count; i++) {
+                    auto name = extract_string(field->name);
+                    printf_with_indent(2, "- memeber: %s\n", name.c_str());
+                    printf_with_indent(4, "- value: %s%d\n", field->is_negative ? "-" : "", field->value);
+                    field = field->next();
+                }
+                break;
+            }
+        }
+    }
+}
+
+void lex (char *YYCURSOR) {
+    IdentifierMap identifier_map;
+    uint8_t __buffer[5000];
+    auto buffer = Buffer(__buffer);
+    loop: {
+    /*!local:re2c
+    
+        struct_keyword = any_white_space* "struct" white_space;
+        enum_keyword   = any_white_space* "enum" white_space;
+        union_keyword  = any_white_space* "union" white_space;
+
+        any_white_space* [\x00] { goto done; }
+
+        * { UNEXPECTED_INPUT("unexpected input"); }
+
+        struct_keyword { goto struct_keyword; }
+        enum_keyword { goto enum_keyword; }
+        union_keyword { goto union_keyword; }
+
+    */
+    goto loop;
+    }
+
+    struct_keyword: {
+        auto definition = StructDefinition::create(buffer);
+        YYCURSOR = lex_identifier<STRUCT>(YYCURSOR, identifier_map, definition);
+        YYCURSOR = lex_struct_or_union(YYCURSOR, definition, identifier_map, buffer);
+        goto loop;
+    }
+    enum_keyword: {
+        auto definition = EnumDefinition::create(buffer);
+        YYCURSOR = lex_identifier<ENUM>(YYCURSOR, identifier_map, definition);
+        YYCURSOR = lex_enum(YYCURSOR, definition, identifier_map, buffer);
+        goto loop;
+    }
+    union_keyword: {
+        auto definition = UnionDefinition::create(buffer);
+        YYCURSOR = lex_identifier<UNION>(YYCURSOR, identifier_map, definition);
+        YYCURSOR = lex_struct_or_union(YYCURSOR, definition, identifier_map, buffer);
+        goto loop;
+    }
+
+    done:
+    print_parse_result(identifier_map);
+    buffer.free();
+    return;
+}
+
+#define SIMPLE_ERROR(message) std::cout << "spc.exe: error: " << message << std::endl
+
+int main(int argc, char** argv) {
+    if (argc == 1) {
+        SIMPLE_ERROR("no input supplied");
+        return 1;
+    }
+
+    char *path_arg = argv[1];
+    if (!std::filesystem::exists(path_arg)) {
+        SIMPLE_ERROR("file does not exist");
+        return 1;
+    }
+    auto file_path = std::filesystem::canonical(path_arg);
+    file_path_string = file_path.string();
+    auto file_size = std::filesystem::file_size(file_path);
+
+    FILE* file = fopen(path_arg, "rb");
+    if (!file) {
+        SIMPLE_ERROR("could not open file");
+        return 1;
+    }
+    char data[file_size + 1] = {0};
+    if (fread(data, 1, file_size, file) != file_size) {
+        SIMPLE_ERROR("could not read file");
+        return 1;
+    }
+    fclose(file);
+    
+    std::cout << "Lexing input of length: " << std::setprecision(0) << file_size << std::endl;
+    input_start = data;
+
+    auto start_ts = std::chrono::high_resolution_clock::now();
+
+    for (size_t i = 0; i < 5000000; i++)
+    {
+        lex(data);
+    }
+
+    auto end_ts = std::chrono::high_resolution_clock::now();
+    auto duration = std::chrono::duration_cast<std::chrono::milliseconds>(end_ts - start_ts);
+    std::cout << "Time taken: " << duration.count() << " milliseconds" << std::endl;
+    
+
+}
