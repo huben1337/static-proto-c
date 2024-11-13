@@ -1,1 +1,1 @@
-re2c .\main.re2c.cpp -c -W -i --case-ranges -o .\main.cpp && cmake --build .\build\ && .\build\spc.exe .\test.fbs
+cmake --build .\.build\ && .\.build\spc.exe .\test.fbs

@@ -5,71 +5,24 @@
 #include <iostream>
 #include <iomanip>
 #include <filesystem>
-#include <format>
-#include <assert.h>
 #include <unordered_map>
 #include <stdarg.h>
 #include <vector>
+
+#include "string_literal.cpp"
+#include "helper_types.cpp"
+#include "string_helpers.cpp"
+
 
 template <typename T>
 __forceinline auto add_offset(void* start, size_t offset) {
     return (T*)((uint8_t*)start + offset);
 }
 
-template<size_t N>
-struct StringLiteral {
-    constexpr StringLiteral(const char (&str)[N]) {
-        std::copy_n(str, N, value);
-    }
-    
-    char value[N];
-
-    constexpr char *ptr() const {
-        return (char*)(value);
-    }
-};
-template <const std::string& str>
-constexpr auto make_string_literal () {
-    constexpr auto N = str.length();
-    return StringLiteral<N>(str.c_str());
-}
-
 #define UNEXPECTED_INPUT(msg) show_input_error(msg, YYCURSOR); exit(1);
 
 #define INTERNAL_ERROR(msg) printf(msg); exit(1);
 
-template<typename T>
-inline constexpr bool is_char_ptr_t = std::is_same_v<T, char*> || std::is_same_v<T, const char*>;
-
-template <typename End>
-requires (std::is_integral_v<End> || is_char_ptr_t<End>)
-std::string extract_string (const char *offset, End end_or_length) {
-    size_t length = 0;
-    if constexpr (is_char_ptr_t<End>) {
-        length = end_or_length - offset;
-    } else {
-        length = end_or_length;
-    }
-    return std::string(offset, length);
-}
-
-template <typename T>
-requires std::is_integral_v<T> && std::is_unsigned_v<T>
-struct StringSection {
-    const char* offset;
-    T length;
-
-    StringSection () = default;
-
-    StringSection(const char* start, const char* end) : offset(start), length(end - start) {}
-    StringSection(const char* start, T length) : offset(start), length(length) {}
-};
-
-template <typename T>
-std::string extract_string (StringSection<T> string_section) {
-    auto [offset, length] = string_section;
-    return std::string(offset, length);
-}
 
 
 template <typename AEnd, typename BEnd>
@@ -830,9 +783,9 @@ T *skip_type (Type *type) {
     switch (type->type)
     {
     case STRING:
-        return add_offset<T>(type, sizeof(StringType));
+        return (T*)(type->as_string() + 1);
     case IDENTIFIER:
-        return add_offset<T>(type, sizeof(IdentifiedType));
+        return (T*)(type->as_identifier() + 1);
     case ARRAY: {
         return skip_type<T>(type->as_array()->inner_type());
     }
@@ -1043,13 +996,14 @@ T *print_type (Type *type, uint32_t indent, std::string prefix = "- type: ") {
     switch (type->type)
     {
     case FIELD_TYPE::STRING: {
-        auto range = type->as_string()->range;
+        auto string_type = type->as_string();
+        auto range = string_type->range;
         if (range.min == range.max) {
             printf("string<%d>", range.min);
         } else {
             printf("string<%d..%d>", range.min, range.max);
         }
-        return add_offset<T>(type, sizeof(StringType));
+        return (T*)(string_type + 1);
     }
     case FIELD_TYPE::ARRAY: {
         auto array_type = type->as_array();
@@ -1075,9 +1029,10 @@ T *print_type (Type *type, uint32_t indent, std::string prefix = "- type: ") {
         return (T*)type;
     }
     case FIELD_TYPE::IDENTIFIER: {
-        auto name = type->as_identifier()->identifier->name;
+        auto identified_type = type->as_identifier();
+        auto name = identified_type->identifier->name;
         printf(extract_string(name).c_str());
-        return add_offset<T>(type, sizeof(IdentifiedType));
+        return (T*)(identified_type + 1);
     }
     default:
         static const std::string types[] = { "int8", "int16", "int32", "int64", "uint8", "uint16", "uint32", "uint64", "float32", "float64", "bool", "string" };
