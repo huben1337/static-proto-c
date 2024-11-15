@@ -109,6 +109,7 @@ enum KEYWORDS : uint8_t {
     STRUCT,
     ENUM,
     UNION,
+    TYPEDEF,
 };
 
 enum FIELD_TYPE : uint8_t {
@@ -256,6 +257,7 @@ struct IdentifiedDefinition {
     constexpr auto as_struct () const;
     constexpr auto as_enum () const;
     constexpr auto as_union () const;
+    constexpr auto as_typedef () const;
 };
 
 
@@ -269,7 +271,6 @@ struct Type {
 };
 
 struct TypeContainer {
-
     template <typename T>
     requires std::is_base_of_v<Type, T>
     T* reserve_type (Buffer &buffer) {
@@ -376,6 +377,18 @@ typedef DefinitionWithFields<StructField> StructDefinition;
 typedef DefinitionWithFields<StructField> UnionDefinition;
 typedef DefinitionWithFields<EnumField> EnumDefinition;
 
+struct TypedefDefinition : IdentifiedDefinition, TypeContainer {
+    static TypedefDefinition* create(Buffer &buffer) {
+        auto idx = buffer.get_next_many(sizeof(TypedefDefinition));
+        auto def = (TypedefDefinition*)buffer.get(idx);
+        return def;
+    }
+
+    Type* type() {
+        return (Type*)(this + 1);
+    }
+};
+
 
 constexpr auto IdentifiedDefinition::as_struct () const {
     return (StructDefinition*)this;
@@ -385,6 +398,9 @@ constexpr auto IdentifiedDefinition::as_enum () const {
 }
 constexpr auto IdentifiedDefinition::as_union () const {
     return (UnionDefinition*)this;
+}
+constexpr auto IdentifiedDefinition::as_typedef () const {
+    return (TypedefDefinition*)this;
 }
 
 
@@ -571,6 +587,20 @@ __forceinline char *skip_any_white_space (char *YYCURSOR) {
     */
 }
 
+__forceinline char *lex_white_space (char *YYCURSOR) {
+    /*!local:re2c
+        white_space+ { return YYCURSOR; }
+        * { UNEXPECTED_INPUT("expected white space"); }
+    */
+}
+
+__forceinline char *lex_any_white_space (char *YYCURSOR) {
+    /*!local:re2c
+        any_white_space+ { return YYCURSOR; }
+        * { UNEXPECTED_INPUT("expected any white space"); }
+    */
+}
+
 __forceinline LexResult<Range> lex_range_argument (char *YYCURSOR) {
 
     YYCURSOR = skip_white_space(YYCURSOR);
@@ -675,7 +705,7 @@ char *lex_type (char *YYCURSOR, Buffer &buffer, TypeContainer *type_container, I
         "variant"   { goto variant;           }
         name        { goto identifier;        }
 
-        * { UNEXPECTED_INPUT("expected field type"); }
+        * { UNEXPECTED_INPUT("expected type"); }
     */
     #undef SIMPLE_TYPE
 
@@ -1005,7 +1035,7 @@ T *print_type (Type *type, uint32_t indent, std::string prefix = "- type: ") {
         // Type **types = variant_type->types;
         auto types_count = variant_type->variant_count;
         Type *type = variant_type->first_variant();
-        printf("variant %d", types_count);
+        printf("variant");
         for (variant_count_t i = 0; i < types_count; i++) {
             type = print_type<Type>(type, indent + 2, "- option: ");
         }
@@ -1051,15 +1081,29 @@ void print_parse_result (IdentifierMap &identifier_map) {
             }
 
             case ENUM: {
-                printf("enum: %s\n", name.c_str());
+                printf("enum: ");
+                printf(name.c_str());
                 auto enum_definition = identifier->as_enum();
                 EnumField *field = enum_definition->first_field();
                 for (uint32_t i = 0; i < enum_definition->field_count; i++) {
                     auto name = extract_string(field->name);
-                    printf_with_indent(2, "- memeber: %s\n", name.c_str());
-                    printf_with_indent(4, "- value: %s%d\n", field->is_negative ? "-" : "", field->value);
+                    printf("\n");
+                    printf_with_indent(2, "- memeber: ");
+                    printf(name.c_str());
+                    printf("\n");
+                    printf_with_indent(4, "- value: ");
+                    printf(field->is_negative ? "-" : "");
+                    printf("%d", field->value);
                     field = field->next();
                 }
+                break;
+            }
+
+            case TYPEDEF: {
+                printf("typedef: %s\n", name.c_str());
+                auto typedef_definition = identifier->as_typedef();
+                auto type = typedef_definition->type();
+                print_type<Type>(type, 2);
                 break;
             }
         }
@@ -1070,17 +1114,19 @@ __forceinline void lex (char *YYCURSOR, IdentifierMap &identifier_map, Buffer &b
     loop: {
     /*!local:re2c
     
-        struct_keyword = any_white_space* "struct";
-        enum_keyword   = any_white_space* "enum";
-        union_keyword  = any_white_space* "union";
+        struct_keyword  = any_white_space* "struct" ;
+        enum_keyword    = any_white_space* "enum"   ;
+        union_keyword   = any_white_space* "union"  ;
+        typedef_keyword = any_white_space* "typedef";
 
         any_white_space* [\x00] { return; }
 
         * { UNEXPECTED_INPUT("unexpected input"); }
 
-        struct_keyword { goto struct_keyword; }
-        enum_keyword { goto enum_keyword; }
-        union_keyword { goto union_keyword; }
+        struct_keyword  { goto struct_keyword; }
+        enum_keyword    { goto enum_keyword; }
+        union_keyword   { goto union_keyword; }
+        typedef_keyword { goto typedef_keyword; }
 
     */
     goto loop;
@@ -1102,6 +1148,15 @@ __forceinline void lex (char *YYCURSOR, IdentifierMap &identifier_map, Buffer &b
         auto definition = UnionDefinition::create(buffer);
         YYCURSOR = lex_identifier<UNION>(YYCURSOR, identifier_map, definition);
         YYCURSOR = lex_struct_or_union(YYCURSOR, definition, identifier_map, buffer);
+        goto loop;
+    }
+    typedef_keyword: {
+        auto definition = TypedefDefinition::create(buffer);
+        YYCURSOR = skip_white_space(YYCURSOR);
+        YYCURSOR = lex_type(YYCURSOR, buffer, definition, identifier_map);
+        YYCURSOR = lex_white_space(YYCURSOR);
+        YYCURSOR = lex_identifier<TYPEDEF>(YYCURSOR, identifier_map, definition);
+        YYCURSOR = lex_same_line_symbol<';', "expected ';'">(YYCURSOR);
         goto loop;
     }
 }
@@ -1146,6 +1201,7 @@ int main(int argc, char** argv) {
         uint8_t __buffer[5000];
         auto buffer = Buffer(__buffer);
         lex(data, identifier_map, buffer);
+        print_parse_result(identifier_map);
         buffer.free();
     }
 

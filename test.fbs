@@ -4,3 +4,4 @@ struct A2 { a: variant<variant<int8, string<12>>, string<12>>; b: array<string<1
 struct A3 { a: int8; b: array<string<12>, 0xb>; }
 struct A4 { a: int8; b: variant<variant<int8, string<12>>, string<12>>; }
 enum aa { a = -100, b }
+typedef int8 AA;
