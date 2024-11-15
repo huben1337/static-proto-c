@@ -247,7 +247,6 @@ typedef uint32_t enum_field_idx_t;
 typedef uint32_t range_idx_t;
 typedef uint32_t type_idx_t;
 typedef uint16_t identifier_idx_t;
-typedef uint16_t array_depth_t;
 typedef uint16_t variant_count_t;
 
 struct IdentifiedDefinition {
@@ -328,9 +327,6 @@ constexpr auto Type::as_variant () const {
 }
 
 
-
-/*template <typename T>
-requires std::is_base_of_v<Type, T>*/
 struct StructField : TypeContainer {
     StringSection<uint16_t> name;
 
@@ -608,7 +604,8 @@ __forceinline LexResult<Range> lex_range_argument (char *YYCURSOR) {
     */
 }
 
-__forceinline LexResult<StringSection<uint16_t>> lex_struct_or_enum_name (char *YYCURSOR) {
+template <KEYWORDS keyword>
+__forceinline char *lex_identifier (char *YYCURSOR, IdentifierMap &identifier_map, IdentifiedDefinition* definition) {
     /*!local:re2c
         white_space* [a-zA-Z_] { goto name_start; }
 
@@ -620,36 +617,22 @@ __forceinline LexResult<StringSection<uint16_t>> lex_struct_or_enum_name (char *
         [a-zA-Z0-9_]*  { goto name_end; }
     */
     name_end:
-    size_t length = YYCURSOR - start;
+    auto end = YYCURSOR;
+    size_t length = end - start;
     if (length > std::numeric_limits<uint16_t>::max()) {
-        UNEXPECTED_INPUT("name too long");
+        UNEXPECTED_INPUT("identifier name too long");
     }
-    /*!local:re2c
-        white_space* "{" { goto done; }
 
-        * { UNEXPECTED_INPUT("expected '{'"); }
-    */
-    done:
-    return { YYCURSOR, {start, length} };
-}
-
-template <KEYWORDS keyword>
-__forceinline char *lex_identifier (char *YYCURSOR, IdentifierMap &identifier_map, IdentifiedDefinition* definition) {
-    auto nameResult = lex_struct_or_enum_name(YYCURSOR);
-    auto nameStart = (char *) nameResult.value.offset;
-    auto nameEnd = nameStart + nameResult.value.length;
-    YYCURSOR = nameResult.cursor;
-
-    definition->name = nameResult.value;
+    definition->name = {start, static_cast<uint16_t>(length)};
     definition->keyword = keyword;
 
-    char endBackup = *nameEnd;
-    *nameEnd = 0;
-    auto inserted = identifier_map.insert({nameStart, definition}).second;
-    *nameEnd = endBackup;
+    char end_backup = *end;
+    *end = 0;
+    auto inserted = identifier_map.insert({start, definition}).second;
+    *end = end_backup;
 
     if (!inserted) {
-        show_input_error("identifier already defined", nameStart - 1);
+        show_input_error("identifier already defined", start - 1);
     }
 
     return YYCURSOR;
@@ -670,7 +653,7 @@ __forceinline bool field_exists (Memory<T, U> fields, U start_idx, const char *n
     return false;
 }
 
-inline char *lex_type (char *YYCURSOR, Buffer &buffer, TypeContainer *type_container, IdentifierMap &identifier_map) {
+char *lex_type (char *YYCURSOR, Buffer &buffer, TypeContainer *type_container, IdentifierMap &identifier_map) {
     const char *identifierStart = YYCURSOR;
     #define SIMPLE_TYPE(TYPE) type_container->reserve_type<Type>(buffer)->type = FIELD_TYPE::TYPE; return YYCURSOR;
     /*!local:re2c
@@ -712,8 +695,6 @@ inline char *lex_type (char *YYCURSOR, Buffer &buffer, TypeContainer *type_conta
     }
 
     array: {
-        array_depth_t array_depth = 0;
-
         auto array_type = type_container->reserve_type<ArrayType>(buffer);
         array_type->type = ARRAY;
 
@@ -809,7 +790,8 @@ __forceinline char *lex_struct_or_union(
     IdentifierMap &identifier_map,
     Buffer &buffer
 ) {
-
+    YYCURSOR = lex_same_line_symbol<'{', "expected '{'">(YYCURSOR);
+    
     while (1) {
         YYCURSOR = skip_any_white_space(YYCURSOR);
 
@@ -853,11 +835,11 @@ __forceinline char *lex_struct_or_union(
         */
 
         struct_field:
-        YYCURSOR = skip_any_white_space(YYCURSOR);
 
         StructField *field = definition->reserve_field(buffer);
         field->name = {start, length};
         
+        YYCURSOR = skip_white_space(YYCURSOR);
         YYCURSOR = lex_type(YYCURSOR, buffer, field, identifier_map);
 
         field_end:
@@ -893,6 +875,7 @@ __forceinline char *lex_enum (
     IdentifierMap &identifier_map,
     Buffer &buffer
 ) {
+    YYCURSOR = lex_same_line_symbol<'{', "expected '{'">(YYCURSOR);
 
     uint64_t value = 1;
     bool is_negative = true;
@@ -1083,18 +1066,15 @@ void print_parse_result (IdentifierMap &identifier_map) {
     }
 }
 
-void lex (char *YYCURSOR) {
-    IdentifierMap identifier_map;
-    uint8_t __buffer[5000];
-    auto buffer = Buffer(__buffer);
+__forceinline void lex (char *YYCURSOR, IdentifierMap &identifier_map, Buffer &buffer) {
     loop: {
     /*!local:re2c
     
-        struct_keyword = any_white_space* "struct" white_space;
-        enum_keyword   = any_white_space* "enum" white_space;
-        union_keyword  = any_white_space* "union" white_space;
+        struct_keyword = any_white_space* "struct";
+        enum_keyword   = any_white_space* "enum";
+        union_keyword  = any_white_space* "union";
 
-        any_white_space* [\x00] { goto done; }
+        any_white_space* [\x00] { return; }
 
         * { UNEXPECTED_INPUT("unexpected input"); }
 
@@ -1124,11 +1104,6 @@ void lex (char *YYCURSOR) {
         YYCURSOR = lex_struct_or_union(YYCURSOR, definition, identifier_map, buffer);
         goto loop;
     }
-
-    done:
-    print_parse_result(identifier_map);
-    buffer.free();
-    return;
 }
 
 #define SIMPLE_ERROR(message) std::cout << "spc.exe: error: " << message << std::endl
@@ -1167,7 +1142,11 @@ int main(int argc, char** argv) {
 
     for (size_t i = 0; i < 5000000; i++)
     {
-        lex(data);
+        IdentifierMap identifier_map;
+        uint8_t __buffer[5000];
+        auto buffer = Buffer(__buffer);
+        lex(data, identifier_map, buffer);
+        buffer.free();
     }
 
     auto end_ts = std::chrono::high_resolution_clock::now();
