@@ -12,32 +12,34 @@
 #include "string_literal.cpp"
 #include "helper_types.cpp"
 #include "string_helpers.cpp"
+#include "lex_result.cpp"
+#include "show_input_error.cpp"
+#include "parse_int.re2c.cpp"
+#include "lex_helpers.re2c.cpp"
 
+/*!re2c
+    re2c:define:YYMARKER = YYCURSOR;
+    re2c:yyfill:enable = 0;
+    re2c:define:YYCTYPE = char;
 
-template <typename T>
-__forceinline auto add_offset(void* start, size_t offset) {
-    return (T*)((uint8_t*)start + offset);
-}
-
-#define UNEXPECTED_INPUT(msg) show_input_error(msg, YYCURSOR); exit(1);
-
-#define INTERNAL_ERROR(msg) printf(msg); exit(1);
-
+    any_white_space = [ \t\r\n];
+    white_space = [ \t];
+*/
 
 
 template <typename AEnd, typename BEnd>
-requires (std::is_integral_v<AEnd> || is_char_ptr_t<AEnd>) && (std::is_integral_v<BEnd> || is_char_ptr_t<BEnd>)
+requires (std::is_integral_v<AEnd> || is_char_ptr_v<AEnd>) && (std::is_integral_v<BEnd> || is_char_ptr_v<BEnd>)
 __forceinline bool string_section_eq(const char* a_start, AEnd a_end_or_length, const char* b_start, BEnd b_end_or_length) {
     size_t a_length = 0;
     size_t b_length = 0;
     
-    if constexpr (is_char_ptr_t<AEnd>) {
+    if constexpr (is_char_ptr_v<AEnd>) {
         a_length = a_end_or_length - a_start;
     } else {
         a_length = a_end_or_length;
     }
     
-    if constexpr (is_char_ptr_t<BEnd>) {
+    if constexpr (is_char_ptr_v<BEnd>) {
         b_length = b_end_or_length - b_start;
     } else {
         b_length = b_end_or_length;
@@ -56,54 +58,6 @@ __forceinline bool string_section_eq(const char* a_start, AEnd a_end_or_length, 
 const char *input_start;
 std::string file_path_string;
 
-void show_input_error (const char *msg, const char *error, char *error_end = 0) {
-    if (!input_start) {
-        INTERNAL_ERROR("input_start not set\n");
-    }
-    if (file_path_string.empty()) {
-        INTERNAL_ERROR("file_name not set\n");
-    }
-
-    const char *start = error;
-    while (1) {
-        if (start == input_start) break;
-        if (*start == '\n') {
-            start++;
-            break;
-        }
-        start--;
-    }
-
-    uint64_t line = 0;
-    for (auto i = input_start; i < start; i++) {
-        if (*i == '\n') {
-            line++;
-        }
-    }
-
-    uint64_t column = error - start;
-
-    const char *end = error;
-    while (1) {
-        if (*end == 0) goto print;
-        if (*end == '\n') break; 
-        end++;
-    }
-    print:
-    printf("\n\033[97m%s:%d:%d\033[0m \033[91merror:\033[97m %s\033[0m\n  %s\n\033[%dC\033[31m^\033[0m", file_path_string.c_str(), line + 1, column + 1, msg, extract_string(start, end).c_str(), column + 2);
-    exit(1);
-}
-
-/*!re2c
-    re2c:tags = 1;
-    re2c:define:YYMARKER = YYCURSOR;
-    re2c:yyfill:enable = 0;
-    re2c:define:YYCTYPE = char;
-
-    any_white_space = [ \t\r\n];
-    white_space = [ \t];
-    end = "\x00";
-*/
 
 enum KEYWORDS : uint8_t {
     STRUCT,
@@ -136,8 +90,6 @@ struct Range {
     uint32_t min;
     uint32_t max;
 };
-
-
 template <typename U, U max = std::numeric_limits<U>::max()>
 requires std::is_integral_v<U> && std::is_unsigned_v<U>
 struct Memory {
@@ -160,6 +112,16 @@ struct Memory {
 
     using index_t = U;
 
+    void clear () {
+        position = 0;
+    }
+
+    void free () {
+        if (in_heap) {
+            std::free(memory);
+        }
+    }
+
     template <typename T>
     struct Index {
         U value;
@@ -179,16 +141,25 @@ struct Memory {
         return (T*)(memory + index.value);
     }
 
+    template <typename T>
+    T* get_next () {
+        return get(get_next_idx<T>());
+    }
+
 
     template <typename T>
-    Index<T> get_next () {
-        if constexpr (sizeof(T) == 1) {
+    Index<T> get_next_idx () {
+        if constexpr (std::is_empty_v<T>) {
+            return Index<T>{position};
+        } else if  constexpr (sizeof(T) == 1) {
             return get_next_single_byte<T>();
         } else {
             return get_next_multi_byte<T>();
         }
     }
 
+    
+    private:
     template <typename T>
     requires (sizeof(T) == 1)
     Index<T> get_next_single_byte () {
@@ -220,17 +191,6 @@ struct Memory {
         return Index<T>{next};
     }
 
-    void clear () {
-        position = 0;
-    }
-
-    void free () {
-        if (in_heap) {
-            std::free(memory);
-        }
-    }
-
-    private:
     void grow (U size) {
         if (in_heap) {
             memory = (uint8_t*) std::realloc(memory, capacity);
@@ -280,8 +240,7 @@ struct TypeContainer {
     template <typename T>
     requires std::is_base_of_v<Type, T>
     T* reserve_type (Buffer &buffer) {
-        auto idx = buffer.get_next<T>();
-        return buffer.get(idx);
+        return buffer.get_next<T>();
     }
 };
 
@@ -362,7 +321,7 @@ struct DefinitionWithFields : IdentifiedDefinition {
     uint16_t field_count;
 
     static auto create(Buffer &buffer) {
-        auto idx = buffer.get_next<DefinitionWithFields>();
+        Buffer::Index<DefinitionWithFields> idx = buffer.get_next_idx<DefinitionWithFields>();
         DefinitionWithFields* ptr = buffer.get(idx);
         ptr->field_count = 0;
         return std::pair(ptr, idx);
@@ -370,7 +329,7 @@ struct DefinitionWithFields : IdentifiedDefinition {
 
     T* reserve_field(Buffer &buffer) {
         field_count++;
-        return buffer.get(buffer.get_next<T>());
+        return buffer.get_next<T>();
     }
 
     T* first_field() {
@@ -384,7 +343,7 @@ typedef DefinitionWithFields<EnumField> EnumDefinition;
 
 struct TypedefDefinition : IdentifiedDefinition, TypeContainer {
     static auto create(Buffer &buffer) {
-        auto idx = buffer.get_next<TypedefDefinition>();
+        auto idx = buffer.get_next_idx<TypedefDefinition>();
         auto ptr = buffer.get(idx);
         return std::pair(ptr, idx);
     }
@@ -408,203 +367,7 @@ constexpr auto IdentifiedDefinition::as_typedef () const {
     return (TypedefDefinition*)this;
 }
 
-
-
-
 typedef std::unordered_map<std::string, Buffer::Index<IdentifiedDefinition>> IdentifierMap;
-
-#define VALUE_VAR value
-#define RETURN_RESULT return { YYCURSOR - 1, is_negative ? -VALUE_VAR : VALUE_VAR };
-#define CHECK_RANGE if (VALUE_VAR > max) { UNEXPECTED_INPUT("value out of range"); }
-#define PUSH_DEC(VAL) VALUE_VAR = VALUE_VAR * 10 + VAL; CHECK_RANGE
-#define PUSH_BIN(VAL) VALUE_VAR = (VALUE_VAR << 1) | VAL; CHECK_RANGE
-#define PUSH_OCT(VAL) VALUE_VAR = (VALUE_VAR << 3) | VAL; CHECK_RANGE
-#define PUSH_HEX(VAL) VALUE_VAR = (VALUE_VAR << 4) | VAL; CHECK_RANGE
-
-template <typename T>
-struct LexResult {
-    char *cursor;
-    T value;
-};
-
-/**
- * \brief Parses an integer from the input string.
- *
- * This function attempts to parse an integer from the given input string
- * starting at the position pointed to by YYCURSOR. It supports parsing
- * integers in decimal, binary, octal, and hexadecimal formats. The function
- * handles optional negative signs for signed integer types.
- *
- * \tparam T The integer type to parse, which must be an integral type.
- * \param YYCURSOR Pointer to the current position in the input string.
- * \returns A LexResult containing the parsed integer value and the updated
- *          cursor position. If the input does not represent a valid integer,
- *          an error is triggered.
- */
-template <typename T, const T max = std::numeric_limits<T>::max()>
-requires std::is_integral_v<T>
-LexResult<T> parse_int (char *YYCURSOR) {
-    T VALUE_VAR = 0;
-    bool is_negative = false;
-
-    if constexpr (std::is_signed_v<T>) {
-        /*!local:re2c
-            "-"                { goto minus_sign; }
-            "0b"               { goto bin_entry; }
-            "0"                { goto oct; }
-            [1-9]              { PUSH_DEC(yych - '0'); goto dec; }
-            "0x"               { goto hex_entry; }
-            *                  { UNEXPECTED_INPUT("expected integer literal"); }
-        */
-        minus_sign:
-        is_negative = true;
-    }
-
-    /*!local:re2c
-        "0b"               { goto bin_entry; }
-        "0"                { goto oct; }
-        [1-9]              { PUSH_DEC(yych - '0'); goto dec; }
-        "0x"               { goto hex_entry; }
-        *                  { UNEXPECTED_INPUT("expected unsigned integer literal"); }
-    */
-    
-bin_entry:
-    /*!local:re2c
-        [01]        { PUSH_BIN(yych - '0'); goto bin; }
-        *           { UNEXPECTED_INPUT("expected binary digit"); }
-    */
-bin:
-    /*!local:re2c
-        [01]        { PUSH_BIN(yych - '0'); goto bin; }
-        *           { RETURN_RESULT; }
-    */
-oct:
-    /*!local:re2c
-        [0-7]       { PUSH_OCT(yych - '0'); goto oct; }
-        *           { RETURN_RESULT; }
-    */
-dec:
-    /*!local:re2c
-        [0-9]       { PUSH_DEC(yych - '0'); goto dec; }
-        *           { RETURN_RESULT; }
-    */
-hex_entry:
-    /*!local:re2c
-        [0-9]       { PUSH_HEX(yych - '0');      goto hex; }
-        [a-f]       { PUSH_HEX(yych - 'a' + 10); goto hex; }
-        [A-F]       { PUSH_HEX(yych - 'A' + 10); goto hex; }
-        *           { UNEXPECTED_INPUT("expected hex digit"); }
-    */
-hex:
-    /*!local:re2c
-        [0-9]       { PUSH_HEX(yych - '0');      goto hex; }
-        [a-f]       { PUSH_HEX(yych - 'a' + 10); goto hex; }
-        [A-F]       { PUSH_HEX(yych - 'A' + 10); goto hex; }
-        *           { RETURN_RESULT; }
-    */
-}
-#undef RETURN_RESULT
-#undef VALUE_VAR
-
-
-#define CHECK_SYMBOL                                                \
-if (yych == symbol) {                                               \
-    return ++YYCURSOR;                                              \
-} else {                                                            \
-    UNEXPECTED_INPUT(error_message.value)    \
-}
-
-template<char symbol>
-constexpr auto lex_symbol_error = StringLiteral({'e','x','p','e', 'c', 't', 'e', 'd', ' ', 's', 'y', 'm', 'b', 'o', 'l', ':', ' ', symbol});
-
-
-/**
- * \brief Lexes a specific symbol, allowing any amount of whitespace before it.
- *
- * This function attempts to lex a specified symbol in the input string
- * starting at the position pointed to by YYCURSOR. It skips over any amount
- * of whitespace before checking for the symbol.
- *
- * \tparam symbol The character symbol to lex.
- * \param YYCURSOR Pointer to the current position in the input.
- * \returns A pointer to the position immediately following the symbol,
- *          or triggers an error if the symbol is not found.
- */
-template <char symbol, StringLiteral error_message = lex_symbol_error<symbol>>
-__forceinline char *lex_symbol (char *YYCURSOR) {
-    /*!local:re2c
-        any_white_space* { CHECK_SYMBOL }
-    */
-}
-
-/**
- * \brief Lexes a specific symbol on the same line.
- *
- * This function attempts to lex a specified symbol that is expected to appear
- * on the same line as the current position in the input. It skips over any
- * leading whitespace before checking for the symbol.
- *
- * \tparam symbol The character symbol to lex.
- * \param YYCURSOR Pointer to the current position in the input.
- * \returns A pointer to the position immediately following the symbol,
- *          or triggers an error if the symbol is not found.
- */
-template <char symbol, StringLiteral error_message = lex_symbol_error<symbol>>
-__forceinline char *lex_same_line_symbol (char *YYCURSOR) {
-    /*!local:re2c
-        white_space* { CHECK_SYMBOL }
-    */
-}
-#undef CHECK_SYMBOL
-
-/**
- * \brief Skips over any white space characters in the input.
- *
- * This function advances the cursor over any sequence of white space
- * characters, including spaces and tabs, in the given input.
- *
- * \param YYCURSOR Pointer to the current position in the input.
- * \returns A pointer to the position immediately following any skipped
- *          white space characters, or the same position if no white space
- *          was found.
- */
-__forceinline char *skip_white_space (char *YYCURSOR) {
-    /*!local:re2c
-        white_space* { return YYCURSOR; }
-    */
-}
-
-/**
- * \brief Skips over any white space characters in the input.
- *
- * This function advances the cursor over any sequence of white space
- * characters, including spaces, tabs, carriage returns, and newlines,
- * in the given input.
- *
- * \param YYCURSOR Pointer to the current position in the input.
- * \returns A pointer to the position immediately following any skipped
- *          white space characters, or the same position if no white space
- *          was found.
- */
-__forceinline char *skip_any_white_space (char *YYCURSOR) {
-    /*!local:re2c
-        any_white_space* { return YYCURSOR; }
-    */
-}
-
-__forceinline char *lex_white_space (char *YYCURSOR) {
-    /*!local:re2c
-        white_space+ { return YYCURSOR; }
-        * { UNEXPECTED_INPUT("expected white space"); }
-    */
-}
-
-__forceinline char *lex_any_white_space (char *YYCURSOR) {
-    /*!local:re2c
-        any_white_space+ { return YYCURSOR; }
-        * { UNEXPECTED_INPUT("expected any white space"); }
-    */
-}
 
 __forceinline LexResult<Range> lex_range_argument (char *YYCURSOR) {
 
@@ -991,7 +754,78 @@ int printf_with_indent (uint32_t indent, const char *__format, ...) {
     return 0;
 }
 
+__forceinline IdentifiedDefinition* lex (char *YYCURSOR, IdentifierMap &identifier_map, Buffer &buffer) {
+    IdentifiedDefinition* target = nullptr;
+    loop: {
+    /*!local:re2c
+    
+        struct_keyword  = any_white_space* "struct" ;
+        enum_keyword    = any_white_space* "enum"   ;
+        union_keyword   = any_white_space* "union"  ;
+        typedef_keyword = any_white_space* "typedef";
+        target_keyword  = any_white_space* "target" ;
 
+        any_white_space* [\x00] { goto eof; }
+
+        * { UNEXPECTED_INPUT("unexpected input"); }
+
+        struct_keyword  { goto struct_keyword; }
+        enum_keyword    { goto enum_keyword; }
+        union_keyword   { goto union_keyword; }
+        typedef_keyword { goto typedef_keyword; }
+        target_keyword  { goto target_keyword; }
+
+    */
+    goto loop;
+    }
+
+    struct_keyword: {
+        auto [definition, definition_idx] = StructDefinition::create(buffer);
+        YYCURSOR = lex_identifier<STRUCT>(YYCURSOR, identifier_map, definition, definition_idx);
+        YYCURSOR = lex_struct_or_union(YYCURSOR, definition, identifier_map, buffer);
+        goto loop;
+    }
+    enum_keyword: {
+        auto [definition, definition_idx] = EnumDefinition::create(buffer);
+        YYCURSOR = lex_identifier<ENUM>(YYCURSOR, identifier_map, definition, definition_idx);
+        YYCURSOR = lex_enum(YYCURSOR, definition, identifier_map, buffer);
+        goto loop;
+    }
+    union_keyword: {
+        auto [definition, definition_idx] = UnionDefinition::create(buffer);
+        YYCURSOR = lex_identifier<UNION>(YYCURSOR, identifier_map, definition, definition_idx);
+        YYCURSOR = lex_struct_or_union(YYCURSOR, definition, identifier_map, buffer);
+        goto loop;
+    }
+    typedef_keyword: {
+        auto [definition, definition_idx] = TypedefDefinition::create(buffer);
+        YYCURSOR = skip_white_space(YYCURSOR);
+        YYCURSOR = lex_type(YYCURSOR, buffer, definition, identifier_map);
+        YYCURSOR = lex_white_space(YYCURSOR);
+        YYCURSOR = lex_identifier<TYPEDEF>(YYCURSOR, identifier_map, definition, definition_idx);
+        YYCURSOR = lex_same_line_symbol<';', "expected ';'">(YYCURSOR);
+        goto loop;
+    }
+    target_keyword: {
+        YYCURSOR = skip_white_space(YYCURSOR);
+        auto type_container = buffer.get_next<TypeContainer>();
+        YYCURSOR = lex_type(YYCURSOR, buffer, type_container, identifier_map);
+        YYCURSOR = lex_same_line_symbol<';'>(YYCURSOR);
+        auto type = (Type*)type_container;
+        if(type->type != FIELD_TYPE::IDENTIFIER) {
+            INTERNAL_ERROR("target must be an identifier");
+        }
+        target = buffer.get(type->as_identifier()->identifier_idx);
+        goto loop;
+    }
+
+    eof: {
+        if(target) {
+            return target;
+        }
+        INTERNAL_ERROR("no target defined");
+    }
+}
 
 template <typename T>
 T *print_type (Type *type, Buffer &buffer, uint32_t indent, std::string prefix = "- type: ") {
@@ -1104,68 +938,15 @@ void print_parse_result (IdentifierMap &identifier_map, Buffer &buffer) {
     }
 }
 
-__forceinline void lex (char *YYCURSOR, IdentifierMap &identifier_map, Buffer &buffer) {
-    loop: {
-    /*!local:re2c
-    
-        struct_keyword  = any_white_space* "struct" ;
-        enum_keyword    = any_white_space* "enum"   ;
-        union_keyword   = any_white_space* "union"  ;
-        typedef_keyword = any_white_space* "typedef";
-
-        any_white_space* [\x00] { return; }
-
-        * { UNEXPECTED_INPUT("unexpected input"); }
-
-        struct_keyword  { goto struct_keyword; }
-        enum_keyword    { goto enum_keyword; }
-        union_keyword   { goto union_keyword; }
-        typedef_keyword { goto typedef_keyword; }
-
-    */
-    goto loop;
-    }
-
-    struct_keyword: {
-        auto [definition, definition_idx] = StructDefinition::create(buffer);
-        YYCURSOR = lex_identifier<STRUCT>(YYCURSOR, identifier_map, definition, definition_idx);
-        YYCURSOR = lex_struct_or_union(YYCURSOR, definition, identifier_map, buffer);
-        goto loop;
-    }
-    enum_keyword: {
-        auto [definition, definition_idx] = EnumDefinition::create(buffer);
-        YYCURSOR = lex_identifier<ENUM>(YYCURSOR, identifier_map, definition, definition_idx);
-        YYCURSOR = lex_enum(YYCURSOR, definition, identifier_map, buffer);
-        goto loop;
-    }
-    union_keyword: {
-        auto [definition, definition_idx] = UnionDefinition::create(buffer);
-        YYCURSOR = lex_identifier<UNION>(YYCURSOR, identifier_map, definition, definition_idx);
-        YYCURSOR = lex_struct_or_union(YYCURSOR, definition, identifier_map, buffer);
-        goto loop;
-    }
-    typedef_keyword: {
-        auto [definition, definition_idx] = TypedefDefinition::create(buffer);
-        YYCURSOR = skip_white_space(YYCURSOR);
-        YYCURSOR = lex_type(YYCURSOR, buffer, definition, identifier_map);
-        YYCURSOR = lex_white_space(YYCURSOR);
-        YYCURSOR = lex_identifier<TYPEDEF>(YYCURSOR, identifier_map, definition, definition_idx);
-        YYCURSOR = lex_same_line_symbol<';', "expected ';'">(YYCURSOR);
-        goto loop;
-    }
-}
-
-
-
 #define SIMPLE_ERROR(message) std::cout << "spc.exe: error: " << message << std::endl
 
-int main(int argc, char** argv) {
+int main(int argc, const char** argv) {
     if (argc == 1) {
         SIMPLE_ERROR("no input supplied");
         return 1;
     }
 
-    char *path_arg = argv[1];
+    auto path_arg = argv[1];
     if (!std::filesystem::exists(path_arg)) {
         SIMPLE_ERROR("file does not exist");
         return 1;
@@ -1191,19 +972,22 @@ int main(int argc, char** argv) {
 
     auto start_ts = std::chrono::high_resolution_clock::now();
 
-    for (size_t i = 0; i < 5000000; i++)
+    for (size_t i = 0; i < 1; i++)
     {
         IdentifierMap identifier_map;
         uint8_t __buffer[5000];
         auto buffer = Buffer(__buffer);
-        lex(data, identifier_map, buffer);
+        auto target = lex(data, identifier_map, buffer);
+        #define DO_PRINT
+        #ifdef DO_PRINT
+        printf("\n\n- target: ");
+        printf(extract_string(target->name).c_str());
         print_parse_result(identifier_map, buffer);
+        #endif
         buffer.free();
     }
 
     auto end_ts = std::chrono::high_resolution_clock::now();
     auto duration = std::chrono::duration_cast<std::chrono::milliseconds>(end_ts - start_ts);
-    std::cout << "Time taken: " << duration.count() << " milliseconds" << std::endl;
-    
-
+    std::cout << "\n\nTime taken: " << duration.count() << " milliseconds" << std::endl;
 }

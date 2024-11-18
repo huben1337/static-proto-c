@@ -1,7 +1,8 @@
+#pragma once
 #include <string>
+#include "helper_types.cpp"
 
-template <typename T>
-requires std::is_integral_v<T> && std::is_unsigned_v<T>
+template <UnsignedIntegral T>
 struct StringSection {
     const char* offset;
     T length;
@@ -21,7 +22,7 @@ std::string extract_string (const char *offset, size_t length) {
 }
 
 
-template <typename T>
+template <UnsignedIntegral T>
 std::string extract_string (StringSection<T> string_section) {
     auto [offset, length] = string_section;
     return std::string(offset, length);
