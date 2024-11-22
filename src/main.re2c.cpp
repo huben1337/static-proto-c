@@ -26,10 +26,16 @@
     white_space = [ \t];
 */
 
+#define INLINE __forceinline
+
+template <typename T>
+INLINE T* add_offset(auto* ptr, size_t offset) {
+    return reinterpret_cast<T*>(reinterpret_cast<size_t>(ptr) + offset);
+}
 
 template <typename AEnd, typename BEnd>
 requires (std::is_integral_v<AEnd> || is_char_ptr_v<AEnd>) && (std::is_integral_v<BEnd> || is_char_ptr_v<BEnd>)
-__forceinline bool string_section_eq(const char* a_start, AEnd a_end_or_length, const char* b_start, BEnd b_end_or_length) {
+INLINE bool string_section_eq(const char* a_start, AEnd a_end_or_length, const char* b_start, BEnd b_end_or_length) {
     size_t a_length = 0;
     size_t b_length = 0;
     
@@ -100,7 +106,7 @@ struct Memory {
     bool in_heap;
 
     public:
-    Memory (U capacity) : capacity(capacity), in_heap(true) {
+    INLINE Memory (U capacity) : capacity(capacity), in_heap(true) {
         memory = static_cast<uint8_t*>(std::malloc(capacity));
         if (!memory) {
             INTERNAL_ERROR("memory allocation failed\n");
@@ -108,15 +114,16 @@ struct Memory {
     }
 
     template <U N>
-    Memory (uint8_t (&memory)[N]) : capacity(N), memory(memory), in_heap(false) {}
+    INLINE Memory (uint8_t (&memory)[N]) : capacity(N), memory(memory), in_heap(false) {}
 
     using index_t = U;
 
-    void clear () {
+    INLINE void clear () {
         position = 0;
     }
 
-    void free () {
+
+    INLINE void free () {
         if (in_heap) {
             std::free(memory);
         }
@@ -125,44 +132,50 @@ struct Memory {
     template <typename T>
     struct Index {
         U value;
+
+        INLINE Index add (U offset) {
+            return Index{value + offset};
+        }
+
+        INLINE Index sub (U offset) {
+            return Index{value - offset};
+        }
     };
 
 
-    uint8_t* c_memory () {
+    INLINE uint8_t* c_memory () {
         return memory;
     }
 
-    U current_position () {
+    INLINE constexpr U current_position () {
         return position;
     }
 
     template <typename T>
-    T* get (Index<T> index) {
+    INLINE T* get (Index<T> index) {
         return (T*)(memory + index.value);
     }
 
     template <typename T>
-    T* get_next () {
+    INLINE T* get_next () {
         return get(get_next_idx<T>());
     }
 
 
     template <typename T>
-    Index<T> get_next_idx () {
+    INLINE Index<T> get_next_idx () {
         if constexpr (std::is_empty_v<T>) {
             return Index<T>{position};
         } else if  constexpr (sizeof(T) == 1) {
             return get_next_single_byte<T>();
         } else {
-            return get_next_multi_byte<T>();
+            return get_next_multi_byte<T>(sizeof(T));
         }
     }
-
     
-    private:
     template <typename T>
     requires (sizeof(T) == 1)
-    Index<T> get_next_single_byte () {
+    INLINE Index<T> get_next_single_byte () {
         if (position == capacity) {
             if (capacity >= (max / 2)) {
                 INTERNAL_ERROR("memory overflow\n");
@@ -174,10 +187,9 @@ struct Memory {
     }
 
     template <typename T>
-    requires (sizeof(T) > 1)
-    Index<T> get_next_multi_byte () {
+    INLINE Index<T> get_next_multi_byte (size_t size) {
         U next = position;
-        position += sizeof(T);
+        position += size;
         if (position < next) {
             INTERNAL_ERROR("[Memory] position wrapped\n");
         }
@@ -191,7 +203,8 @@ struct Memory {
         return Index<T>{next};
     }
 
-    void grow (U size) {
+    private:
+    INLINE void grow (U size) {
         if (in_heap) {
             memory = (uint8_t*) std::realloc(memory, capacity);
             // printf("reallocated memory in heap: to %d\n", capacity);
@@ -216,88 +229,147 @@ typedef uint32_t type_idx_t;
 typedef uint16_t identifier_idx_t;
 typedef uint16_t variant_count_t;
 
+
 struct IdentifiedDefinition {
-    StringSection<uint16_t> name;
     KEYWORDS keyword;
 
-    constexpr auto as_struct () const;
-    constexpr auto as_enum () const;
-    constexpr auto as_union () const;
-    constexpr auto as_typedef () const;
+    struct Data {
+        StringSection<uint16_t> name;
+
+        INLINE constexpr auto as_struct ();
+        INLINE constexpr auto as_enum ();
+        INLINE constexpr auto as_union ();
+        INLINE constexpr auto as_typedef ();
+    };
+
+    Data* data ();
+
 };
 
 
 struct Type {
     FIELD_TYPE type;
 
-    constexpr auto as_string () const;
-    constexpr auto as_identifier () const;
-    constexpr auto as_array () const;
-    constexpr auto as_variant () const;
+    INLINE auto as_string () const;
+    INLINE auto as_identifier () const;
+    INLINE auto as_array () const;
+    INLINE auto as_variant () const;
 };
 
-struct TypeContainer {
-    template <typename T>
-    requires std::is_base_of_v<Type, T>
-    T* reserve_type (Buffer &buffer) {
-        return buffer.get_next<T>();
+struct TypeContainer {};
+
+template <typename T>
+INLINE size_t get_padding(size_t position) {
+    size_t mod = position % alignof(T);
+    size_t padding = (alignof(T) - mod) & (alignof(T) - 1);
+    return padding;
+}
+
+template <typename T>
+INLINE T* get_padded (auto* that) {
+    size_t address = reinterpret_cast<size_t>(that);
+    size_t padding = get_padding<T>(address);
+    return reinterpret_cast<T*>(address + padding);
+}
+
+template <typename T>
+INLINE T* get_padded (size_t address) {
+    size_t padding = get_padding<T>(address);
+    return reinterpret_cast<T*>(address + padding);
+}
+
+template <typename T, FIELD_TYPE type>
+INLINE T* create_extended_type (Buffer &buffer) {
+    auto padding = get_padding<T>(buffer.current_position() + sizeof(Type));
+    auto type_idx = buffer.get_next_multi_byte<Type>(sizeof(Type) + padding + sizeof(T));
+    auto __type = buffer.get(type_idx);
+    __type->type = type;
+    auto extended_idx = Buffer::Index<T>{type_idx.value + sizeof(Type) + padding};
+    return buffer.get(extended_idx);
+}
+
+
+template <typename T, typename U>
+INLINE T* get_extended(auto* that) {
+    return get_padded<T>(reinterpret_cast<size_t>(that) + sizeof(U));
+}
+
+template <typename T>
+INLINE T* get_extended_type(auto* that) {
+    return get_extended<T, Type>(that);
+}
+
+struct StringType {
+    INLINE static void create (Buffer &buffer, Range range) {
+        auto type = create_extended_type<StringType, STRING>(buffer);
+        type->range = range;
     }
-};
 
-struct StringType : Type {
-    StringType (Range range) : Type({STRING}), range(range) {}
     Range range;
 };
-
-constexpr auto Type::as_string () const {
-    return (StringType*)this;
+INLINE auto Type::as_string () const {
+    return get_extended_type<StringType>(this);
 }
 
 
-struct IdentifiedType : Type {
-	IdentifiedType (Buffer::Index<IdentifiedDefinition> identifier_idx) : Type({IDENTIFIER}), identifier_idx(identifier_idx) {}
-    Buffer::Index<IdentifiedDefinition> identifier_idx;
+typedef Buffer::Index<IdentifiedDefinition> IdentiferIndex;
+struct IdentifiedType {
+    INLINE static void create (Buffer &buffer, IdentiferIndex identifier_idx) {
+        auto type = create_extended_type<IdentifiedType, IDENTIFIER>(buffer);
+        type->identifier_idx = identifier_idx;
+    }
+
+    IdentiferIndex identifier_idx;
 };
-
-
-constexpr auto Type::as_identifier () const {
-    return (IdentifiedType*)this;
+INLINE auto Type::as_identifier () const {
+    return get_extended_type<IdentifiedType>(this);
 }
 
-struct ArrayType : Type, TypeContainer {
+struct ArrayType : TypeContainer {
+
+    INLINE static ArrayType* create (Buffer &buffer) {
+        return create_extended_type<ArrayType, ARRAY>(buffer);
+    }
+
     Range range;
 
-    auto inner_type () {
-        return (Type*)(this + 1);
+    INLINE Type* inner_type () {
+        return reinterpret_cast<Type*>(this + 1);
     }
+    
 };
-
-constexpr auto Type::as_array () const {
-    return (ArrayType*)this;
+INLINE auto Type::as_array () const {
+    return get_extended_type<ArrayType>(this);
 }
 
-struct VariantType : Type, TypeContainer {
-	VariantType (variant_count_t variant_count) :
-        Type({VARIANT}),
-        variant_count(variant_count)
-    {};
+struct VariantType : TypeContainer {
+    INLINE static VariantType* create (Buffer &buffer) {
+        return create_extended_type<VariantType, VARIANT>(buffer);
+    }
+
     variant_count_t variant_count;
 
-    Type *first_variant() {
+    INLINE Type* first_variant() {
         return (Type*)(this + 1);
     }
 };
-
-constexpr auto Type::as_variant () const {
-    return (VariantType*)this;
+INLINE auto Type::as_variant () const {
+    return get_extended_type<VariantType>(this);
 }
 
 
-struct StructField : TypeContainer {
-    StringSection<uint16_t> name;
+struct StructField {
+    
+    struct Data : TypeContainer {
+        StringSection<uint16_t> name;
 
-    Type *type () {
-        return (Type*)(this + 1);
+        INLINE Type *type () {
+            return reinterpret_cast<Type*>(this + 1);
+        }
+    };
+
+    INLINE Data* data () {
+        return reinterpret_cast<Data*>(this);
     }
 };
 
@@ -307,69 +379,103 @@ struct EnumField {
     
     bool is_negative = false;
 
-    auto next () {
+    INLINE EnumField* next () {
         return this + 1;
     }
 };
 
+template <typename T, KEYWORDS keyword>
+INLINE std::pair<T*, Buffer::Index<IdentifiedDefinition>> create_extended_identified_definition (Buffer &buffer) {
+    auto padding = get_padding<T>(buffer.current_position() + sizeof(IdentifiedDefinition));
+    Buffer::Index<IdentifiedDefinition> def_idx = buffer.get_next_multi_byte<IdentifiedDefinition>(sizeof(IdentifiedDefinition) + padding + sizeof(T));
+    IdentifiedDefinition* def = buffer.get(def_idx);
+    def->keyword = keyword;
+    Buffer::Index<T> extended_idx = Buffer::Index<T>{.value = def_idx.value + sizeof(IdentifiedDefinition) + padding};
+    T* extended = buffer.get(extended_idx);
+    return std::pair(extended, def_idx);
+}
 
-
-
-template <typename T>
-struct DefinitionWithFields : IdentifiedDefinition {
-    // using T = std::conditional_t<kw == STRUCT || kw == UNION, std::conditional_t<kw == ENUM, EnumField, <error-type>>;
+template <KEYWORDS keyword>
+requires (keyword == STRUCT || keyword == UNION)
+struct DefinitionWithFields : IdentifiedDefinition::Data {
     uint16_t field_count;
 
-    static auto create(Buffer &buffer) {
-        Buffer::Index<DefinitionWithFields> idx = buffer.get_next_idx<DefinitionWithFields>();
-        DefinitionWithFields* ptr = buffer.get(idx);
-        ptr->field_count = 0;
-        return std::pair(ptr, idx);
+    INLINE static auto create(Buffer &buffer) {
+        std::pair<DefinitionWithFields*, Buffer::Index<IdentifiedDefinition>> result = create_extended_identified_definition<DefinitionWithFields, keyword>(buffer);
+        result.first->field_count = 0;
+        return result;
     }
 
-    T* reserve_field(Buffer &buffer) {
+    INLINE StructField::Data* reserve_field(Buffer &buffer) {
         field_count++;
-        return buffer.get_next<T>();
+        // size_t padding = get_padding<StructField::Data>(buffer.current_position());
+        // auto idx = buffer.get_next_multi_byte<StructField::Data>(sizeof(StructField::Data) + padding);
+        // return buffer.get(idx.add(padding));
+        return buffer.get_next<StructField::Data>();
     }
 
-    T* first_field() {
-        return (T*)(this + 1);
-    }
-};
-
-typedef DefinitionWithFields<StructField> StructDefinition;
-typedef DefinitionWithFields<StructField> UnionDefinition;
-typedef DefinitionWithFields<EnumField> EnumDefinition;
-
-struct TypedefDefinition : IdentifiedDefinition, TypeContainer {
-    static auto create(Buffer &buffer) {
-        auto idx = buffer.get_next_idx<TypedefDefinition>();
-        auto ptr = buffer.get(idx);
-        return std::pair(ptr, idx);
-    }
-
-    Type* type() {
-        return (Type*)(this + 1);
+    INLINE StructField* first_field() {
+        return reinterpret_cast<StructField*>(this + 1);
     }
 };
 
+typedef DefinitionWithFields<STRUCT> StructDefinition;
+typedef DefinitionWithFields<UNION> UnionDefinition;
 
-constexpr auto IdentifiedDefinition::as_struct () const {
-    return (StructDefinition*)this;
+struct EnumDefinition : IdentifiedDefinition::Data {
+    uint16_t field_count;
+
+    INLINE static auto create(Buffer &buffer) {
+        std::pair<EnumDefinition*, Buffer::Index<IdentifiedDefinition>> result = create_extended_identified_definition<EnumDefinition, ENUM>(buffer);
+        result.first->field_count = 0;
+        return result;
+    }
+
+    INLINE EnumField* reserve_field(Buffer &buffer) {
+        field_count++;
+        return buffer.get_next<EnumField>();
+    }
+
+    INLINE EnumField* first_field() {
+        return reinterpret_cast<EnumField*>(this + 1);
+    }
+};
+
+struct TypedefDefinition : IdentifiedDefinition::Data, TypeContainer {
+    INLINE static auto create(Buffer &buffer) {
+        return create_extended_identified_definition<TypedefDefinition, TYPEDEF>(buffer);
+    }
+
+    INLINE Type* type() {
+        return reinterpret_cast<Type*>(this + 1);
+    }
+};
+
+template <typename T>
+INLINE T* get_extended_identifed_definition(auto* that) {
+    return get_extended<T, IdentifiedDefinition>(that);
 }
-constexpr auto IdentifiedDefinition::as_enum () const {
-    return (EnumDefinition*)this;
+
+INLINE IdentifiedDefinition::Data* IdentifiedDefinition::data () {
+    return get_extended_identifed_definition<Data>(this);
 }
-constexpr auto IdentifiedDefinition::as_union () const {
-    return (UnionDefinition*)this;
+
+INLINE constexpr auto IdentifiedDefinition::Data::as_struct () {
+    return static_cast<StructDefinition*>(this);
 }
-constexpr auto IdentifiedDefinition::as_typedef () const {
-    return (TypedefDefinition*)this;
+INLINE constexpr auto IdentifiedDefinition::Data::as_enum () {
+    return static_cast<EnumDefinition*>(this);
+}
+INLINE constexpr auto IdentifiedDefinition::Data::as_union () {
+    return static_cast<UnionDefinition*>(this);
+}
+INLINE constexpr auto IdentifiedDefinition::Data::as_typedef () {
+    return static_cast<TypedefDefinition*>(this);
 }
 
 typedef std::unordered_map<std::string, Buffer::Index<IdentifiedDefinition>> IdentifierMap;
 
-__forceinline LexResult<Range> lex_range_argument (char *YYCURSOR) {
+INLINE LexResult<Range> lex_range_argument (char *YYCURSOR) {
 
     YYCURSOR = skip_white_space(YYCURSOR);
     
@@ -402,9 +508,8 @@ __forceinline LexResult<Range> lex_range_argument (char *YYCURSOR) {
     */
 }
 
-template <KEYWORDS keyword, typename T>
-requires std::is_base_of_v<IdentifiedDefinition, T>
-__forceinline char *lex_identifier (char *YYCURSOR, IdentifierMap &identifier_map, IdentifiedDefinition* definition, Buffer::Index<T> definition_idx) {
+template <KEYWORDS keyword>
+INLINE char *lex_identifier (char *YYCURSOR, IdentifierMap &identifier_map, IdentifiedDefinition::Data* definition_data, Buffer::Index<IdentifiedDefinition> definition_idx) {
     /*!local:re2c
         white_space* [a-zA-Z_] { goto name_start; }
 
@@ -422,12 +527,11 @@ __forceinline char *lex_identifier (char *YYCURSOR, IdentifierMap &identifier_ma
         UNEXPECTED_INPUT("identifier name too long");
     }
 
-    definition->name = {start, static_cast<uint16_t>(length)};
-    definition->keyword = keyword;
+    definition_data->name = {start, static_cast<uint16_t>(length)};
 
     char end_backup = *end;
     *end = 0;
-    auto inserted = identifier_map.insert({start, Buffer::Index<IdentifiedDefinition>{definition_idx.value}}).second;
+    auto inserted = identifier_map.insert({start, definition_idx}).second;
     *end = end_backup;
 
     if (!inserted) {
@@ -440,7 +544,7 @@ __forceinline char *lex_identifier (char *YYCURSOR, IdentifierMap &identifier_ma
 
 char *lex_type (char *YYCURSOR, Buffer &buffer, TypeContainer *type_container, IdentifierMap &identifier_map) {
     const char *identifier_start = YYCURSOR;
-    #define SIMPLE_TYPE(TYPE) type_container->reserve_type<Type>(buffer)->type = FIELD_TYPE::TYPE; return YYCURSOR;
+    #define SIMPLE_TYPE(TYPE) buffer.get_next<Type>()->type = FIELD_TYPE::TYPE; return YYCURSOR;
     /*!local:re2c
         name = [a-zA-Z_][a-zA-Z0-9_]*;
                     
@@ -471,17 +575,13 @@ char *lex_type (char *YYCURSOR, Buffer &buffer, TypeContainer *type_container, I
         auto range_result = lex_range_argument(YYCURSOR);
         YYCURSOR = range_result.cursor;
 
-        auto string_type = type_container->reserve_type<StringType>(buffer);
-
-        string_type->type = STRING;
-        string_type->range = range_result.value;
+        StringType::create(buffer, range_result.value);
 
         return YYCURSOR;
     }
 
     array: {
-        auto array_type = type_container->reserve_type<ArrayType>(buffer);
-        array_type->type = ARRAY;
+        auto array_type = ArrayType::create(buffer);
 
         YYCURSOR = lex_same_line_symbol<'<', "expected argument list">(YYCURSOR);
 
@@ -503,8 +603,7 @@ char *lex_type (char *YYCURSOR, Buffer &buffer, TypeContainer *type_container, I
 
         YYCURSOR = lex_same_line_symbol<'<', "expected argument list">(YYCURSOR);
 
-        auto variant_type = type_container->reserve_type<VariantType>(buffer);
-        variant_type->type = VARIANT;
+        auto variant_type = VariantType::create(buffer);
         variant_count_t variant_count = 0;
 
         while (1) {
@@ -535,43 +634,49 @@ char *lex_type (char *YYCURSOR, Buffer &buffer, TypeContainer *type_container, I
         if (identifier_idx_iter == identifier_map.end()) {
             show_input_error("identifier not defined", identifier_start - 1);
         }
-
-        auto identified_type = type_container->reserve_type<IdentifiedType>(buffer);
-        identified_type->type = IDENTIFIER;
-        identified_type->identifier_idx = identifier_idx_iter->second;
-        
+        IdentifiedType::create(buffer, identifier_idx_iter->second);
         return YYCURSOR;
     }
 }
 
 template <typename T>
-T *skip_type (Type *type) {
+T* skip_type (Type *type);
+
+template <typename T>
+INLINE T* skip_variant_type (VariantType *variant_type) {
+    auto types_count = variant_type->variant_count;
+    Type *type = variant_type->first_variant();
+    for (variant_count_t i = 0; i < types_count; i++) {
+        type = skip_type<Type>(type);
+    }
+    return (T*)type;
+}
+
+template <typename T>
+T* skip_type (Type *type) {
     switch (type->type)
     {
-    case STRING:
-        return (T*)(type->as_string() + 1);
+    case STRING: {
+        return reinterpret_cast<T*>(type->as_string() + 1);
     case IDENTIFIER:
-        return (T*)(type->as_identifier() + 1);
+        return reinterpret_cast<T*>(type->as_identifier() + 1);
     case ARRAY: {
         return skip_type<T>(type->as_array()->inner_type());
     }
     case VARIANT: {
-        auto variant_type = type->as_variant();
-        auto types_count = variant_type->variant_count;
-        Type *type = variant_type->first_variant();
-        for (variant_count_t i = 0; i < types_count; i++) {
-            type = skip_type<Type>(type);
-        }
-        return (T*)type;
+        return skip_variant_type<T>(type->as_variant());
     }
     default:
-        return (T*)(type + 1);
+        return reinterpret_cast<T*>(type + 1);
+    }
     }
 }
 
-__forceinline char *lex_struct_or_union(
+template <KEYWORDS keyword>
+requires (keyword == STRUCT || keyword == UNION)
+INLINE char *lex_struct_or_union(
     char *YYCURSOR,
-    DefinitionWithFields<StructField> *definition,
+    DefinitionWithFields<keyword> *definition,
     IdentifierMap &identifier_map,
     Buffer &buffer
 ) {
@@ -606,12 +711,15 @@ __forceinline char *lex_struct_or_union(
             UNEXPECTED_INPUT("field name too long");
         }
         {
-            auto field = definition->first_field();
-            for (uint32_t i = 0; i < definition->field_count; i++) {
-                if (string_section_eq(field->name.offset, field->name.length, start, length)) {
-                    show_input_error("field already defined", start);
+            auto field_count = definition->field_count;
+            if (field_count > 0) {
+                StructField::Data* field = definition->first_field()->data();
+                for (uint32_t i = 0; i < definition->field_count; i++) {
+                    if (string_section_eq(field->name.offset, field->name.length, start, length)) {
+                        show_input_error("field already defined", start);
+                    }
+                    field = skip_type<StructField>(field->type())->data();
                 }
-                field = skip_type<StructField>(field->type());
             }
         }
         /*!local:re2c
@@ -620,7 +728,7 @@ __forceinline char *lex_struct_or_union(
         */
 
         struct_field:
-        StructField *field = definition->reserve_field(buffer);
+        StructField::Data* field = definition->reserve_field(buffer);
         field->name = {start, static_cast<uint16_t>(length)};
         
         YYCURSOR = skip_white_space(YYCURSOR);
@@ -631,7 +739,7 @@ __forceinline char *lex_struct_or_union(
     }
 }
 
-__forceinline auto set_member_value (char *start, uint64_t value, bool is_negative) {
+INLINE auto set_member_value (char *start, uint64_t value, bool is_negative) {
     if (value == std::numeric_limits<uint64_t>::max()) {
         show_input_error("enum member value too large", start);
     }
@@ -646,14 +754,14 @@ __forceinline auto set_member_value (char *start, uint64_t value, bool is_negati
     return std::pair(value, is_negative);
 }
 
-__forceinline auto add_member (EnumDefinition *definition, Buffer &buffer, char *start, char *end, uint64_t value, bool is_negative) {
+INLINE auto add_member (EnumDefinition *definition, Buffer &buffer, char *start, char *end, uint64_t value, bool is_negative) {
     auto field = definition->reserve_field(buffer);
     field->name = {start, end};
     field->value = value;
     field->is_negative = is_negative;
 }
 
-__forceinline char *lex_enum (
+INLINE char *lex_enum (
     char *YYCURSOR,
     EnumDefinition *definition,
     IdentifierMap &identifier_map,
@@ -754,7 +862,7 @@ int printf_with_indent (uint32_t indent, const char *__format, ...) {
     return 0;
 }
 
-__forceinline IdentifiedDefinition* lex (char *YYCURSOR, IdentifierMap &identifier_map, Buffer &buffer) {
+INLINE IdentifiedDefinition* lex (char *YYCURSOR, IdentifierMap &identifier_map, Buffer &buffer) {
     IdentifiedDefinition* target = nullptr;
     loop: {
     /*!local:re2c
@@ -780,29 +888,29 @@ __forceinline IdentifiedDefinition* lex (char *YYCURSOR, IdentifierMap &identifi
     }
 
     struct_keyword: {
-        auto [definition, definition_idx] = StructDefinition::create(buffer);
-        YYCURSOR = lex_identifier<STRUCT>(YYCURSOR, identifier_map, definition, definition_idx);
-        YYCURSOR = lex_struct_or_union(YYCURSOR, definition, identifier_map, buffer);
+        auto [definition_data, definition_idx] = StructDefinition::create(buffer);
+        YYCURSOR = lex_identifier<STRUCT>(YYCURSOR, identifier_map, definition_data, definition_idx);
+        YYCURSOR = lex_struct_or_union(YYCURSOR, definition_data, identifier_map, buffer);
         goto loop;
     }
     enum_keyword: {
-        auto [definition, definition_idx] = EnumDefinition::create(buffer);
-        YYCURSOR = lex_identifier<ENUM>(YYCURSOR, identifier_map, definition, definition_idx);
-        YYCURSOR = lex_enum(YYCURSOR, definition, identifier_map, buffer);
+        auto [definition_data, definition_idx] = EnumDefinition::create(buffer);
+        YYCURSOR = lex_identifier<ENUM>(YYCURSOR, identifier_map, definition_data, definition_idx);
+        YYCURSOR = lex_enum(YYCURSOR, definition_data, identifier_map, buffer);
         goto loop;
     }
     union_keyword: {
-        auto [definition, definition_idx] = UnionDefinition::create(buffer);
-        YYCURSOR = lex_identifier<UNION>(YYCURSOR, identifier_map, definition, definition_idx);
-        YYCURSOR = lex_struct_or_union(YYCURSOR, definition, identifier_map, buffer);
+        auto [definition_data, definition_idx] = UnionDefinition::create(buffer);
+        YYCURSOR = lex_identifier<UNION>(YYCURSOR, identifier_map, definition_data, definition_idx);
+        YYCURSOR = lex_struct_or_union(YYCURSOR, definition_data, identifier_map, buffer);
         goto loop;
     }
     typedef_keyword: {
-        auto [definition, definition_idx] = TypedefDefinition::create(buffer);
+        auto [definition_data, definition_idx] = TypedefDefinition::create(buffer);
         YYCURSOR = skip_white_space(YYCURSOR);
-        YYCURSOR = lex_type(YYCURSOR, buffer, definition, identifier_map);
+        YYCURSOR = lex_type(YYCURSOR, buffer, definition_data, identifier_map);
         YYCURSOR = lex_white_space(YYCURSOR);
-        YYCURSOR = lex_identifier<TYPEDEF>(YYCURSOR, identifier_map, definition, definition_idx);
+        YYCURSOR = lex_identifier<TYPEDEF>(YYCURSOR, identifier_map, definition_data, definition_idx);
         YYCURSOR = lex_same_line_symbol<';', "expected ';'">(YYCURSOR);
         goto loop;
     }
@@ -835,13 +943,13 @@ T *print_type (Type *type, Buffer &buffer, uint32_t indent, std::string prefix =
     {
     case FIELD_TYPE::STRING: {
         auto string_type = type->as_string();
-        auto range = string_type->range;
-        if (range.min == range.max) {
-            printf("string<%d>", range.min);
+        auto [min, max] = string_type->range;
+        if (min == max) {
+            printf("string<%d>", min);
         } else {
-            printf("string<%d..%d>", range.min, range.max);
+            printf("string<%d..%d>", min, max);
         }
-        return (T*)(string_type + 1);
+        return reinterpret_cast<T*>(string_type + 1);
     }
     case FIELD_TYPE::ARRAY: {
         auto array_type = type->as_array();
@@ -861,22 +969,22 @@ T *print_type (Type *type, Buffer &buffer, uint32_t indent, std::string prefix =
         auto types_count = variant_type->variant_count;
         Type *type = variant_type->first_variant();
         printf("variant");
-        for (variant_count_t i = 0; i < types_count; i++) {
+        for (variant_count_t i = 0; i < types_count - 1; i++) {
             type = print_type<Type>(type, buffer, indent + 2, "- option: ");
         }
-        return (T*)type;
+        return print_type<T>(type, buffer, indent + 2, "- option: ");
     }
     case FIELD_TYPE::IDENTIFIER: {
         auto identified_type = type->as_identifier();
         auto identifier = buffer.get(identified_type->identifier_idx);
-        auto name = identifier->name;
+        auto name = identifier->data()->name;
         printf(extract_string(name).c_str());
-        return (T*)(identified_type + 1);
+        return reinterpret_cast<T*>(identified_type + 1);
     }
     default:
         static const std::string types[] = { "int8", "int16", "int32", "int64", "uint8", "uint16", "uint32", "uint64", "float32", "float64", "bool", "string" };
         printf(types[type->type].c_str());
-        return (T*)(type + 1);
+        return reinterpret_cast<T*>(type + 1);
     }
     
 }
@@ -886,6 +994,7 @@ void print_parse_result (IdentifierMap &identifier_map, Buffer &buffer) {
         printf("\n\n");
         auto identifier = buffer.get(identifier_idx);
         auto keyword = identifier->keyword;
+        auto definition_data = identifier->data();
         switch (keyword) {
             case UNION: {
                 printf("union: ");
@@ -895,22 +1004,23 @@ void print_parse_result (IdentifierMap &identifier_map, Buffer &buffer) {
                 printf("struct: ");
                 print_struct_or_union:
                 printf(name.c_str());
-                auto struct_definition = identifier->as_struct();
-                auto field = struct_definition->first_field();
-                for (uint32_t i = 0; i < struct_definition->field_count; i++) {
+                auto struct_definition = definition_data->as_struct();
+                auto field = struct_definition->first_field()->data();
+                for (uint32_t i = 0; i < struct_definition->field_count - 1; i++) {
                     auto name = extract_string(field->name);
                     printf("\n");
                     printf_with_indent(2, "- field: ");
                     printf(name.c_str());
-                    field = print_type<StructField>(field->type(), buffer, 4);
+                    field = print_type<StructField>(field->type(), buffer, 4)->data();
                 }
+                print_type<StructField>(field->type(), buffer, 4);
                 break;
             }
 
             case ENUM: {
                 printf("enum: ");
                 printf(name.c_str());
-                auto enum_definition = identifier->as_enum();
+                auto enum_definition = definition_data->as_enum();
                 EnumField *field = enum_definition->first_field();
                 for (uint32_t i = 0; i < enum_definition->field_count; i++) {
                     auto name = extract_string(field->name);
@@ -929,7 +1039,7 @@ void print_parse_result (IdentifierMap &identifier_map, Buffer &buffer) {
             case TYPEDEF: {
                 printf("typedef: ");
                 printf(name.c_str());
-                auto typedef_definition = identifier->as_typedef();
+                auto typedef_definition = definition_data->as_typedef();
                 auto type = typedef_definition->type();
                 print_type<Type>(type, buffer, 2);
                 break;
@@ -938,6 +1048,87 @@ void print_parse_result (IdentifierMap &identifier_map, Buffer &buffer) {
     }
 }
 
+constexpr uint8_t get_type_size (FIELD_TYPE type) {
+    switch (type) {
+        case INT8:       return 8;
+        case INT16:      return 16;
+        case INT32:      return 32;
+        case INT64:      return 64;
+        case UINT8:      return 8;
+        case UINT16:     return 16;
+        case UINT32:     return 32;
+        case UINT64:     return 64;
+        case FLOAT32:    return 32;
+        case FLOAT64:    return 64;
+        case BOOL:       return 1;
+        default:         return 0;
+    }
+}
+
+
+
+
+/*template <size_t leaf_size, typename T>
+T* extract_leafes_type (Type *type, Buffer &buffer, std::string path) {
+    switch (type->type)
+    {
+    case FIELD_TYPE::STRING: {
+        return (T*)(type->as_string() + 1);
+    }
+    case FIELD_TYPE::ARRAY: {
+        auto array_type = type->as_array();
+        auto [min, max] = array_type->range;
+        if (min == max) {
+            return extract_leafes_type<leaf_size, T>(array_type->inner_type(), buffer, path + "[" + std::to_string(min) + "]");
+        } else {
+            return skip_type<T>(array_type->inner_type());
+        }
+    }
+    case FIELD_TYPE::VARIANT: {
+        INTERNAL_ERROR("not implemented");
+    }
+    case FIELD_TYPE::IDENTIFIER: {
+        auto identified_type = type->as_identifier();
+        auto identifier = buffer.get(identified_type->identifier_idx);
+        extract_leafes_def<leaf_size>(identifier, buffer, path);
+        return (T*)(identified_type + 1);
+    }
+    default:
+        if (get_type_size(type->type) == leaf_size) {
+            printf(path.c_str());
+        }
+        return (T*)(type + 1);
+    }
+}
+
+template <size_t leaf_size>
+void extract_leafes_def (IdentifiedDefinition *definition, Buffer &buffer, std::string path) {
+    switch (definition->keyword)
+        {
+        case UNION:
+            INTERNAL_ERROR("union not implemented");
+            break;
+        case ENUM:
+            INTERNAL_ERROR("enum not implemented");
+            break;
+        case TYPEDEF: {
+            auto typedef_definition = definition->as_typedef();
+            auto type = typedef_definition->type();
+            extract_leafes_type<leaf_size, Type>(type, buffer, path);
+            break;
+        }
+        case STRUCT: {
+            auto struct_definition = definition->as_struct();
+            auto field = struct_definition->first_field();
+            for (uint32_t i = 0; i < struct_definition->field_count; i++) {
+                auto name = extract_string(field->name);
+                field = extract_leafes_type<leaf_size, StructField>(field->type(), buffer, path + "." + name);
+            }
+        }
+        
+    }
+}
+*/
 #define SIMPLE_ERROR(message) std::cout << "spc.exe: error: " << message << std::endl
 
 int main(int argc, const char** argv) {
@@ -972,16 +1163,17 @@ int main(int argc, const char** argv) {
 
     auto start_ts = std::chrono::high_resolution_clock::now();
 
-    for (size_t i = 0; i < 1; i++)
+    for (size_t i = 0; i < 5000000; i++)
     {
         IdentifierMap identifier_map;
         uint8_t __buffer[5000];
         auto buffer = Buffer(__buffer);
         auto target = lex(data, identifier_map, buffer);
-        #define DO_PRINT
+        // extract_leafes_def<64>(target, buffer, extract_string(target->name));
+        // #define DO_PRINT
         #ifdef DO_PRINT
-        printf("\n\n- target: ");
-        printf(extract_string(target->name).c_str());
+        // printf("\n\n- target: ");
+        // printf(extract_string(target->as_struct()->name).c_str());
         print_parse_result(identifier_map, buffer);
         #endif
         buffer.free();
