@@ -11,7 +11,7 @@
 #include <array>
 
 #include "base.cpp"
-#include "internal_error.cpp"
+#include "fatal_error.cpp"
 #include "memory.cpp"
 #include "lexer.re2c.cpp"
 

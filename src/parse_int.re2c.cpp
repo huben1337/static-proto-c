@@ -3,7 +3,7 @@
 #include <limits>
 #include <type_traits>
 #include "lex_result.cpp"
-#include "show_input_error.cpp"
+#include "lex_error.cpp"
 
 /*!re2c
     re2c:define:YYMARKER = YYCURSOR;

@@ -1,7 +1,7 @@
 #pragma once
 
 #include "string_literal.cpp"
-#include "show_input_error.cpp"
+#include "lex_error.cpp"
 
 /*!re2c
     re2c:define:YYMARKER = YYCURSOR;

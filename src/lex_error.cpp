@@ -4,14 +4,14 @@
 #include <stdint.h>
 #include <string>
 #include "string_helpers.cpp"
-#include "internal_error.cpp"
+#include "fatal_error.cpp"
 
-#define UNEXPECTED_INPUT(msg) show_input_error(msg, YYCURSOR); exit(1);
+#define UNEXPECTED_INPUT(msg) show_syntax_error(msg, YYCURSOR); exit(1);
 
 extern const char *input_start;
 extern std::string file_path_string;
 
-void show_input_error (const char *msg, const char *error, char *error_end = 0) {
+void show_syntax_error (const char *msg, const char *error, char *error_end = 0) {
     if (!input_start) {
         INTERNAL_ERROR("input_start not set\n");
     }

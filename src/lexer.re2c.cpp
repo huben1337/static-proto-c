@@ -6,7 +6,7 @@
 #include "base.cpp"
 #include "memory.cpp"
 #include "lex_result.cpp"
-#include "show_input_error.cpp"
+#include "lex_error.cpp"
 #include "lex_helpers.re2c.cpp"
 #include "parse_int.re2c.cpp"
 #include "helper_types.cpp"
@@ -336,7 +336,7 @@ INLINE char* lex_range_argument (char* YYCURSOR, F on_fixed, G on_range) {
         auto parsed_1 = parse_int<uint32_t>(YYCURSOR);
         YYCURSOR = parsed_1.cursor;
         auto max = parsed_1.value;
-        if (max <= min) show_input_error("invalid range", firstArgPos, YYCURSOR - 1);
+        if (max <= min) show_syntax_error("invalid range", firstArgPos, YYCURSOR - 1);
         on_range(Range{min, max});
     } else {
         on_fixed(min);
@@ -370,7 +370,7 @@ INLINE void add_identifier (std::pair<char*, char*> name, IdentifierMap &identif
     auto [start, end] = name;
     size_t length = end - start;
     if (length > std::numeric_limits<uint16_t>::max()) {
-        show_input_error("identifier name too long", start);
+        show_syntax_error("identifier name too long", start);
     }
     definition_data->name = StringSection<uint16_t>{start, static_cast<uint16_t>(length)};
 
@@ -380,7 +380,7 @@ INLINE void add_identifier (std::pair<char*, char*> name, IdentifierMap &identif
     *end = end_backup;
 
     if (!inserted) {
-        show_input_error("identifier already defined", start);
+        show_syntax_error("identifier already defined", start);
     }
 }
 
@@ -483,7 +483,7 @@ char* lex_type (char* YYCURSOR, Buffer &buffer, TypeContainer* type_container, I
         auto identifier_idx_iter = identifier_map.find(identifier_start);
         *identifer_end = end_backup;
         if (identifier_idx_iter == identifier_map.end()) {
-            show_input_error("identifier not defined", identifier_start - 1);
+            show_syntax_error("identifier not defined", identifier_start - 1);
         }
         IdentifiedType::create(buffer, identifier_idx_iter->second);
         return YYCURSOR;
@@ -547,7 +547,7 @@ INLINE char* lex_struct_or_union(
 
         struct_end: {
             if (definition->field_count == 0) {
-                show_input_error("expected at least one field", YYCURSOR - 1);
+                show_syntax_error("expected at least one field", YYCURSOR - 1);
             }
             return YYCURSOR;
         }
@@ -569,7 +569,7 @@ INLINE char* lex_struct_or_union(
                 StructField::Data* field = definition->first_field()->data();
                 for (uint32_t i = 0; i < definition->field_count; i++) {
                     if (string_section_eq(field->name.offset, field->name.length, start, length)) {
-                        show_input_error("field already defined", start);
+                        show_syntax_error("field already defined", start);
                     }
                     field = skip_type<StructField>(field->type())->data();
                 }
@@ -594,7 +594,7 @@ INLINE char* lex_struct_or_union(
 
 INLINE auto set_member_value (char* start, uint64_t value, bool is_negative) {
     if (value == std::numeric_limits<uint64_t>::max()) {
-        show_input_error("enum member value too large", start);
+        show_syntax_error("enum member value too large", start);
     }
     if (is_negative) {
         if (value == 1) {
@@ -637,7 +637,7 @@ INLINE char* lex_enum (
 
         enum_end: {
             if (definition->field_count == 0) {
-                show_input_error("expected at least one member", YYCURSOR - 1);
+                show_syntax_error("expected at least one member", YYCURSOR - 1);
             }
             return YYCURSOR;
         }
@@ -654,7 +654,7 @@ INLINE char* lex_enum (
             auto field = definition->first_field();
             for (uint32_t i = 0; i < definition->field_count; i++) {
                 if (string_section_eq(field->name.offset, field->name.length, start, length)) {
-                    show_input_error("field already defined", start);
+                    show_syntax_error("field already defined", start);
                 }
                 field = field->next();
             }

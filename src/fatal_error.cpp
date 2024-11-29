@@ -1,5 +1,7 @@
 #pragma once
 
-#include <stdio.h>
+#include <cstdlib>
+#include <cstdio>
+
 
 #define INTERNAL_ERROR(msg) fprintf(stderr, msg); exit(1);

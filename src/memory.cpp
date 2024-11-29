@@ -4,7 +4,7 @@
 #include <type_traits>
 #include "base.cpp"
 #include "helper_types.cpp"
-#include "internal_error.cpp"
+#include "fatal_error.cpp"
 
 template <typename U, U max = std::numeric_limits<U>::max()>
 requires std::is_integral_v<U> && std::is_unsigned_v<U>
