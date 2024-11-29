@@ -1,1 +1,1 @@
-cmake --build .\.build\ && .\.build\spc.exe .\test.fbs
+cmake --build .\.build\mingw-gcc && .\.build\mingw-gcc\spc.exe .\test.fbs
