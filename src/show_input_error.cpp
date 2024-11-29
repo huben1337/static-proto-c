@@ -4,8 +4,8 @@
 #include <stdint.h>
 #include <string>
 #include "string_helpers.cpp"
+#include "internal_error.cpp"
 
-#define INTERNAL_ERROR(msg) printf(msg); exit(1);
 #define UNEXPECTED_INPUT(msg) show_input_error(msg, YYCURSOR); exit(1);
 
 extern const char *input_start;

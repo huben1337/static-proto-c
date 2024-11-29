@@ -10,3 +10,6 @@ template<typename T>
 inline constexpr bool is_unsigned_integral_v = std::is_integral_v<T> && std::is_unsigned_v<T>;
 template<typename T>
 concept UnsignedIntegral = is_unsigned_integral_v<T>;
+
+template <typename T>
+constexpr size_t sizeof_v = std::is_empty_v<T> ? 0 : sizeof(T);
