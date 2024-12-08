@@ -17,11 +17,25 @@
 
 #define VALUE_VAR value
 #define RETURN_RESULT return { YYCURSOR - 1, is_negative ? -VALUE_VAR : VALUE_VAR };
-#define CHECK_RANGE if (VALUE_VAR > max) { UNEXPECTED_INPUT("value out of range"); }
-#define PUSH_DEC(VAL) VALUE_VAR = VALUE_VAR * 10 + VAL; CHECK_RANGE
-#define PUSH_BIN(VAL) VALUE_VAR = (VALUE_VAR << 1) | VAL; CHECK_RANGE
-#define PUSH_OCT(VAL) VALUE_VAR = (VALUE_VAR << 3) | VAL; CHECK_RANGE
-#define PUSH_HEX(VAL) VALUE_VAR = (VALUE_VAR << 4) | VAL; CHECK_RANGE
+#define CHECK_RANGE                                     \
+if constexpr (max == std::numeric_limits<T>::max()) {   \
+    if (new_value <= VALUE_VAR) {                       \
+        UNEXPECTED_INPUT("[parse_int] value overflow"); \
+    } else {                                            \
+        VALUE_VAR = new_value;                          \
+    }                                                   \
+} else {                                                \
+    if (new_value > max || new_value <= VALUE_VAR) {    \
+        UNEXPECTED_INPUT("[parse_int] value overflow"); \
+    } else {                                            \
+        VALUE_VAR = new_value;                          \
+    }                                                   \
+}
+
+#define PUSH_DEC(DIGIT) { T new_value = VALUE_VAR * 10 + DIGIT;   CHECK_RANGE }
+#define PUSH_BIN(DIGIT) { T new_value = (VALUE_VAR << 1) | DIGIT; CHECK_RANGE }
+#define PUSH_OCT(DIGIT) { T new_value = (VALUE_VAR << 3) | DIGIT; CHECK_RANGE }
+#define PUSH_HEX(DIGIT) { T new_value = (VALUE_VAR << 4) | DIGIT; CHECK_RANGE }
 
 /**
  * \brief Parses an integer from the input string.
@@ -39,7 +53,7 @@
  */
 template <typename T, const T max = std::numeric_limits<T>::max()>
 requires std::is_integral_v<T>
-LexResult<T> parse_int (char *YYCURSOR) {
+INLINE LexResult<T> parse_int (char *YYCURSOR) {
     T VALUE_VAR = 0;
     bool is_negative = false;
 
