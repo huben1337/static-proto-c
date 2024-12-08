@@ -81,13 +81,6 @@ __forceinline char *skip_white_space (char *YYCURSOR) {
     */
 }
 
-#define CHECK_SYMBOL                                                \
-if (yych == symbol) {                                               \
-    return ++YYCURSOR;                                              \
-} else {                                                            \
-    UNEXPECTED_INPUT(error_message.value)                           \
-}
-
 /**
  * \brief Skips over any white space characters in the input.
  *
