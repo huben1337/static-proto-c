@@ -14,13 +14,8 @@
 #include "fatal_error.cpp"
 #include "memory.cpp"
 #include "lexer.re2c.cpp"
+#include "./codec/base_types.cpp"
 
-
-
-template <typename T>
-INLINE T* add_offset(auto* ptr, size_t offset) {
-    return reinterpret_cast<T*>(reinterpret_cast<size_t>(ptr) + offset);
-}
 
 const char* input_start;
 std::string file_path_string;
@@ -35,45 +30,48 @@ int printf_with_indent (uint32_t indent, const char* __format, ...) {
 }
 
 template <typename T>
-T* print_type (Type* type, Buffer &buffer, uint32_t indent, std::string prefix = "- type: ") {
+T* print_type (lexer::Type* type, Buffer &buffer, uint32_t indent, std::string prefix = "- type: ") {
     printf("\n");
     printf_with_indent(indent, prefix.c_str());
     switch (type->type)
     {
-    case FIELD_TYPE::FIXED_STRING: {
+    case lexer::FIELD_TYPE::STRING_FIXED: {
         auto fixed_string_type = type->as_fixed_string();
-        printf("string<%d..%d>", fixed_string_type->length);
+        printf("string\n");
+        printf_with_indent(indent + 2, "- length: %d", fixed_string_type->length);
         return reinterpret_cast<T*>(fixed_string_type + 1);
     }
-    case FIELD_TYPE::STRING: {
+    case lexer::FIELD_TYPE::STRING: {
         auto string_type = type->as_string();
-        auto [min, max] = string_type->range;
-        printf("string<%d..%d>", min, max);
+        printf("string\n");
+        printf_with_indent(indent + 2, "- min length: %d\n", string_type->min_length);
+        printf_with_indent(indent + 2, "- length data size: %d", string_type->fixed_alignment);
         return reinterpret_cast<T*>(string_type + 1);
     }
-    case FIELD_TYPE::ARRAY: {
+    case lexer::FIELD_TYPE::ARRAY_FIXED: {
         auto array_type = type->as_array();
-        printf("array\n");
-        printf_with_indent(indent + 2, "- length: ");
-        auto [min, max] = array_type->range;
-        if (min == max) {
-            printf("%d", min);
-        } else {
-            printf("%d..%d", min, max);
-        }
-        return print_type<T>(array_type->inner_type(), buffer, indent + 2, "- inner:");
+        printf("static array\n");
+        printf_with_indent(indent + 2, "- length: %d", array_type->length);
+        return print_type<T>(array_type->inner_type(), buffer, indent + 2, "- inner: ");
     }
-    case FIELD_TYPE::VARIANT: {
+    case lexer::FIELD_TYPE::ARRAY: {
+        auto array_type = type->as_array();
+        printf("dynamic array\n");
+        printf_with_indent(indent + 2, "- min length: %d\n", array_type->length);
+        printf_with_indent(indent + 2, "- length data size: %d", array_type->fixed_alignment);
+        return print_type<T>(array_type->inner_type(), buffer, indent + 2, "- inner: ");
+    }
+    case lexer::FIELD_TYPE::VARIANT: {
         auto variant_type = type->as_variant();
         auto types_count = variant_type->variant_count;
-        Type* type = variant_type->first_variant();
+        auto type = variant_type->first_variant();
         printf("variant");
-        for (variant_count_t i = 0; i < types_count - 1; i++) {
-            type = print_type<Type>(type, buffer, indent + 2, "- option: ");
+        for (lexer::variant_count_t i = 0; i < types_count - 1; i++) {
+            type = print_type<lexer::Type>(type, buffer, indent + 2, "- option: ");
         }
         return print_type<T>(type, buffer, indent + 2, "- option: ");
     }
-    case FIELD_TYPE::IDENTIFIER: {
+    case lexer::FIELD_TYPE::IDENTIFIER: {
         auto identified_type = type->as_identifier();
         auto identifier = buffer.get(identified_type->identifier_idx);
         auto name = identifier->data()->name;
@@ -81,46 +79,49 @@ T* print_type (Type* type, Buffer &buffer, uint32_t indent, std::string prefix =
         return reinterpret_cast<T*>(identified_type + 1);
     }
     default:
-        static const std::string types[] = { "int8", "int16", "int32", "int64", "uint8", "uint16", "uint32", "uint64", "float32", "float64", "bool", "string" };
+        static const std::string types[] = { "bool", "uint8", "uint16", "uint32", "uint64", "int8", "int16", "int32", "int64", "float32", "float64" };
         printf(types[type->type].c_str());
         return reinterpret_cast<T*>(type + 1);
     }
     
 }
 
-void print_parse_result (IdentifierMap &identifier_map, Buffer &buffer) {
+void print_parse_result (lexer::IdentifierMap &identifier_map, Buffer &buffer) {
     for (auto [name, identifier_idx] : identifier_map) {
         printf("\n\n");
         auto identifier = buffer.get(identifier_idx);
         auto keyword = identifier->keyword;
         auto definition_data = identifier->data();
         switch (keyword) {
-            case UNION: {
+            case lexer::KEYWORDS::UNION: {
                 printf("union: ");
                 goto print_struct_or_union;
             }
-            case STRUCT: {
+            case lexer::KEYWORDS::STRUCT: {
                 printf("struct: ");
                 print_struct_or_union:
                 printf(name.c_str());
                 auto struct_definition = definition_data->as_struct();
-                auto field = struct_definition->first_field()->data();
-                for (uint32_t i = 0; i < struct_definition->field_count - 1; i++) {
-                    auto name = extract_string(field->name);
+                printf(struct_definition->is_fixed_size ? " (fixed size)" : " (dynamic size)");
+                auto leaf_counts = struct_definition->leaf_counts;
+                printf(" leafes: { %d, %d, %d, %d }", leaf_counts.size8, leaf_counts.size16, leaf_counts.size32, leaf_counts.size64);
+                auto field = struct_definition->first_field();
+                for (uint32_t i = 0; i < struct_definition->field_count; i++) {
+                    auto field_data = field->data();
+                    auto name = extract_string(field_data->name);
                     printf("\n");
                     printf_with_indent(2, "- field: ");
                     printf(name.c_str());
-                    field = print_type<StructField>(field->type(), buffer, 4)->data();
+                    field = print_type<lexer::StructField>(field_data->type(), buffer, 4);
                 }
-                print_type<StructField>(field->type(), buffer, 4);
                 break;
             }
 
-            case ENUM: {
-                printf("enum: ");
-                printf(name.c_str());
+            case lexer::KEYWORDS::ENUM: {
+                printf("enum: %s\n", name.c_str());
+                printf_with_indent(2, "- type size: %d bytes", definition_data->as_enum()->type_size);
                 auto enum_definition = definition_data->as_enum();
-                EnumField* field = enum_definition->first_field();
+                auto field = enum_definition->first_field();
                 for (uint32_t i = 0; i < enum_definition->field_count; i++) {
                     auto name = extract_string(field->name);
                     printf("\n");
@@ -147,53 +148,59 @@ void print_parse_result (IdentifierMap &identifier_map, Buffer &buffer) {
     }
 }
 
-constexpr size_t get_type_size (FIELD_TYPE type) {
+constexpr size_t get_type_size (lexer::FIELD_TYPE type) {
     switch (type) {
-        case INT8:      return 8;
-        case INT16:     return 16;
-        case INT32:     return 32;
-        case INT64:     return 64;
-        case UINT8:     return 8;
-        case UINT16:    return 16;
-        case UINT32:    return 32;
-        case UINT64:    return 64;
-        case FLOAT32:   return 32;
-        case FLOAT64:   return 64;
-        case BOOL:      return 1;
-        default:        return 0;
+        case lexer::INT8:       return 8;
+        case lexer::INT16:      return 16;
+        case lexer::INT32:      return 32;
+        case lexer::INT64:      return 64;
+        case lexer::UINT8:      return 8;
+        case lexer::UINT16:     return 16;
+        case lexer::UINT32:     return 32;
+        case lexer::UINT64:     return 64;
+        case lexer::FLOAT32:    return 32;
+        case lexer::FLOAT64:    return 64;
+        case lexer::BOOL:       return 1;
+        default:                return 0;
     }
 }
 
 
 template <size_t leaf_size>
-void __extract_leafes_def (KEYWORDS keyword, IdentifiedDefinition::Data* definition_data, Buffer &buffer, std::string path);
+void __extract_leafes_def (lexer::KEYWORDS keyword, lexer::IdentifiedDefinition::Data* definition_data, Buffer &buffer, std::string path);
 
 template <size_t leaf_size, typename T>
-T* __extract_leafes_type (Type* type, Buffer &buffer, std::string path) {
+T* __extract_leafes_type (lexer::Type* type, Buffer &buffer, std::string path) {
     switch (type->type)
     {
-    case FIELD_TYPE::FIXED_STRING: {
+    case lexer::FIELD_TYPE::STRING_FIXED: {
         if constexpr (leaf_size == 8) {
             printf("%s\n", path.c_str());
         }
         return (T*)(type->as_fixed_string() + 1);
     }
-    case FIELD_TYPE::STRING: {
-        return (T*)(type->as_string() + 1);
-    }
-    case FIELD_TYPE::ARRAY: {
-        auto array_type = type->as_array();
-        auto [min, max] = array_type->range;
-        if (min == max) {
-            return __extract_leafes_type<leaf_size, T>(array_type->inner_type(), buffer, path + "[" + std::to_string(min) + "]");
-        } else {
-            return skip_type<T>(array_type->inner_type());
+    case lexer::FIELD_TYPE::STRING: {
+        auto string_type = type->as_string();
+        if (string_type->fixed_alignment * 8 == leaf_size) {
+            printf("%s\n", (path + " (hidden)").c_str());
         }
+        return (T*)(string_type + 1);
     }
-    case FIELD_TYPE::VARIANT: {
+    case lexer::FIELD_TYPE::ARRAY_FIXED: {
+        auto array_type = type->as_array();
+        return __extract_leafes_type<leaf_size, T>(array_type->inner_type(), buffer, path + "[" + std::to_string(array_type->length) + "]");
+    }
+    case lexer::FIELD_TYPE::ARRAY: {
+        auto array_type = type->as_array();
+        if (array_type->fixed_alignment * 8 == leaf_size) {
+            printf("%s\n", (path + " (hidden)").c_str());
+        }
+        return skip_type<T>(array_type->inner_type());
+    }
+    case lexer::FIELD_TYPE::VARIANT: {
         INTERNAL_ERROR("not implemented");
     }
-    case FIELD_TYPE::IDENTIFIER: {
+    case lexer::FIELD_TYPE::IDENTIFIER: {
         auto identified_type = type->as_identifier();
         auto identifier = buffer.get(identified_type->identifier_idx);
         auto identifier_data = identifier->data();
@@ -209,13 +216,13 @@ T* __extract_leafes_type (Type* type, Buffer &buffer, std::string path) {
 }
 
 template <size_t leaf_size>
-void __extract_leafes_def (KEYWORDS keyword, IdentifiedDefinition::Data* definition_data, Buffer &buffer, std::string path) {
+void __extract_leafes_def (lexer::KEYWORDS keyword, lexer::IdentifiedDefinition::Data* definition_data, Buffer &buffer, std::string path) {
     switch (keyword)
         {
-        case UNION:
+        case lexer::KEYWORDS::UNION:
             INTERNAL_ERROR("union not implemented");
             break;
-        case ENUM:
+        case lexer::KEYWORDS::ENUM:
             INTERNAL_ERROR("enum not implemented");
             break;
         /* case TYPEDEF: {
@@ -224,12 +231,12 @@ void __extract_leafes_def (KEYWORDS keyword, IdentifiedDefinition::Data* definit
             __extract_leafes_type<leaf_size, Type>(type, buffer, path);
             break;
         } */
-        case STRUCT: {
+        case lexer::KEYWORDS::STRUCT: {
             auto struct_definition = definition_data->as_struct();
-            StructField::Data* field = struct_definition->first_field()->data();
+            auto field = struct_definition->first_field()->data();
             for (uint32_t i = 0; i < struct_definition->field_count - 1; i++) {
                 auto name = extract_string(field->name);
-                field = __extract_leafes_type<leaf_size, StructField>(field->type(), buffer, path + "." + name)->data();
+                field = __extract_leafes_type<leaf_size, lexer::StructField>(field->type(), buffer, path + "." + name)->data();
             }
             auto name = extract_string(field->name);
             __extract_leafes_type<leaf_size, void>(field->type(), buffer, path + "." + name);
@@ -237,6 +244,7 @@ void __extract_leafes_def (KEYWORDS keyword, IdentifiedDefinition::Data* definit
         
     }
 }
+
 
 template <typename F, typename T, T Value>
 concept CallableWithValue = requires(F func) {
@@ -253,7 +261,7 @@ void for_(F&& func) {
 
 int main(int argc, const char** argv) {
     std::cout << "spc.exe" << std::endl;
-    if (argc == 1) {
+    if (argc <= 1) {
         SIMPLE_ERROR("no input supplied");
         return 1;
     }
@@ -285,29 +293,34 @@ int main(int argc, const char** argv) {
 
     auto start_ts = std::chrono::high_resolution_clock::now();
 
-    for (size_t i = 0; i < 1; i++)
+    for (size_t i = 0; i < 5000000; i++)
     {
-        IdentifierMap identifier_map;
+        lexer::IdentifierMap identifier_map;
         uint8_t __buffer[5000];
         auto buffer = Buffer(__buffer);
-        auto target = lex(data, identifier_map, buffer);
+        auto target = lexer::lex(data, identifier_map, buffer);
         auto target_data = target->data();
-        auto target_name = extract_string(target_data->name);
+        // auto target_name = extract_string(target_data->name);
+
+        //#define DO_EXTRACT
+        #ifdef DO_EXTRACT
         for_<size_t, 64, 32, 16, 8>([&target, &target_data, &buffer, &target_name]<size_t v>() {
             printf("size: %d\n", v);
             __extract_leafes_def<v>(target->keyword, target_data, buffer, target_name);
         });
-
-        uint8_t __buffer2[5000];
-        auto buffer2 = Buffer(__buffer2);
-
-        
-        // #define DO_PRINT
+        #endif
+        #define DO_PRINT
         #ifdef DO_PRINT
         // printf("\n\n- target: ");
         // printf(extract_string(target->as_struct()->name).c_str());
         print_parse_result(identifier_map, buffer);
         #endif
+
+        uint8_t __buffer2[target_data->internal_size + 8];
+        auto buffer2 = Buffer(__buffer2, target_data->internal_size);
+
+        // printf("\ntarget internal size: %d\n", target_data->internal_size);
+        // printf("buffer position: %d\n", buffer.current_position());
         buffer.free();
     }
 
