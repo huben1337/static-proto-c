@@ -26,6 +26,8 @@ struct Memory {
     template <U N>
     INLINE Memory (uint8_t (&memory)[N]) : capacity(N), memory(memory), in_heap(false) {}
 
+    INLINE Memory (uint8_t* memory, U capacity) : capacity(capacity), memory(memory), in_heap(false) {}
+
     using index_t = U;
 
     INLINE void clear () {
