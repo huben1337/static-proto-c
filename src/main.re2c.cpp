@@ -14,7 +14,7 @@
 #include "fatal_error.cpp"
 #include "memory.cpp"
 #include "lexer.re2c.cpp"
-#include "./codec/base_types.cpp"
+#include "codegen.cpp"
 
 
 const char* input_start;
@@ -293,6 +293,10 @@ int main(int argc, const char** argv) {
 
     auto start_ts = std::chrono::high_resolution_clock::now();
 
+    codegen::test();
+
+    //#define DO_LEX
+    #ifdef DO_LEX
     for (size_t i = 0; i < 5000000; i++)
     {
         lexer::IdentifierMap identifier_map;
@@ -309,7 +313,7 @@ int main(int argc, const char** argv) {
             __extract_leafes_def<v>(target->keyword, target_data, buffer, target_name);
         });
         #endif
-        #define DO_PRINT
+        // #define DO_PRINT
         #ifdef DO_PRINT
         // printf("\n\n- target: ");
         // printf(extract_string(target->as_struct()->name).c_str());
@@ -319,10 +323,16 @@ int main(int argc, const char** argv) {
         uint8_t __buffer2[target_data->internal_size + 8];
         auto buffer2 = Buffer(__buffer2, target_data->internal_size);
 
+        // parser::StructFieldWithOffset size8_leafes[target_data->leaf_counts.size8];
+        // parser::StructFieldWithOffset size16_leafes[target_data->leaf_counts.size16];
+        // parser::StructFieldWithOffset size32_leafes[target_data->leaf_counts.size32];
+        // parser::StructFieldWithOffset size64_leafes[target_data->leaf_counts.size64];
+
         // printf("\ntarget internal size: %d\n", target_data->internal_size);
         // printf("buffer position: %d\n", buffer.current_position());
         buffer.free();
     }
+    #endif
 
     auto end_ts = std::chrono::high_resolution_clock::now();
     auto duration = std::chrono::duration_cast<std::chrono::milliseconds>(end_ts - start_ts);
