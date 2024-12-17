@@ -67,6 +67,7 @@ struct __CodeBlock : CodeData {
 
     INLINE auto _if (std::string condition);
     INLINE auto _switch (std::string key);
+    INLINE auto _struct (std::string name);
 
     INLINE Derived add (std::string line) {
         ADD(indent, line);
@@ -103,38 +104,121 @@ INLINE auto __CodeBlock<indent, Last, Derived>::_if (std::string condition) {
 
 
 
-template <size_t indent, typename Last, typename Derived>
-struct Case : __CodeBlock<indent, void, Case<indent, Last, Derived>> {
+template <size_t indent, typename Last>
+struct Case : __CodeBlock<indent, Last, Case<indent, Last>> {
     INLINE auto end ();
 };
 
-template <size_t indent, typename Last, typename Derived>
+template <size_t indent, typename Last>
 struct Switch : CodeData {
     INLINE auto _case(std::string value) {
         ADD(indent, "case " + value + ": {");
-        return Case<indent + 1, Last, Derived>({{buffer}});
+        return Case<indent + 1, Last>({{buffer}});
     };
 
     INLINE auto _default () {
         ADD(indent, "default: {");
-        return Case<indent + 1, Last, Derived>({{buffer}});
+        return Case<indent + 1, Last>({{buffer}});
     }
 
     INLINE auto end () {
         ADD(indent - 1, "}");
-        return __CodeBlock<indent - 1,Last, Derived>({buffer});
+        return c_cast<Last>(__CodeBlock<indent - 1, typename Last::__Last, typename Last::__Derived>({this->buffer}));
     }
 };
-template <size_t indent, typename Last, typename Derived>
-INLINE auto Case<indent, Last, Derived>::end ()  {
+template <size_t indent, typename Last>
+INLINE auto Case<indent, Last>::end ()  {
     ADD(indent - 1, "}");
-    return Switch<indent - 1, Last, Derived>({this->buffer});
+    return Switch<indent - 1, Last>({this->buffer});
 }
 template <size_t indent, typename Last, typename Derived>
 INLINE auto __CodeBlock<indent, Last, Derived>::_switch (std::string key) {
     ADD(indent, "switch (" + key + ") {");
-    return Switch<indent + 1, Last, Derived>({this->buffer});
+    return Switch<indent + 1, Derived>({this->buffer});
 };
+
+template <size_t indent, typename Last>
+struct Method : __CodeBlock<indent, Last, Method<indent, Last>> {
+    INLINE auto end ();
+};
+
+template <size_t indent, typename Last, typename Derived>
+struct __Struct : CodeData {
+    using __Last = Last;
+    using __Derived = Derived;
+
+    INLINE auto method (std::string attributes, std::string return_type, std::string name) {
+        return __method(attributes + " " + return_type + " " + name + " () {");
+    }
+    INLINE auto method (std::string return_type, std::string name) {
+        return __method(return_type + " " + name + " () {");
+    }
+
+    INLINE auto field (std::string attributes, std::string type, std::string name) {
+        return __field(attributes + " " + type + " " + name + ";");
+    }
+    INLINE auto field (std::string type, std::string name) {
+       return __field(type + " " + name + ";");
+    }
+
+    INLINE auto _struct (std::string name);
+    INLINE auto _struct (std::string attributes, std::string name);
+
+    private:
+    INLINE auto __method (std::string method_qualifier) {
+        ADD(indent, method_qualifier);
+        return Method<indent + 1, Derived>({{buffer}});
+    }
+    INLINE Derived __field (std::string field_qualifier) {
+        ADD(indent, field_qualifier);
+        return c_cast<Derived>(__Struct<indent, Last, Derived>({this->buffer}));
+    }
+};
+template <size_t indent, typename Last>
+INLINE auto Method<indent, Last>::end ()  {
+    ADD(indent - 1, "}");
+    return c_cast<Last>(__Struct<indent - 1, typename Last::__Last, typename Last::__Derived>({this->buffer}));
+}
+
+template <size_t indent, typename Last>
+struct Struct : __Struct<indent, Last, Struct<indent, Last>> {
+    INLINE auto end () {
+        ADD(indent - 1, "};");
+        return c_cast<Last>(__CodeBlock<indent - 1, typename Last::__Last, typename Last::__Derived>({this->buffer}));
+    }
+};
+template <size_t indent, typename Last, typename Derived>
+INLINE auto __CodeBlock<indent, Last, Derived>::_struct (std::string name) {
+    ADD(indent, "struct " + name + " {");
+    return Struct<indent + 1, Derived>({this->buffer});
+};
+template <size_t indent, typename Last>
+struct NestedStruct : __Struct<indent, Last, NestedStruct<indent, Last>> {
+    INLINE auto end () {
+        ADD(indent - 1, "};");
+        return __end();
+    }
+
+    INLINE auto end (std::string name) {
+        ADD(indent - 1, "} " + name + ";");
+        return __end();
+    }
+
+    private:
+    INLINE auto __end () {
+        return c_cast<Last>(__Struct<indent - 1, typename Last::__Last, typename Last::__Derived>({this->buffer}));
+    }
+};
+template <size_t indent, typename Last, typename Derived>
+INLINE auto __Struct<indent, Last, Derived>::_struct (std::string name) {
+    ADD(indent, "struct " + name + " {");
+    return NestedStruct<indent + 1, Derived>({this->buffer});
+}
+template <size_t indent, typename Last, typename Derived>
+INLINE auto __Struct<indent, Last, Derived>::_struct (std::string attributes, std::string name) {
+    ADD(indent, attributes + " struct " + name + " {");
+    return NestedStruct<indent + 1, Derived>({this->buffer});
+}
 
 template <size_t N>
 INLINE auto create_code (uint8_t (&memory)[N]) {
@@ -146,12 +230,22 @@ INLINE void test () {
         uint8_t mem[5000];
         auto res = create_code(mem)
             .add("aawdw")
+            ._struct("naur")
+                ._struct("const", "a")
+                    .field("int", "a")
+                .end()
+                
+                .method("void", "a")
+                    .add("aawdw")
+                    ._if("true")
+                    .end()
+                .end()
+            .end()
             ._if("true")
                 .add("aawdw")
                 ._if("true")
                 ._else()
                 .end()
-            ._else()
                 ._switch("a")
                     ._case("1")
                     .end()
@@ -160,9 +254,11 @@ INLINE void test () {
                     ._default()
                     .end()
                 .end()
+            ._else()
+                
             .end()
         .end().c_str();
-        // printf("%s\n", res);
+        printf("%s\n", res);
     }
 }
 
