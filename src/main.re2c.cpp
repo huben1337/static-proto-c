@@ -295,14 +295,15 @@ int main(int argc, const char** argv) {
 
     codegen::test();
 
-    //#define DO_LEX
+    #define DO_LEX
     #ifdef DO_LEX
     for (size_t i = 0; i < 5000000; i++)
     {
         lexer::IdentifierMap identifier_map;
         uint8_t __buffer[5000];
         auto buffer = Buffer(__buffer);
-        auto target = lexer::lex(data, identifier_map, buffer);
+        auto target_idx = lexer::lex<false>(data, identifier_map, buffer);
+        auto target = buffer.get(target_idx);
         auto target_data = target->data();
         // auto target_name = extract_string(target_data->name);
 
@@ -320,8 +321,8 @@ int main(int argc, const char** argv) {
         print_parse_result(identifier_map, buffer);
         #endif
 
-        uint8_t __buffer2[target_data->internal_size + 8];
-        auto buffer2 = Buffer(__buffer2, target_data->internal_size);
+        //uint8_t __buffer2[target_data->internal_size + 8];
+        //auto buffer2 = Buffer(__buffer2, target_data->internal_size);
 
         // parser::StructFieldWithOffset size8_leafes[target_data->leaf_counts.size8];
         // parser::StructFieldWithOffset size16_leafes[target_data->leaf_counts.size16];

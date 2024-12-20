@@ -109,18 +109,6 @@ struct Type {
     INLINE auto as_variant () const;
 };
 
-struct TypeContainer {};
-
-
-template <typename T, FIELD_TYPE type>
-INLINE T* create_extended_type (Buffer &buffer) {
-    size_t padding = get_padding<T>(buffer.current_position() + sizeof_v<Type>);
-    Buffer::Index<Type> type_idx = buffer.get_next_multi_byte<Type>(sizeof_v<Type> + padding + sizeof_v<T>);
-    Type* __type = buffer.get(type_idx);
-    __type->type = type;
-    auto extended_idx = Buffer::Index<T>{static_cast<uint32_t>(type_idx.value + padding + sizeof_v<Type>)};
-    return buffer.get_aligned(extended_idx);
-}
 
 template <typename T>
 INLINE T* get_extended_type(auto* that) {
@@ -161,8 +149,9 @@ INLINE auto Type::as_string () const {
 typedef Buffer::Index<IdentifiedDefinition> IdentifedDefinitionIndex;
 struct IdentifiedType {
     INLINE static void create (Buffer &buffer, IdentifedDefinitionIndex identifier_idx) {
-        auto type = create_extended_type<IdentifiedType, IDENTIFIER>(buffer);
-        type->identifier_idx = identifier_idx;
+        auto [extended, base] = create_extended<IdentifiedType, Type>(buffer);
+        base->type = IDENTIFIER;
+        extended->identifier_idx = identifier_idx;
     }
 
     IdentifedDefinitionIndex identifier_idx;
@@ -171,10 +160,10 @@ INLINE auto Type::as_identifier () const {
     return get_extended_type<IdentifiedType>(this);
 }
 
-struct ArrayType : TypeContainer {
+struct ArrayType {
 
     INLINE static auto create (Buffer &buffer) {
-        return create_extended<ArrayType, Type>(buffer);
+        return __create_extended<ArrayType, Type>(buffer);
     }
 
     uint32_t length;
@@ -189,9 +178,11 @@ INLINE auto Type::as_array () const {
     return get_extended_type<ArrayType>(this);
 }
 
-struct VariantType : TypeContainer {
-    INLINE static VariantType* create (Buffer &buffer) {
-        return create_extended_type<VariantType, VARIANT>(buffer);
+struct VariantType {
+    INLINE static Buffer::Index<VariantType> create (Buffer &buffer) {
+        auto created = __create_extended<VariantType, Type>(buffer);
+        buffer.get(created.base)->type = VARIANT;
+        return created.extended;
     }
 
     variant_count_t variant_count;
@@ -207,7 +198,7 @@ INLINE auto Type::as_variant () const {
 
 struct StructField {
     
-    struct Data : TypeContainer {
+    struct Data {
         StringSection<uint16_t> name;
 
         INLINE Type* type () {
@@ -232,28 +223,25 @@ struct EnumField {
 };
 
 template <typename T, KEYWORDS keyword>
-INLINE std::pair<T*, IdentifedDefinitionIndex> create_extended_identified_definition (Buffer &buffer) {
+INLINE std::pair<Buffer::Index<T>, IdentifedDefinitionIndex> create_extended_identified_definition (Buffer &buffer) {
     auto padding = get_padding<T>(buffer.current_position() + sizeof_v<IdentifiedDefinition>);
     IdentifedDefinitionIndex def_idx = buffer.get_next_multi_byte<IdentifiedDefinition>(sizeof_v<IdentifiedDefinition> + padding + sizeof_v<T>);
     IdentifiedDefinition* def = buffer.get(def_idx);
     def->keyword = keyword;
     Buffer::Index<T> extended_idx = Buffer::Index<T>{static_cast<uint32_t>(def_idx.value + sizeof_v<IdentifiedDefinition> + padding)};
-    T* extended = buffer.get(extended_idx);
-    return std::pair(extended, def_idx);
+    return std::pair(extended_idx, def_idx);
 }
 
-template <KEYWORDS keyword>
-requires (keyword == STRUCT || keyword == UNION)
 struct DefinitionWithFields : IdentifiedDefinition::Data {
     uint16_t field_count;
     bool is_fixed_size;
 
     INLINE static auto create(Buffer &buffer) {
-        std::pair<DefinitionWithFields*, IdentifedDefinitionIndex> result = create_extended_identified_definition<DefinitionWithFields, keyword>(buffer);
+        __CreateExtendedResult<DefinitionWithFields, IdentifiedDefinition> result = __create_extended<DefinitionWithFields, IdentifiedDefinition>(buffer);
         return result;
     }
 
-    INLINE StructField::Data* reserve_field(Buffer &buffer) {
+    INLINE static StructField::Data* reserve_field(Buffer &buffer) {
         size_t padding = get_padding<StructField::Data>(buffer.current_position());
         auto idx = buffer.get_next_multi_byte<StructField::Data>(sizeof_v<StructField::Data> + padding);
         return buffer.get_aligned(idx.add(padding));
@@ -264,22 +252,20 @@ struct DefinitionWithFields : IdentifiedDefinition::Data {
     }
 };
 
-auto a = sizeof_v<DefinitionWithFields<STRUCT>>;
 
-
-typedef DefinitionWithFields<STRUCT> StructDefinition;
-typedef DefinitionWithFields<UNION> UnionDefinition;
+typedef DefinitionWithFields StructDefinition;
+typedef DefinitionWithFields UnionDefinition;
 
 struct EnumDefinition : IdentifiedDefinition::Data {
     uint16_t field_count;
     SIZE type_size;
 
     INLINE static auto create(Buffer &buffer) {
-        std::pair<EnumDefinition*, IdentifedDefinitionIndex> result = create_extended_identified_definition<EnumDefinition, ENUM>(buffer);
+        __CreateExtendedResult<EnumDefinition, IdentifiedDefinition> result = __create_extended<EnumDefinition, IdentifiedDefinition>(buffer);
         return result;
     }
 
-    INLINE EnumField* reserve_field(Buffer &buffer) {
+    INLINE static EnumField* reserve_field(Buffer &buffer) {
         return buffer.get_next_aligned<EnumField>();
     }
 
@@ -288,7 +274,7 @@ struct EnumDefinition : IdentifiedDefinition::Data {
     }
 };
 
-/* struct TypedefDefinition : IdentifiedDefinition::Data, TypeContainer {
+/* struct TypedefDefinition : IdentifiedDefinition::Data {
     INLINE static auto create(Buffer &buffer) {
         return create_extended_identified_definition<TypedefDefinition, TYPEDEF>(buffer);
     }
@@ -375,13 +361,8 @@ INLINE LexResult<std::pair<char*, char*>>  lex_identifier_name (char* YYCURSOR) 
     return { YYCURSOR, {start, end} };   
 }
 
-INLINE void add_identifier (std::pair<char*, char*> name, IdentifierMap &identifier_map, IdentifiedDefinition::Data* definition_data, IdentifedDefinitionIndex definition_idx) {
+INLINE void add_identifier (std::pair<char*, char*> name, IdentifierMap &identifier_map, IdentifedDefinitionIndex definition_idx) {
     auto [start, end] = name;
-    size_t length = end - start;
-    if (length > std::numeric_limits<uint16_t>::max()) {
-        show_syntax_error("identifier name too long", start);
-    }
-    definition_data->name = StringSection<uint16_t>{start, static_cast<uint16_t>(length)};
 
     char end_backup = *end;
     *end = 0;
@@ -411,7 +392,7 @@ constexpr SIZE delta_to_size (uint32_t delta) {
     }
 }
 
-LexTypeResult lex_type (char* YYCURSOR, Buffer &buffer, TypeContainer* type_container, IdentifierMap &identifier_map) {
+LexTypeResult lex_type (char* YYCURSOR, Buffer &buffer, IdentifierMap &identifier_map) {
     const char* identifier_start = YYCURSOR;
     #define LEAF_COUNTS_TYPE_8  {1, 0, 0, 0}
     #define LEAF_COUNTS_TYPE_16 {0, 1, 0, 0}
@@ -488,13 +469,13 @@ LexTypeResult lex_type (char* YYCURSOR, Buffer &buffer, TypeContainer* type_cont
     }
 
     array: {
-        auto [extended, base] = ArrayType::create(buffer);
+        auto [extended_idx, base_idx] = ArrayType::create(buffer);
 
         YYCURSOR = lex_same_line_symbol<'<', "expected argument list">(YYCURSOR);
 
         YYCURSOR = skip_white_space(YYCURSOR);
 
-        auto result = lex_type(YYCURSOR, buffer, extended, identifier_map);
+        auto result = lex_type(YYCURSOR, buffer, identifier_map);
         if (!result.is_fixed_size) {
             show_syntax_error("expected static size type", YYCURSOR);
         }
@@ -504,6 +485,9 @@ LexTypeResult lex_type (char* YYCURSOR, Buffer &buffer, TypeContainer* type_cont
 
         bool is_fixed_size;
         LeafCounts leaf_counts;
+
+        auto extended = buffer.get(extended_idx);
+        auto base = buffer.get(base_idx);
 
         YYCURSOR = lex_range_argument(
             YYCURSOR, 
@@ -539,7 +523,7 @@ LexTypeResult lex_type (char* YYCURSOR, Buffer &buffer, TypeContainer* type_cont
 
         YYCURSOR = lex_same_line_symbol<'<', "expected argument list">(YYCURSOR);
 
-        auto variant_type = VariantType::create(buffer);
+        auto variant_type_idx = VariantType::create(buffer);
         variant_count_t variant_count = 0;
 
 
@@ -548,7 +532,7 @@ LexTypeResult lex_type (char* YYCURSOR, Buffer &buffer, TypeContainer* type_cont
         while (1) {
             variant_count++;
             YYCURSOR = skip_white_space(YYCURSOR);
-            auto result = lex_type(YYCURSOR, buffer, variant_type, identifier_map);
+            auto result = lex_type(YYCURSOR, buffer, identifier_map);
             YYCURSOR = result.cursor;
             internal_size += result.internal_size;
             leaf_counts += result.leaf_counts;
@@ -571,7 +555,7 @@ LexTypeResult lex_type (char* YYCURSOR, Buffer &buffer, TypeContainer* type_cont
             
         }
 
-        variant_type->variant_count = variant_count;
+        buffer.get(variant_type_idx)->variant_count = variant_count;
 
         return {YYCURSOR, leaf_counts, internal_size, false};
     }
@@ -643,11 +627,10 @@ T* skip_type (Type* type) {
     }
 }
 
-template <KEYWORDS keyword, bool is_first_field>
-requires (keyword == STRUCT || keyword == UNION)
+template <bool is_first_field>
 INLINE char* lex_struct_or_union_fields (
     char* YYCURSOR,
-    DefinitionWithFields<keyword>* definition,
+    Buffer::Index<DefinitionWithFields> definition_data_idx,
     IdentifierMap &identifier_map,
     Buffer &buffer,
     LeafCounts leaf_counts,
@@ -669,10 +652,11 @@ INLINE char* lex_struct_or_union_fields (
         if constexpr (is_first_field) {
             show_syntax_error("expected at least one field", YYCURSOR - 1);
         } else {
-            definition->leaf_counts = leaf_counts;
-            definition->internal_size = internal_size;
-            definition->field_count = field_count;
-            definition->is_fixed_size = is_fixed_size;
+            auto definition_data = buffer.get(definition_data_idx);
+            definition_data->leaf_counts = leaf_counts;
+            definition_data->internal_size = internal_size;
+            definition_data->field_count = field_count;
+            definition_data->is_fixed_size = is_fixed_size;
             return YYCURSOR;
         }
     }
@@ -689,7 +673,7 @@ INLINE char* lex_struct_or_union_fields (
         UNEXPECTED_INPUT("field name too long");
     }
     if constexpr (!is_first_field) {
-        StructField::Data* field = definition->first_field()->data();
+        StructField::Data* field = buffer.get(definition_data_idx)->first_field()->data();
         for (uint32_t i = 0; i < field_count; i++) {
             if (string_section_eq(field->name.offset, field->name.length, start, length)) {
                 show_syntax_error("field already defined", start);
@@ -706,11 +690,11 @@ INLINE char* lex_struct_or_union_fields (
         if constexpr (!is_first_field) {
             field_count++;
         }
-        StructField::Data* field = definition->reserve_field(buffer);
+        StructField::Data* field = DefinitionWithFields::reserve_field(buffer);
         field->name = {start, static_cast<uint16_t>(length)};
         
         YYCURSOR = skip_white_space(YYCURSOR);
-        auto result = lex_type(YYCURSOR, buffer, field, identifier_map);
+        auto result = lex_type(YYCURSOR, buffer, identifier_map);
         YYCURSOR = result.cursor;
         internal_size += result.internal_size;
         leaf_counts += result.leaf_counts;
@@ -718,7 +702,7 @@ INLINE char* lex_struct_or_union_fields (
         YYCURSOR = lex_same_line_symbol<';'>(YYCURSOR);
 
         if constexpr (is_first_field) {
-            return lex_struct_or_union_fields<keyword, false>(YYCURSOR, definition, identifier_map, buffer, leaf_counts, internal_size, 1, result.is_fixed_size);
+            return lex_struct_or_union_fields<false>(YYCURSOR, definition_data_idx, identifier_map, buffer, leaf_counts, internal_size, 1, result.is_fixed_size);
         } else {
             is_fixed_size &= result.is_fixed_size;
             goto before_field;
@@ -727,17 +711,15 @@ INLINE char* lex_struct_or_union_fields (
     
 }
 
-template <KEYWORDS keyword>
-requires (keyword == STRUCT || keyword == UNION)
 INLINE char* lex_struct_or_union(
     char* YYCURSOR,
-    DefinitionWithFields<keyword>* definition,
+    Buffer::Index<DefinitionWithFields> definition_data_idx,
     IdentifierMap &identifier_map,
     Buffer &buffer
 ) {
     YYCURSOR = lex_same_line_symbol<'{', "expected '{'">(YYCURSOR);
 
-    return lex_struct_or_union_fields<keyword, true>(YYCURSOR, definition, identifier_map, buffer, {0, 0, 0, 0}, sizeof_v<IdentifiedDefinition> + alignof(DefinitionWithFields<keyword>) - 1 + sizeof_v<DefinitionWithFields<keyword>>, 0, true);
+    return lex_struct_or_union_fields<true>(YYCURSOR, definition_data_idx, identifier_map, buffer, {0, 0, 0, 0}, sizeof_v<IdentifiedDefinition> + alignof(DefinitionWithFields) - 1 + sizeof_v<DefinitionWithFields>, 0, true);
 }
 
 INLINE auto set_member_value (char* start, uint64_t value, bool is_negative) {
@@ -755,8 +737,8 @@ INLINE auto set_member_value (char* start, uint64_t value, bool is_negative) {
     return std::pair(value, is_negative);
 }
 
-INLINE auto add_member (EnumDefinition* definition, Buffer &buffer, char* start, char* end, uint64_t value, bool is_negative) {
-    auto field = definition->reserve_field(buffer);
+INLINE auto add_member (Buffer &buffer, char* start, char* end, uint64_t value, bool is_negative) {
+    auto field = EnumDefinition::reserve_field(buffer);
     field->name = {start, end};
     field->value = value;
     field->is_negative = is_negative;
@@ -765,7 +747,7 @@ INLINE auto add_member (EnumDefinition* definition, Buffer &buffer, char* start,
 template <bool is_signed>
 INLINE char* lex_enum_fields (
     char* YYCURSOR,
-    EnumDefinition* definition,
+    Buffer::Index<EnumDefinition> definition_data_idx,
     uint16_t field_count,
     uint64_t value,
     uint64_t max_value_unsigned,
@@ -787,16 +769,17 @@ INLINE char* lex_enum_fields (
             if (field_count == 0) {
                 show_syntax_error("expected at least one member", YYCURSOR - 1);
             }
-            definition->field_count = field_count;
+            auto definition_data = buffer.get(definition_data_idx);
+            definition_data->field_count = field_count;
             constexpr auto a = std::numeric_limits<int16_t>::min();
             if (max_value_unsigned <= UINT8_MAX) {
-                definition->type_size = SIZE_1;
+                definition_data->type_size = SIZE_1;
             } else if (max_value_unsigned <= UINT16_MAX) {
-                definition->type_size = SIZE_2;
+                definition_data->type_size = SIZE_2;
             } else if (max_value_unsigned <= UINT32_MAX) {
-                definition->type_size = SIZE_4;
+                definition_data->type_size = SIZE_4;
             } else {
-                definition->type_size = SIZE_8;
+                definition_data->type_size = SIZE_8;
             }
             return YYCURSOR;
         }
@@ -810,7 +793,7 @@ INLINE char* lex_enum_fields (
         char* end = YYCURSOR;
         size_t length = end - start;
         {
-            auto field = definition->first_field();
+            auto field = buffer.get(definition_data_idx)->first_field();
             for (uint32_t i = 0; i < field_count; i++) {
                 if (string_section_eq(field->name.offset, field->name.length, start, length)) {
                     show_syntax_error("field already defined", start);
@@ -871,8 +854,8 @@ INLINE char* lex_enum_fields (
                     */
                     enum_member_signed: {
                         field_count++;
-                        add_member(definition, buffer, start, end, value, is_negative);
-                        return lex_enum_fields<true>(YYCURSOR, definition, field_count, value, max_value_unsigned, is_negative, identifier_map, buffer);
+                        add_member(buffer, start, end, value, is_negative);
+                        return lex_enum_fields<true>(YYCURSOR, definition_data_idx, field_count, value, max_value_unsigned, is_negative, identifier_map, buffer);
                     }
                 } else {
                     auto parsed = parse_int<uint64_t>(YYCURSOR);
@@ -896,20 +879,20 @@ INLINE char* lex_enum_fields (
 
         last_member: {
             field_count++;
-            add_member(definition, buffer, start, end, value, is_negative);
+            add_member(buffer, start, end, value, is_negative);
             goto enum_end;
         }
 
         enum_member: {
             field_count++;
-            add_member(definition, buffer, start, end, value, is_negative);
+            add_member(buffer, start, end, value, is_negative);
         }
     }
 }
 
 INLINE char* lex_enum (
     char* YYCURSOR,
-    EnumDefinition* definition,
+    Buffer::Index<EnumDefinition> definition_data_idx,
     IdentifierMap &identifier_map,
     Buffer &buffer
 ) {
@@ -922,11 +905,21 @@ INLINE char* lex_enum (
 
     uint64_t max_value_unsigned = 0;
 
-    return lex_enum_fields<false>(YYCURSOR, definition, field_count, value, max_value_unsigned, is_negative, identifier_map, buffer);
+    return lex_enum_fields<false>(YYCURSOR, definition_data_idx, field_count, value, max_value_unsigned, is_negative, identifier_map, buffer);
 }
 
-INLINE IdentifiedDefinition* lex (char* YYCURSOR, IdentifierMap &identifier_map, Buffer &buffer) {
-    IdentifiedDefinition* target = nullptr;
+template <UnsignedIntegral T>
+INLINE StringSection<T> __to_string_section (std::pair<char*, char*> str) {
+    auto [start, end] = str;
+    size_t length = end - start;
+    if (length > std::numeric_limits<T>::max()) {
+        show_syntax_error("identifier name too long", start);
+    }
+    return {start, static_cast<T>(length)};
+}
+
+template <bool target_defined>
+INLINE std::conditional_t<target_defined, void, IdentifedDefinitionIndex> lex (char* YYCURSOR, IdentifierMap &identifier_map, Buffer &buffer) {
     loop: {
     /*!local:re2c
     
@@ -950,27 +943,33 @@ INLINE IdentifiedDefinition* lex (char* YYCURSOR, IdentifierMap &identifier_map,
     }
 
     struct_keyword: {
-        auto [definition_data, definition_idx] = StructDefinition::create(buffer);
         auto name_result = lex_identifier_name(YYCURSOR);
         YYCURSOR = name_result.cursor;
-        YYCURSOR = lex_struct_or_union(YYCURSOR, definition_data, identifier_map, buffer);
-        add_identifier(name_result.value, identifier_map, definition_data, definition_idx);
+        auto [definition_data_idx, definition_idx] = StructDefinition::create(buffer);
+        buffer.get(definition_idx)->keyword = KEYWORDS::STRUCT;
+        buffer.get(definition_data_idx)->name = __to_string_section<uint16_t>(name_result.value);
+        YYCURSOR = lex_struct_or_union(YYCURSOR, definition_data_idx, identifier_map, buffer);
+        add_identifier(name_result.value, identifier_map, definition_idx);
         goto loop;
     }
     enum_keyword: {
-        auto [definition_data, definition_idx] = EnumDefinition::create(buffer);
         auto name_result = lex_identifier_name(YYCURSOR);
         YYCURSOR = name_result.cursor;
-        YYCURSOR = lex_enum(YYCURSOR, definition_data, identifier_map, buffer);
-        add_identifier(name_result.value, identifier_map, definition_data, definition_idx);
+        auto [definition_data_idx, definition_idx] = EnumDefinition::create(buffer);
+        buffer.get(definition_idx)->keyword = KEYWORDS::ENUM;
+        buffer.get(definition_data_idx)->name = __to_string_section<uint16_t>(name_result.value);
+        YYCURSOR = lex_enum(YYCURSOR, definition_data_idx, identifier_map, buffer);
+        add_identifier(name_result.value, identifier_map, definition_idx);
         goto loop;
     }
     union_keyword: {
-        auto [definition_data, definition_idx] = UnionDefinition::create(buffer);
         auto name_result = lex_identifier_name(YYCURSOR);
         YYCURSOR = name_result.cursor;
-        YYCURSOR = lex_struct_or_union(YYCURSOR, definition_data, identifier_map, buffer);
-        add_identifier(name_result.value, identifier_map, definition_data, definition_idx);
+        auto [definition_data_idx, definition_idx] = UnionDefinition::create(buffer);
+        buffer.get(definition_idx)->keyword = KEYWORDS::UNION;
+        buffer.get(definition_data_idx)->name = __to_string_section<uint16_t>(name_result.value);
+        YYCURSOR = lex_struct_or_union(YYCURSOR, definition_data_idx, identifier_map, buffer);
+        add_identifier(name_result.value, identifier_map, definition_idx);
         goto loop;
     }
     /* typedef_keyword: {
@@ -985,23 +984,27 @@ INLINE IdentifiedDefinition* lex (char* YYCURSOR, IdentifierMap &identifier_map,
         goto loop;
     } */
     target_keyword: {
-        YYCURSOR = skip_white_space(YYCURSOR);
-        auto type_container = buffer.get_next<TypeContainer>();
-        YYCURSOR = lex_type(YYCURSOR, buffer, type_container, identifier_map).cursor;
-        YYCURSOR = lex_same_line_symbol<';'>(YYCURSOR);
-        auto type = (Type*)type_container;
-        if (type->type != FIELD_TYPE::IDENTIFIER) {
-            INTERNAL_ERROR("target must be an identifier");
+        if constexpr (target_defined) {
+            show_syntax_error("target already defined", YYCURSOR);
+        } else {
+            YYCURSOR = skip_white_space(YYCURSOR);
+            auto type_idx = Buffer::Index<Type>{buffer.current_position()};
+            YYCURSOR = lex_type(YYCURSOR, buffer, identifier_map).cursor;
+            YYCURSOR = lex_same_line_symbol<';'>(YYCURSOR);
+            auto type = buffer.get(type_idx);
+            if (type->type != FIELD_TYPE::IDENTIFIER) {
+                INTERNAL_ERROR("target must be an identifier");
+            }
+            auto target_idx = type->as_identifier()->identifier_idx;
+            lex<true>(YYCURSOR, identifier_map, buffer);
+            return target_idx;
         }
-        target = buffer.get(type->as_identifier()->identifier_idx);
-        goto loop;
     }
 
     eof: {
-        if (target) {
-            return target;
+        if constexpr (!target_defined) {
+            INTERNAL_ERROR("no target defined");
         }
-        INTERNAL_ERROR("no target defined");
     }
 }
 
