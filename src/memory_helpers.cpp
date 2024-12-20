@@ -37,7 +37,7 @@ INLINE __CreateExtendedResult<T, Base> __create_extended (Buffer &buffer) {
     size_t padding = get_padding<T>(buffer.current_position() + sizeof_v<Base>);
     Buffer::Index<Base> base_idx = buffer.get_next_multi_byte<Base>(sizeof_v<Base> + padding + sizeof_v<T>);
     auto extended_idx = Buffer::Index<T>{static_cast<uint32_t>(base_idx.value + padding + sizeof_v<Base>)};
-    return {base_idx, extended_idx};
+    return {extended_idx, base_idx};
 }
 
 template <typename T, typename Base>
