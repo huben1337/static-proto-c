@@ -102,8 +102,7 @@ struct Memory {
             if (capacity >= (max / 2)) {
                 INTERNAL_ERROR("memory overflow\n");
             }
-            capacity *= 2;
-            grow(capacity);
+            grow(capacity * 2);
         }
         return Index<T>{position++};
     }
@@ -119,8 +118,7 @@ struct Memory {
             if (position >= (max / 2)) {
                 INTERNAL_ERROR("memory overflow\n");
             }
-            capacity = position * 2;
-            grow(capacity);
+            grow(position * 2);
         }
         return Index<T>{next};
     }
@@ -128,16 +126,19 @@ struct Memory {
     private:
     INLINE void grow (U size) {
         if (in_heap) {
-            memory = (uint8_t*) std::realloc(memory, capacity);
-            // printf("reallocated memory in heap: to %d\n", capacity);
+            memory = (uint8_t*) std::realloc(memory, size);
+            printf("reallocated memory in heap: to %d\n", capacity);
         } else {
-            auto new_memory = (uint8_t*) std::malloc(capacity);
-            memcpy(new_memory, memory, position);
+            auto new_memory = (uint8_t*) std::malloc(size);
+            memcpy(new_memory, memory, capacity);
             memory = new_memory;
             in_heap = true;
-            // printf("reallocated memory from stack: to %d\n", capacity);
+            printf("reallocated memory from stack: to %d\n", capacity);
         }
-        if (!memory) INTERNAL_ERROR("memory allocation failed\n");
+        capacity = size;
+        if (!memory) {
+            INTERNAL_ERROR("memory allocation failed\n");
+        }
     }
 
 };
