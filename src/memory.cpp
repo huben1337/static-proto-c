@@ -127,13 +127,13 @@ struct Memory {
     INLINE void grow (U size) {
         if (in_heap) {
             memory = (uint8_t*) std::realloc(memory, size);
-            printf("reallocated memory in heap: to %d\n", capacity);
+            // printf("reallocated memory in heap: to %d\n", capacity);
         } else {
             auto new_memory = (uint8_t*) std::malloc(size);
             memcpy(new_memory, memory, capacity);
             memory = new_memory;
             in_heap = true;
-            printf("reallocated memory from stack: to %d\n", capacity);
+            // printf("reallocated memory from stack: to %d\n", capacity);
         }
         capacity = size;
         if (!memory) {
