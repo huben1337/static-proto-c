@@ -3,6 +3,7 @@
 #include <cstdint>
 #include <string>
 #include <cstring>
+#include <cmath>
 #include "memory.cpp"
 
 namespace codegen {
@@ -49,14 +50,16 @@ struct CodeData {
 
 struct ClosedCodeBlock {
     private:
-    Buffer buffer;
+    Buffer _buffer;
     public:
-    ClosedCodeBlock (Buffer buffer) : buffer(buffer) {}
+    ClosedCodeBlock (Buffer buffer) : _buffer(buffer) {}
     INLINE const char* c_str () {
-        *buffer.get_next<char>() = 0;
-        return reinterpret_cast<const char*>(buffer.c_memory());
+        *_buffer.get_next<char>() = 0;
+        return reinterpret_cast<const char*>(_buffer.c_memory());
     }
-    INLINE const size_t size () { return buffer.current_position(); }
+    INLINE const size_t size () { return _buffer.current_position(); }
+    INLINE Buffer buffer () { return _buffer; }
+    INLINE void dispose () { _buffer.free(); }
     
 };
 
@@ -102,6 +105,25 @@ struct Line : CodeData {
         size_t size = value.size();
         auto str = buffer.get(buffer.get_next_multi_byte<char>(size));
         std::memcpy(str, value.c_str(), size);
+        return Line<indent, Last>(this->buffer);
+    }
+    INLINE auto operator() (std::string value, Buffer::Index<char>* idx) {
+        size_t size = value.size();
+        auto str_idx = buffer.get_next_multi_byte<char>(size);
+        *idx = str_idx;
+        auto str = buffer.get(str_idx);
+        std::memcpy(str, value.c_str(), size);
+        return Line<indent, Last>(this->buffer);
+    }
+    template <UnsignedIntegral T>
+    INLINE auto operator() (T value) {
+        uint8_t length = std::log10(value) + 1;
+        auto str = buffer.get(buffer.get_next_multi_byte<char>(length));
+        uint8_t i = length - 1;
+        while (value > 0) {
+            str[i--] = '0' + (value % 10);
+            value /= 10;
+        }
         return Line<indent, Last>(this->buffer);
     }
     /**
@@ -190,11 +212,33 @@ struct __Struct : CodeData {
     using __Last = Last;
     using __Derived = Derived;
 
-    INLINE auto method (std::string attributes, std::string return_type, std::string name) {
-        return __method(attributes + " " + return_type + " " + name + " () {");
+    std::string name;
+
+    INLINE auto _private () {
+        LINE(indent, "private:");
+        return c_cast<Derived>(__Struct<indent, Last, Derived>({this->buffer}));
     }
-    INLINE auto method (std::string return_type, std::string name) {
-        return __method(return_type + " " + name + " () {");
+    INLINE auto _public () {
+        LINE(indent, "public:");
+        return c_cast<Derived>(__Struct<indent, Last, Derived>({this->buffer}));
+    }
+    INLINE auto _protected () {
+        LINE(indent, "protected:");
+        return c_cast<Derived>(__Struct<indent, Last, Derived>({this->buffer}));
+    }
+
+    INLINE auto ctor (std::string args, std::string initializers) {
+        LINE(indent, name + " (" + args + ") :" + initializers + " {}");
+        return c_cast<Derived>(__Struct<indent, Last, Derived>({this->buffer}));
+    }
+
+    INLINE auto ctor (std::pair<std::string, std::string> strs) {
+        LINE(indent, name + " (" + strs.first + ") :" + strs.second + " {}");
+        return c_cast<Derived>(__Struct<indent, Last, Derived>({this->buffer}));
+    }
+
+    INLINE auto method (std::string method_qualifier, std::string args = "") {
+        return __method(method_qualifier + " (" + args + ") {");
     }
 
     INLINE auto field (std::string attributes, std::string type, std::string name) {
@@ -208,8 +252,8 @@ struct __Struct : CodeData {
     INLINE auto _struct (std::string attributes, std::string name);
 
     private:
-    INLINE auto __method (std::string method_qualifier) {
-        LINE(indent, method_qualifier);
+    INLINE auto __method (std::string str) {
+        LINE(indent, str);
         return Method<indent + 1, Derived>({{buffer}});
     }
     INLINE Derived __field (std::string field_qualifier) {
@@ -233,7 +277,7 @@ struct Struct : __Struct<indent, Last, Struct<indent, Last>> {
 template <size_t indent, typename Last, typename Derived>
 INLINE auto __CodeBlock<indent, Last, Derived>::_struct (std::string name) {
     LINE(indent, "struct " + name + " {");
-    return Struct<indent + 1, Derived>({this->buffer});
+    return Struct<indent + 1, Derived>({this->buffer, name});
 };
 template <size_t indent, typename Last>
 struct NestedStruct : __Struct<indent, Last, NestedStruct<indent, Last>> {
@@ -255,17 +299,19 @@ struct NestedStruct : __Struct<indent, Last, NestedStruct<indent, Last>> {
 template <size_t indent, typename Last, typename Derived>
 INLINE auto __Struct<indent, Last, Derived>::_struct (std::string name) {
     LINE(indent, "struct " + name + " {");
-    return NestedStruct<indent + 1, Derived>({this->buffer});
+    return NestedStruct<indent + 1, Derived>({this->buffer, name});
 }
 template <size_t indent, typename Last, typename Derived>
 INLINE auto __Struct<indent, Last, Derived>::_struct (std::string attributes, std::string name) {
     LINE(indent, attributes + " struct " + name + " {");
-    return NestedStruct<indent + 1, Derived>({this->buffer});
+    return NestedStruct<indent + 1, Derived>({this->buffer, name});
 }
+
+typedef CodeBlock<0, ClosedCodeBlock> InitialCodeBlock;
 
 template <size_t N>
 INLINE auto create_code (uint8_t (&memory)[N]) {
-    return CodeBlock<0, ClosedCodeBlock>({{Buffer(memory)}});
+    return InitialCodeBlock({{Buffer(memory)}});
 }
 
 INLINE void test () {
@@ -280,7 +326,7 @@ INLINE void test () {
                     .field("int", "a")
                 .end()
                 
-                .method("void", "a")
+                .method("void a")
                     ("aawdw").nl()
                     ._if("true")
                     .end()
