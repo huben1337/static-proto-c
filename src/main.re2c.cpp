@@ -14,7 +14,7 @@
 #include "fatal_error.cpp"
 #include "memory.cpp"
 #include "lexer.re2c.cpp"
-#include "codegen.cpp"
+#include "decode_code.cpp"
 
 
 const char* input_start;
@@ -317,6 +317,11 @@ int main(int argc, const char** argv) {
         printf("\n\n- target: ");
         printf(extract_string(target_struct->name).c_str());
         print_parse_result(identifier_map, buffer);
+        #endif
+
+        #define DO_CODEGEN
+        #ifdef DO_CODEGEN
+        decode_code::generate(target_struct, buffer);
         #endif
 
         //uint8_t __buffer2[target_data->internal_size + 8];
