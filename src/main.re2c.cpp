@@ -45,7 +45,7 @@ T* print_type (lexer::Type* type, Buffer &buffer, uint32_t indent, std::string p
         auto string_type = type->as_string();
         printf("string\n");
         printf_with_indent(indent + 2, "- min length: %d\n", string_type->min_length);
-        printf_with_indent(indent + 2, "- length data size: %d", string_type->fixed_alignment);
+        printf_with_indent(indent + 2, "- length data size: %d", string_type->stored_size_size);
         return reinterpret_cast<T*>(string_type + 1);
     }
     case lexer::FIELD_TYPE::ARRAY_FIXED: {
@@ -58,7 +58,7 @@ T* print_type (lexer::Type* type, Buffer &buffer, uint32_t indent, std::string p
         auto array_type = type->as_array();
         printf("dynamic array\n");
         printf_with_indent(indent + 2, "- min length: %d\n", array_type->length);
-        printf_with_indent(indent + 2, "- length data size: %d", array_type->fixed_alignment);
+        printf_with_indent(indent + 2, "- length data size: %d", array_type->stored_size_size);
         return print_type<T>(array_type->inner_type(), buffer, indent + 2, "- inner: ");
     }
     case lexer::FIELD_TYPE::VARIANT: {
@@ -181,7 +181,7 @@ T* __extract_leafes_type (lexer::Type* type, Buffer &buffer, std::string path) {
     }
     case lexer::FIELD_TYPE::STRING: {
         auto string_type = type->as_string();
-        if (string_type->fixed_alignment * 8 == leaf_size) {
+        if (string_type->stored_size_size * 8 == leaf_size) {
             printf("%s\n", (path + " (hidden)").c_str());
         }
         return (T*)(string_type + 1);
@@ -192,7 +192,7 @@ T* __extract_leafes_type (lexer::Type* type, Buffer &buffer, std::string path) {
     }
     case lexer::FIELD_TYPE::ARRAY: {
         auto array_type = type->as_array();
-        if (array_type->fixed_alignment * 8 == leaf_size) {
+        if (array_type->stored_size_size * 8 == leaf_size) {
             printf("%s\n", (path + " (hidden)").c_str());
         }
         return skip_type<T>(array_type->inner_type());
@@ -293,7 +293,7 @@ int main(int argc, const char** argv) {
 
     auto start_ts = std::chrono::high_resolution_clock::now();
 
-    codegen::test();
+    // codegen::test();
 
     #define DO_LEX
     #ifdef DO_LEX
@@ -302,22 +302,20 @@ int main(int argc, const char** argv) {
         lexer::IdentifierMap identifier_map;
         uint8_t __buffer[5000];
         auto buffer = Buffer(__buffer);
-        auto target_idx = lexer::lex<false>(data, identifier_map, buffer);
-        auto target = buffer.get(target_idx);
-        auto target_data = target->data();
-        // auto target_name = extract_string(target_data->name);
+        auto target_struct = lexer::lex<false>(data, identifier_map, buffer);
 
         //#define DO_EXTRACT
         #ifdef DO_EXTRACT
-        for_<size_t, 64, 32, 16, 8>([&target, &target_data, &buffer, &target_name]<size_t v>() {
+        auto target_name = extract_string(target_struct->name);
+        for_<size_t, 64, 32, 16, 8>([&target_struct, &buffer, &target_name]<size_t v>() {
             printf("size: %d\n", v);
-            __extract_leafes_def<v>(target->keyword, target_data, buffer, target_name);
+            __extract_leafes_def<v>(lexer::KEYWORDS::STRUCT, target_struct, buffer, target_name);
         });
         #endif
         // #define DO_PRINT
         #ifdef DO_PRINT
-        // printf("\n\n- target: ");
-        // printf(extract_string(target->as_struct()->name).c_str());
+        printf("\n\n- target: ");
+        printf(extract_string(target_struct->name).c_str());
         print_parse_result(identifier_map, buffer);
         #endif
 

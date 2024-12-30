@@ -78,6 +78,8 @@ struct LeafCounts {
         size32 += other.size32;
         size64 += other.size64;
     }
+
+    INLINE uint32_t total () const { return size8 + size16 + size32 + size64; }
 };
 
 struct IdentifiedDefinition {
@@ -130,16 +132,16 @@ INLINE auto Type::as_fixed_string () const {
 }
 
 struct StringType {
-    template <SIZE alignment>
-    requires (alignment != SIZE_0)
-    INLINE static void create (Buffer &buffer, uint32_t min_length) {
+    INLINE static void create (Buffer &buffer, uint32_t min_length, SIZE stored_size_size, SIZE size_size) {
         auto [extended, base] = create_extended<StringType, Type>(buffer);
         base->type = STRING;
         extended->min_length = min_length;
-        extended->fixed_alignment = alignment;
+        extended->stored_size_size = stored_size_size;
+        extended->size_size = size_size;
     }
     uint32_t min_length;
-    SIZE fixed_alignment;
+    SIZE stored_size_size;
+    SIZE size_size;
 };
 INLINE auto Type::as_string () const {
     return get_extended_type<StringType>(this);
@@ -167,7 +169,8 @@ struct ArrayType {
     }
 
     uint32_t length;
-    SIZE fixed_alignment;
+    SIZE stored_size_size;
+    SIZE size_size;
 
     INLINE Type* inner_type () {
         return reinterpret_cast<Type*>(this + 1);
@@ -449,17 +452,34 @@ LexTypeResult lex_type (char* YYCURSOR, Buffer &buffer, IdentifierMap &identifie
             },
             [&buffer, &is_fixed_size, &internal_size, &leaf_counts](Range range) {
                 is_fixed_size = false;
-                uint32_t delta = range.max - range.min;
+                auto [min, max] = range;
+                uint32_t delta = max - min;
+                SIZE size_size;
+                SIZE stored_size_size;
                 if (delta <= UINT8_MAX) {
                     leaf_counts = {1, 0, 0, 0};
-                    StringType::create<SIZE_1>(buffer, range.min);
+                    stored_size_size = SIZE_1;
+                    if (max <= UINT8_MAX) {
+                        size_size = SIZE_1;
+                    } else if (max <= UINT16_MAX) {
+                        size_size = SIZE_2;
+                    } else {
+                        size_size = SIZE_4;
+                    }
                 } else if (delta <= UINT16_MAX) {
                     leaf_counts = {0, 1, 0, 0};
-                    StringType::create<SIZE_2>(buffer, range.min);
+                    stored_size_size = SIZE_2;
+                    if (max <= UINT16_MAX) {
+                        size_size = SIZE_2;
+                    } else {
+                        size_size = SIZE_4;
+                    }
                 } else /* if (delta <= UINT32_MAX) */ {
                     leaf_counts = {0, 0, 1, 0};
-                    StringType::create<SIZE_4>(buffer, range.min);
+                    stored_size_size = SIZE_4;
+                    size_size = SIZE_4;
                 }
+                StringType::create(buffer, range.min, stored_size_size, size_size);
                 internal_size = sizeof_v<Type> + alignof(StringType) - 1 + sizeof_v<StringType>; 
             }
         );
@@ -494,24 +514,43 @@ LexTypeResult lex_type (char* YYCURSOR, Buffer &buffer, IdentifierMap &identifie
             [&buffer, &extended, &base, &is_fixed_size, &leaf_counts, &result](uint32_t length) {
                 base->type = ARRAY_FIXED;
                 extended->length = length;
-                extended->fixed_alignment = SIZE_0;
+                extended->stored_size_size = SIZE_0;
+                extended->size_size = SIZE_0;
                 leaf_counts = result.leaf_counts;
                 is_fixed_size = true;
             },
             [&buffer, &extended, &base, &is_fixed_size, &leaf_counts](Range range) {
                 base->type = ARRAY;
-                uint32_t delta = range.max - range.min;
+                auto [min, max] = range;
+                uint32_t delta = max - min;
+                SIZE size_size;
+                SIZE stored_size_size;
                 if (delta <= UINT8_MAX) {
-                    extended->fixed_alignment = SIZE_1;
                     leaf_counts = {1, 0, 0, 0};
+                    stored_size_size = SIZE_1;
+                    if (max <= UINT8_MAX) {
+                        size_size = SIZE_1;
+                    } else if (max <= UINT16_MAX) {
+                        size_size = SIZE_2;
+                    } else {
+                        size_size = SIZE_4;
+                    }
                 } else if (delta <= UINT16_MAX) {
-                    extended->fixed_alignment = SIZE_2;
                     leaf_counts = {0, 1, 0, 0};
+                    stored_size_size = SIZE_2;
+                    if (max <= UINT16_MAX) {
+                        size_size = SIZE_2;
+                    } else {
+                        size_size = SIZE_4;
+                    }
                 } else /* if (delta <= UINT32_MAX) */ {
-                    extended->fixed_alignment = SIZE_4;
                     leaf_counts = {0, 0, 1, 0};
+                    stored_size_size = SIZE_4;
+                    size_size = SIZE_4;
                 }
-                extended->length = range.min;
+                extended->length = min;
+                extended->stored_size_size = stored_size_size;
+                extended->size_size = size_size;
                 is_fixed_size = false;
             }
         );
@@ -919,7 +958,7 @@ INLINE StringSection<T> __to_string_section (std::pair<char*, char*> str) {
 }
 
 template <bool target_defined>
-INLINE std::conditional_t<target_defined, void, IdentifedDefinitionIndex> lex (char* YYCURSOR, IdentifierMap &identifier_map, Buffer &buffer) {
+INLINE std::conditional_t<target_defined, void, StructDefinition*> lex (char* YYCURSOR, IdentifierMap &identifier_map, Buffer &buffer) {
     loop: {
     /*!local:re2c
     
@@ -995,9 +1034,13 @@ INLINE std::conditional_t<target_defined, void, IdentifedDefinitionIndex> lex (c
             if (type->type != FIELD_TYPE::IDENTIFIER) {
                 INTERNAL_ERROR("target must be an identifier");
             }
-            auto target_idx = type->as_identifier()->identifier_idx;
+            auto identifier_idx = type->as_identifier()->identifier_idx;
+            auto identified_definition = buffer.get(identifier_idx);
+            if (identified_definition->keyword != KEYWORDS::STRUCT) {
+                INTERNAL_ERROR("target must be a struct");
+            }
             lex<true>(YYCURSOR, identifier_map, buffer);
-            return target_idx;
+            return buffer.get(identifier_idx)->data()->as_struct();
         }
     }
 
