@@ -656,7 +656,7 @@ INLINE char* lex_enum (
 }
 
 template <UnsignedIntegral T>
-INLINE StringSection<T> __to_string_section (std::pair<char*, char*> str) {
+INLINE StringSection<T> to_identifier_string_section (std::pair<char*, char*> str) {
     auto [start, end] = str;
     size_t length = end - start;
     if (length > std::numeric_limits<T>::max()) {
@@ -694,7 +694,7 @@ INLINE std::conditional_t<target_defined, void, StructDefinition*> lex (char* YY
         YYCURSOR = name_result.cursor;
         auto [definition_data_idx, definition_idx] = StructDefinition::create(buffer);
         buffer.get(definition_idx)->keyword = KEYWORDS::STRUCT;
-        buffer.get(definition_data_idx)->name = __to_string_section<uint16_t>(name_result.value);
+        buffer.get(definition_data_idx)->name = to_identifier_string_section<uint16_t>(name_result.value);
         YYCURSOR = lex_struct_or_union(YYCURSOR, definition_data_idx, identifier_map, buffer);
         add_identifier(name_result.value, identifier_map, definition_idx);
         goto loop;
@@ -704,7 +704,7 @@ INLINE std::conditional_t<target_defined, void, StructDefinition*> lex (char* YY
         YYCURSOR = name_result.cursor;
         auto [definition_data_idx, definition_idx] = EnumDefinition::create(buffer);
         buffer.get(definition_idx)->keyword = KEYWORDS::ENUM;
-        buffer.get(definition_data_idx)->name = __to_string_section<uint16_t>(name_result.value);
+        buffer.get(definition_data_idx)->name = to_identifier_string_section<uint16_t>(name_result.value);
         YYCURSOR = lex_enum(YYCURSOR, definition_data_idx, identifier_map, buffer);
         add_identifier(name_result.value, identifier_map, definition_idx);
         goto loop;
@@ -714,7 +714,7 @@ INLINE std::conditional_t<target_defined, void, StructDefinition*> lex (char* YY
         YYCURSOR = name_result.cursor;
         auto [definition_data_idx, definition_idx] = UnionDefinition::create(buffer);
         buffer.get(definition_idx)->keyword = KEYWORDS::UNION;
-        buffer.get(definition_data_idx)->name = __to_string_section<uint16_t>(name_result.value);
+        buffer.get(definition_data_idx)->name = to_identifier_string_section<uint16_t>(name_result.value);
         YYCURSOR = lex_struct_or_union(YYCURSOR, definition_data_idx, identifier_map, buffer);
         add_identifier(name_result.value, identifier_map, definition_idx);
         goto loop;
