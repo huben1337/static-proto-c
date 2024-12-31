@@ -91,72 +91,78 @@ struct ArrayCtorStrs {
     std::string ctor_used;
 };
 
-template <uint8_t array_depth>
-INLINE ArrayCtorStrs make_array_ctor_strs () {
+INLINE ArrayCtorStrs make_array_ctor_strs (uint8_t array_depth) {
     std::string ctro_args = "size_t __base__";
     std::string ctor_inits = "__base__(__base__)";
     std::string ctor_used = "return {__base__";
 
-    for_([&]<uint32_t v>() {
-        std::string idx_str = "idx_" + std::to_string(v);
+
+    for (uint32_t i = 0; i < array_depth; i++) {
+        std::string idx_str = "idx_" + std::to_string(i);
         ctro_args += ", uint32_t " + idx_str;
         ctor_inits += ", " + idx_str + "(" + idx_str + ")";
         ctor_used += ", " + idx_str;
-    }, std::make_integer_sequence<uint32_t, array_depth>{});
+    }
 
     ctor_used += "};";
 
     return {ctro_args, ctor_inits, ctor_used};
 }
 
-template <size_t array_depth>
-requires (array_depth > 0)
-INLINE std::string make_idx_calc (std::array<uint32_t, array_depth>& array_lengths) {
-    std::string idx_calc = "";
-    for_([&]<uint32_t v>() {
-        if constexpr (v < array_depth - 1) {
-            uint64_t size = 1;
-            for_([&]<uint32_t i>() {
-                size *= array_lengths[(array_depth - 1) - i + v];
-            }, std::make_integer_sequence<uint32_t, (array_depth - 1) - v>{});
-            if constexpr (v > 0) {
-                idx_calc += " + idx_" + std::to_string(v) + " * " + std::to_string(size);
-            } else {
-                idx_calc += "idx_" + std::to_string(v) + " * " + std::to_string(size);
-            }
-        } else {
-            if constexpr (v > 0) {
-                idx_calc += " + idx_" + std::to_string(v);
-            } else {
-                idx_calc += "idx_" + std::to_string(v);
-            }
-        }
-    }, std::make_integer_sequence<uint32_t, array_depth>{});
-
-    return idx_calc;
+INLINE uint64_t get_idx_size_multiplier (uint32_t* array_lengths, uint8_t array_depth, uint8_t i) {
+    uint64_t size = 1;
+    uint32_t* array_lengths_end = array_lengths + array_depth - i;
+    for (uint32_t* array_length = array_lengths + 1; array_length < array_lengths_end; array_length++) {
+        size *= *array_length;
+    }
+    return size;
 }
 
-template <typename T, size_t indent, typename Derived>
-struct GenStructFieldInArrayResult {
-    T* next;
-    Derived code;
-    uint64_t inner_length;
-};
+template <bool no_multiply>
+INLINE std::string make_idx_calc (uint32_t* array_lengths, uint8_t array_depth) {
+    
 
-template <typename T, size_t indent, typename Derived>
+    if (array_depth == 1) {
+        return "idx_0";
+    } else {
+        auto add_idx = [array_lengths, array_depth]<bool is_last>(uint32_t i)->std::string {
+            if constexpr (is_last) {
+                return " + idx_" + std::to_string(i);
+            } else {
+                return " + idx_" + std::to_string(i) + " * " + std::to_string(get_idx_size_multiplier(array_lengths, array_depth, i));
+            }
+        };
+
+        std::string idx_calc;
+
+        if  constexpr (no_multiply) {
+            idx_calc = "idx_0 * " + std::to_string(get_idx_size_multiplier(array_lengths, array_depth, 0));
+        } else {
+            idx_calc = "(idx_0 * " + std::to_string(get_idx_size_multiplier(array_lengths, array_depth, 0));
+        }
+
+        for (uint32_t i = 1; i < array_depth - 1; i++) {
+            idx_calc += add_idx.template operator()<false>(i);
+        }
+
+        if constexpr (no_multiply) {
+            return idx_calc + add_idx.template operator()<true>(array_depth - 1);
+        } else {
+            return idx_calc + add_idx.template operator()<true>(array_depth - 1) + ")";
+        }
+    }
+}
+
+template <typename T, typename Derived>
 struct GenStructFieldResult {
     T* next;
     Derived code;
 };
 
-// template <typename T, uint8_t depth, uint8_t array_depth, size_t indent, typename Last>
-// GenStructFieldInArrayResult<T, indent, codegen::NestedStruct<indent, Last>> gen_struct_field (lexer::StructField::Data* field, Buffer &buffer, codegen::NestedStruct<indent, Last> code, FixedFieldLeafes& leafes) {
+GenStructFieldResult<lexer::StructField, codegen::UnknownNestedStruct> gen_array_element (lexer::Type* inner_type, Buffer &buffer, codegen::UnknownNestedStruct array_struct, FixedFieldLeafes& leafes, uint64_t outer_array_length, uint32_t* array_lengths, uint8_t array_depth, uint8_t element_depth);
 
-template <typename T, uint8_t depth, uint8_t array_depth, size_t indent, typename Last, typename Derived>
-GenStructFieldResult<T, indent, Derived> gen_struct_field (lexer::StructField::Data* field, Buffer &buffer, codegen::__Struct<indent, Last, Derived> code, FixedFieldLeafes& leafes, uint64_t outer_array_length, std::array<uint32_t, array_depth>& array_lengths) {
-    if constexpr (indent >= 6) {
-        INTERNAL_ERROR("indent too large");
-    } else {
+GenStructFieldResult<lexer::StructField, codegen::__UnknownStruct> gen_struct_field (lexer::StructField::Data* field, Buffer &buffer, codegen::__UnknownStruct code, FixedFieldLeafes& leafes, uint64_t outer_array_length, uint32_t* array_lengths, uint8_t depth, uint8_t array_depth) {
+    using T = lexer::StructField;
     auto field_type = field->type();
     auto name = extract_string(field->name);
     auto unique_name = name + "_" + std::to_string(depth);
@@ -169,21 +175,21 @@ GenStructFieldResult<T, indent, Derived> gen_struct_field (lexer::StructField::D
         auto leaf = leafes.reserve_next();
         leaf->size = length * outer_array_length;
 
-        ArrayCtorStrs array_ctor_strs = make_array_ctor_strs<array_depth>();
+        ArrayCtorStrs array_ctor_strs = make_array_ctor_strs(array_depth);
 
         auto string_struct = code
         ._struct(unique_name)
             .ctor(array_ctor_strs.ctro_args, array_ctor_strs.ctor_inits);
         
-        if constexpr (array_depth == 0) {
+        if (array_depth == 0) {
             string_struct = string_struct
             .method("const char* c_str")
-                ("return add_offset<const char*>(__base__, ")("00000000);", &leaf->offset_str_idx).nl()
+                ("return add_offset<const char*>(__base__, ")("00000000000000);", &leaf->offset_str_idx).nl()
             .end();
         } else {
             string_struct = string_struct
             .method("const char* c_str")
-                ("return add_offset<const char*>(__base__, ")("00000000 + ", &leaf->offset_str_idx)(make_idx_calc(array_lengths))(length)(");").nl()
+                ("return add_offset<const char*>(__base__, ")("00000000000000 + ", &leaf->offset_str_idx)(make_idx_calc<true>(array_lengths, array_depth))(length)(");").nl()
             .end();
         }
 
@@ -214,21 +220,21 @@ GenStructFieldResult<T, indent, Derived> gen_struct_field (lexer::StructField::D
         uint32_t length = array_type->length;
         auto size_type_str = get_size_type_str(length);
 
-        ArrayCtorStrs array_ctor_strs = make_array_ctor_strs<array_depth>();
+        ArrayCtorStrs array_ctor_strs = make_array_ctor_strs(array_depth);
 
-        auto array_struct = code
+        codegen::NestedStruct<codegen::__UnknownStruct> array_struct = code
         ._struct(unique_name)
             .ctor(array_ctor_strs.ctro_args, array_ctor_strs.ctor_inits);
 
-        auto new_array_lengths = std::array<uint32_t, array_depth + 1>();
+        uint32_t new_array_lengths[array_depth + 1];
         for (uint32_t i = 0; i < array_depth; i++) {
             new_array_lengths[i] = array_lengths[i];
         }
         new_array_lengths[array_depth] = length;
 
-        auto result = gen_array_element<T, array_depth + 1, 0>(array_type->inner_type(), buffer, array_struct, leafes, array_type->length * outer_array_length, new_array_lengths);
+        auto result = gen_array_element(array_type->inner_type(), buffer, codegen::UnknownNestedStruct{array_struct}, leafes, array_type->length * outer_array_length, new_array_lengths, array_depth + 1, 0);
 
-        array_struct  = result.code
+        array_struct = codegen::NestedStruct<codegen::__UnknownStruct>{result.code}
             .method("constexpr " + size_type_str + " length")
                 ("return ")(length)(";").nl()
             .end()
@@ -257,13 +263,13 @@ GenStructFieldResult<T, indent, Derived> gen_struct_field (lexer::StructField::D
         auto leaf = leafes.reserve_next();
         leaf->size = size_size;
 
-        ArrayCtorStrs array_ctor_strs = make_array_ctor_strs<array_depth>();
+        ArrayCtorStrs array_ctor_strs = make_array_ctor_strs(array_depth);
 
         auto array_struct = code
         ._struct(unique_name)
             .ctor(array_ctor_strs.ctro_args, array_ctor_strs.ctor_inits);
 
-        auto new_array_lengths = std::array<uint32_t, array_depth + 1>();
+        uint32_t new_array_lengths[array_depth + 1];
         for (uint32_t i = 0; i < array_depth; i++) {
             new_array_lengths[i] = array_lengths[i];
         }
@@ -273,7 +279,7 @@ GenStructFieldResult<T, indent, Derived> gen_struct_field (lexer::StructField::D
 
         array_struct = array_struct
             .method(size_type_str + " length")
-                ("return *add_offset<")(size_type_str)(">(__base__, ")("00000000);", &leaf->offset_str_idx).nl()
+                ("return *add_offset<")(size_type_str)(">(__base__, ")("00000000000000);", &leaf->offset_str_idx).nl()
             .end()
             ._private()
             .field("size_t", "__base__");
@@ -298,19 +304,19 @@ GenStructFieldResult<T, indent, Derived> gen_struct_field (lexer::StructField::D
             INTERNAL_ERROR("not implemented");
         }
 
-        ArrayCtorStrs array_ctor_strs = make_array_ctor_strs<array_depth>();
+        ArrayCtorStrs array_ctor_strs = make_array_ctor_strs(array_depth);
 
         auto struct_type = identifier->data()->as_struct();
-        auto struct_code = code
+        codegen::NestedStruct<codegen::__UnknownStruct> struct_code = code
         ._struct(unique_name)
             .ctor(array_ctor_strs.ctro_args, array_ctor_strs.ctor_inits);
 
         auto field = struct_type->first_field();
         for (uint32_t i = 0; i < struct_type->field_count; i++) {
             auto field_data = field->data();
-            auto result = gen_struct_field<lexer::StructField, depth + 1, array_depth>(field_data, buffer, struct_code, leafes, outer_array_length, array_lengths);
+            auto result = gen_struct_field(field_data, buffer, codegen::__UnknownStruct{struct_code}, leafes, outer_array_length, array_lengths, depth + 1, array_depth);
             field = result.next;
-            struct_code = c_cast<decltype(struct_code)>(result.code);
+            struct_code = codegen::NestedStruct<codegen::__UnknownStruct>{result.code};
         }
 
         struct_code = struct_code
@@ -333,32 +339,36 @@ GenStructFieldResult<T, indent, Derived> gen_struct_field (lexer::StructField::D
     default: {
         static const std::string types[] = { "bool", "uint8_t", "uint16_t", "uint32_t", "uint64_T", "int8_t", "int16_t", "int32_t", "int64_t", "float32_t", "float64_t" };
         static const std::string type_size_strs[] = { "1", "1", "2", "4", "8", "1", "2", "4", "8", "4", "8" };
-        static const uint64_t type_sizes[] = { 1, 1, 2, 4, 8, 1, 2, 4, 8, 4, 8 };
+        static const uint8_t type_sizes[] = { 1, 1, 2, 4, 8, 1, 2, 4, 8, 4, 8 };
         std::string type_name = types[field_type->type];
         auto leaf = leafes.reserve_next();
-        leaf->size = type_sizes[field_type->type] * outer_array_length;
-        if constexpr (array_depth == 0) {
+        uint8_t type_size = type_sizes[field_type->type];
+        leaf->size = type_size * outer_array_length;
+        if (array_depth == 0) {
             code = code
             .method(type_name + " " + name)
-                ("return *add_offset<")(type_name)(">(__base__, ")("00000000);", &leaf->offset_str_idx).nl()
+                ("return *add_offset<")(type_name)(">(__base__, ")("00000000000000);", &leaf->offset_str_idx).nl()
             .end();
         } else {
-            code = code
-            .method(type_name + " " + name)
-                ("return *add_offset<")(type_name)(">(__base__, ")("00000000 + (", &leaf->offset_str_idx)(make_idx_calc(array_lengths))(") *")(type_size_strs[field_type->type])(");").nl()
-            .end();
+            if (type_size == 1) {
+                code = code
+                .method(type_name + " " + name)
+                    ("return *add_offset<")(type_name)(">(__base__, ")("00000000000000 + ", &leaf->offset_str_idx)(make_idx_calc<true>(array_lengths, array_depth))(");").nl()
+                .end();
+            } else {
+                code = code
+                .method(type_name + " " + name)
+                    ("return *add_offset<")(type_name)(">(__base__, ")("00000000000000 + ", &leaf->offset_str_idx)(make_idx_calc<false>(array_lengths, array_depth))(" *")(type_size_strs[field_type->type])(");").nl()
+                .end();
+            }
         }
         return {(T*)(field_type + 1), code};
     }
     }
-    }
 }
 
-template <typename T, uint8_t array_depth, uint8_t element_depth, size_t indent, typename Last>
-GenStructFieldInArrayResult<T, indent, codegen::NestedStruct<indent, Last>> gen_array_element (lexer::Type* inner_type, Buffer &buffer, codegen::NestedStruct<indent, Last> array_struct, FixedFieldLeafes& leafes, uint64_t outer_array_length, std::array<uint32_t, array_depth>& array_lengths) {
-    if constexpr (indent >= 6) {
-        INTERNAL_ERROR("indent too large");
-    } else {
+GenStructFieldResult<lexer::StructField, codegen::UnknownNestedStruct> gen_array_element (lexer::Type* inner_type, Buffer &buffer, codegen::UnknownNestedStruct array_struct, FixedFieldLeafes& leafes, uint64_t outer_array_length, uint32_t* array_lengths, uint8_t array_depth, uint8_t element_depth) {
+    using T = lexer::StructField;
     switch (inner_type->type)
     {
     case lexer::FIELD_TYPE::STRING_FIXED: {
@@ -369,13 +379,13 @@ GenStructFieldInArrayResult<T, indent, codegen::NestedStruct<indent, Last>> gen_
         auto leaf = leafes.reserve_next();
         leaf->size = length * outer_array_length;
 
-        ArrayCtorStrs array_ctor_strs = make_array_ctor_strs<array_depth>();
+        ArrayCtorStrs array_ctor_strs = make_array_ctor_strs(array_depth);
 
         auto string_struct = array_struct
         ._struct("String")
             .ctor(array_ctor_strs.ctro_args, array_ctor_strs.ctor_inits)
             .method("const char* c_str")
-                ("return reinterpret_cast<const char*>(__base__ + ")("00000000 + (", &leaf->offset_str_idx)(make_idx_calc(array_lengths))(") *")(length)(");").nl()
+                ("return reinterpret_cast<const char*>(__base__ + ")("00000000000000 + (", &leaf->offset_str_idx)(make_idx_calc<true>(array_lengths, array_depth))(") *")(length)(");").nl()
             .end()
             .method("constexpr " + size_type_str + " size")
                 ("return ")(length)(";").nl()
@@ -405,21 +415,21 @@ GenStructFieldInArrayResult<T, indent, codegen::NestedStruct<indent, Last>> gen_
         auto size_type_str = get_size_type_str(length);
         std::string element_struct_name = "Element_" + std::to_string(element_depth);
 
-        ArrayCtorStrs array_ctor_strs = make_array_ctor_strs<array_depth>();
+        ArrayCtorStrs array_ctor_strs = make_array_ctor_strs(array_depth);
 
-        auto sub_array_struct = array_struct
+        codegen::NestedStruct<codegen::UnknownNestedStruct> sub_array_struct = array_struct
         ._struct(element_struct_name)
             .ctor(array_ctor_strs.ctro_args, array_ctor_strs.ctor_inits);
 
-        auto new_array_lengths = std::array<uint32_t, array_depth + 1>();
+        uint32_t new_array_lengths[array_depth + 1];
         for (uint32_t i = 0; i < array_depth; i++) {
             new_array_lengths[i] = array_lengths[i];
         }
         new_array_lengths[array_depth] = length;
 
-        auto result = gen_array_element<T, array_depth + 1, element_depth + 1>(array_type->inner_type(), buffer, sub_array_struct, leafes, array_type->length * outer_array_length, new_array_lengths);
+        auto result = gen_array_element(array_type->inner_type(), buffer, codegen::UnknownNestedStruct{sub_array_struct}, leafes, array_type->length * outer_array_length, new_array_lengths, array_depth + 1, element_depth + 1);
 
-        sub_array_struct = result.code
+        sub_array_struct = codegen::NestedStruct<codegen::UnknownNestedStruct>{result.code}
             .method("constexpr " + size_type_str + " length")
                 ("return ")(length)(";").nl()
             .end()
@@ -451,7 +461,7 @@ GenStructFieldInArrayResult<T, indent, codegen::NestedStruct<indent, Last>> gen_
         auto struct_type = identifier->data()->as_struct();
         std::string element_struct_name = extract_string(struct_type->name);
         
-        ArrayCtorStrs array_ctor_strs = make_array_ctor_strs<array_depth>();
+        ArrayCtorStrs array_ctor_strs = make_array_ctor_strs(array_depth);
 
         auto element_struct = array_struct
         ._struct(element_struct_name)
@@ -460,9 +470,9 @@ GenStructFieldInArrayResult<T, indent, codegen::NestedStruct<indent, Last>> gen_
         auto field = struct_type->first_field();
         for (uint32_t i = 0; i < struct_type->field_count; i++) {
             auto field_data = field->data();
-            auto result = gen_struct_field<lexer::StructField, 0, array_depth>(field_data, buffer , element_struct, leafes, outer_array_length, array_lengths);
+            auto result = gen_struct_field(field_data, buffer, codegen::__UnknownStruct{element_struct}, leafes, outer_array_length, array_lengths, 0, array_depth);
             field = result.next;
-            element_struct = c_cast<decltype(element_struct)>(result.code);
+            element_struct = codegen::NestedStruct<codegen::UnknownNestedStruct>{result.code};
         }
 
         element_struct = element_struct
@@ -485,23 +495,30 @@ GenStructFieldInArrayResult<T, indent, codegen::NestedStruct<indent, Last>> gen_
     default: {
         static const std::string types[] = { "bool", "uint8_t", "uint16_t", "uint32_t", "uint64_T", "int8_t", "int16_t", "int32_t", "int64_t", "float32_t", "float64_t" };
         static const std::string size_type_strs[] = { "1", "1", "2", "4", "8", "1", "2", "4", "8", "4", "8" };
-        static const uint64_t type_sizes[] = { 1, 1, 2, 4, 8, 1, 2, 4, 8, 4, 8 };
+        static const uint8_t type_sizes[] = { 1, 1, 2, 4, 8, 1, 2, 4, 8, 4, 8 };
         auto leaf = leafes.reserve_next();
-        leaf->size = type_sizes[inner_type->type] * outer_array_length;
+        uint8_t type_size = type_sizes[inner_type->type];
+        leaf->size = type_size * outer_array_length;
         std::string type_name = types[inner_type->type];
-        if constexpr (array_depth == 0) {
+        if (array_depth == 0) {
             array_struct = array_struct
             .method(type_name + " get", "uint32_t index")
-                ("return *add_offset<")(type_name)(">(__base__, ")("00000000 + index *", &leaf->offset_str_idx)(size_type_strs[inner_type->type])(");").nl()
+                ("return *add_offset<")(type_name)(">(__base__, ")("00000000000000 + index *", &leaf->offset_str_idx)(size_type_strs[inner_type->type])(");").nl()
             .end();
         } else {
-            array_struct = array_struct
-            .method(type_name + " get", "uint32_t idx_" + std::to_string(array_depth - 1))
-                ("return *add_offset<")(type_name)(">(__base__, ")("00000000 + (", &leaf->offset_str_idx)(make_idx_calc(array_lengths))(") * ")(size_type_strs[inner_type->type])(");").nl()
-            .end();
+            if (type_size == 1) {
+                array_struct = array_struct
+                .method(type_name + " get", "uint32_t idx_" + std::to_string(array_depth - 1))
+                    ("return *add_offset<")(type_name)(">(__base__, ")("00000000000000 + ", &leaf->offset_str_idx)(make_idx_calc<true>(array_lengths, array_depth))(");").nl()
+                .end();
+            } else {
+                array_struct = array_struct
+                .method(type_name + " get", "uint32_t idx_" + std::to_string(array_depth - 1))
+                    ("return *add_offset<")(type_name)(">(__base__, ")("00000000000000 + ", &leaf->offset_str_idx)(make_idx_calc<false>(array_lengths, array_depth))(" * ")(size_type_strs[inner_type->type])(");").nl()
+                .end();
+            }
         }
         return {(T*)(inner_type + 1), array_struct};
-    }
     }
     }
 }
@@ -520,10 +537,9 @@ void generate (lexer::StructDefinition* target_struct, Buffer& buffer) {
     auto field = target_struct->first_field();
     for (uint32_t i = 0; i < target_struct->field_count; i++) {
         auto field_data = field->data();
-        auto s = std::array<uint32_t, 0>{};
-        auto result = gen_struct_field<lexer::StructField, 0, 0>(field_data, buffer, struct_code, leafes, 1, s);
+        auto result = gen_struct_field(field_data, buffer, codegen::__UnknownStruct{struct_code}, leafes, 1, nullptr, 0, 0);
         field = result.next;
-        struct_code = c_cast<decltype(struct_code)>(result.code);
+        struct_code = codegen::Struct<decltype(struct_code)::__Last>{result.code};
     }
 
     auto code_done = struct_code
@@ -536,7 +552,7 @@ void generate (lexer::StructDefinition* target_struct, Buffer& buffer) {
         auto leaf = leafes.leafes[i];
         auto offset_str = code_done.buffer().get(leaf.offset_str_idx);
         uint32_t v = offset;
-        uint8_t p = 7;
+        uint8_t p = 13;
         while (v > 0) {
             offset_str[p--] = '0' + (v % 10);
             v /= 10;
