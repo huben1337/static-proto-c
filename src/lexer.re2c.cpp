@@ -338,42 +338,6 @@ LexTypeResult lex_type (char* YYCURSOR, Buffer &buffer, IdentifierMap &identifie
     }
 }
 
-template <typename T>
-T* skip_type (Type* type);
-
-template <typename T>
-INLINE T* skip_variant_type (VariantType* variant_type) {
-    auto types_count = variant_type->variant_count;
-    Type* type = variant_type->first_variant();
-    for (variant_count_t i = 0; i < types_count; i++) {
-        type = skip_type<Type>(type);
-    }
-    return reinterpret_cast<T*>(type);
-}
-
-template <typename T>
-T* skip_type (Type* type) {
-    switch (type->type)
-    {
-    case STRING_FIXED:
-        return reinterpret_cast<T*>(type->as_fixed_string() + 1);
-    case STRING: {
-        return reinterpret_cast<T*>(type->as_string() + 1);
-    case ARRAY_FIXED:
-    case ARRAY: {
-        return skip_type<T>(type->as_array()->inner_type());
-    }
-    case VARIANT: {
-        return skip_variant_type<T>(type->as_variant());
-    }
-    case IDENTIFIER:
-        return reinterpret_cast<T*>(type->as_identifier() + 1);
-    default:
-        return reinterpret_cast<T*>(type + 1);
-    }
-    }
-}
-
 template <bool is_first_field>
 INLINE char* lex_struct_or_union_fields (
     char* YYCURSOR,
