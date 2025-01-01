@@ -13,7 +13,6 @@ namespace lexer {
     STRUCT,
     ENUM,
     UNION,
-    // TYPEDEF,
 };
 
 enum FIELD_TYPE : uint8_t {
@@ -210,19 +209,9 @@ struct EnumField {
     }
 };
 
-template <typename T, KEYWORDS keyword>
-INLINE std::pair<Buffer::Index<T>, IdentifedDefinitionIndex> create_extended_identified_definition (Buffer &buffer) {
-    auto padding = get_padding<T>(buffer.current_position() + sizeof_v<IdentifiedDefinition>);
-    IdentifedDefinitionIndex def_idx = buffer.get_next_multi_byte<IdentifiedDefinition>(sizeof_v<IdentifiedDefinition> + padding + sizeof_v<T>);
-    IdentifiedDefinition* def = buffer.get(def_idx);
-    def->keyword = keyword;
-    Buffer::Index<T> extended_idx = Buffer::Index<T>{static_cast<uint32_t>(def_idx.value + sizeof_v<IdentifiedDefinition> + padding)};
-    return std::pair(extended_idx, def_idx);
-}
-
 struct DefinitionWithFields : IdentifiedDefinition::Data {
     uint16_t field_count;
-    bool is_fixed_size;
+    uint16_t varsize_field_count;
 
     INLINE static auto create(Buffer &buffer) {
         __CreateExtendedResult<DefinitionWithFields, IdentifiedDefinition> result = __create_extended<DefinitionWithFields, IdentifiedDefinition>(buffer);
@@ -262,15 +251,6 @@ struct EnumDefinition : IdentifiedDefinition::Data {
     }
 };
 
-/* struct TypedefDefinition : IdentifiedDefinition::Data {
-    INLINE static auto create(Buffer &buffer) {
-        return create_extended_identified_definition<TypedefDefinition, TYPEDEF>(buffer);
-    }
-
-    INLINE Type* type() {
-        return reinterpret_cast<Type*>(this + 1);
-    }
-}; */
 
 template <typename T>
 INLINE T* get_extended_identifed_definition(auto* that) {
@@ -290,9 +270,6 @@ INLINE constexpr auto IdentifiedDefinition::Data::as_enum () {
 INLINE constexpr auto IdentifiedDefinition::Data::as_union () {
     return static_cast<UnionDefinition*>(this);
 }
-/* INLINE constexpr auto IdentifiedDefinition::Data::as_typedef () {
-    return static_cast<TypedefDefinition*>(this);
-} */
 
 typedef std::unordered_map<std::string, IdentifedDefinitionIndex> IdentifierMap;
 
