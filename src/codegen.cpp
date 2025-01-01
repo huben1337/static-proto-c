@@ -51,9 +51,10 @@ struct ClosedCodeBlock {
     private:
     Buffer _buffer;
     public:
-    ClosedCodeBlock (Buffer buffer) : _buffer(buffer) {}
-    INLINE const char* c_str () {
+    ClosedCodeBlock (Buffer buffer) : _buffer(buffer) {
         *_buffer.get_next<char>() = 0;
+    }
+    INLINE const char* c_str () {
         return reinterpret_cast<const char*>(_buffer.c_memory());
     }
     INLINE const size_t size () { return _buffer.current_position(); }
