@@ -50,20 +50,39 @@ struct Range {
 
 typedef uint16_t variant_count_t;
 
-struct LeafCounts {
-    uint16_t size8;
-    uint16_t size16;
-    uint16_t size32;
-    uint16_t size64;
+union LeafCounts {
+    
+    struct Counts {
+        uint16_t size8;
+        uint16_t size16;
+        uint16_t size32;
+        uint16_t size64;
+        INLINE void operator += (const Counts& other) {
+            size8 += other.size8;
+            size16 += other.size16;
+            size32 += other.size32;
+            size64 += other.size64;
+        }
+        INLINE Counts operator + (const Counts& other) const {
+            return {size8 + other.size8, size16 + other.size16, size32 + other.size32, size64 + other.size64};
+        }
+        INLINE uint32_t total () const {
+            return size8 + size16 + size32 + size64;
+        }
+    } counts;
+    uint64_t as_uint64;
 
-    void operator += (const LeafCounts& other) {
-        size8 += other.size8;
-        size16 += other.size16;
-        size32 += other.size32;
-        size64 += other.size64;
-    }
+    LeafCounts () = default;
+    LeafCounts (Counts counts) : counts(counts) {}
+    LeafCounts (uint16_t size8, uint16_t size16, uint16_t size32, uint16_t size64) : counts{size8, size16, size32, size64} {}
+    LeafCounts (uint64_t as_uint64) : as_uint64(as_uint64) {}
 
-    INLINE uint32_t total () const { return size8 + size16 + size32 + size64; }
+    
+
+    INLINE void operator += (const LeafCounts& other) { counts += other.counts; }
+    INLINE LeafCounts operator + (const LeafCounts& other) const { return {counts + other.counts}; }
+
+    INLINE uint32_t total () const { return counts.total(); }
 };
 
 struct IdentifiedDefinition {
@@ -71,8 +90,6 @@ struct IdentifiedDefinition {
 
     struct Data {
         StringSection<uint16_t> name;
-        LeafCounts leaf_counts;
-        uint32_t internal_size;
 
         INLINE constexpr auto as_struct ();
         INLINE constexpr auto as_enum ();
@@ -210,8 +227,9 @@ struct EnumField {
 };
 
 struct DefinitionWithFields : IdentifiedDefinition::Data {
+    LeafCounts fixed_leafs_count;
+    LeafCounts var_leafs_count;
     uint16_t field_count;
-    uint16_t varsize_field_count;
 
     INLINE static auto create(Buffer &buffer) {
         __CreateExtendedResult<DefinitionWithFields, IdentifiedDefinition> result = __create_extended<DefinitionWithFields, IdentifiedDefinition>(buffer);
@@ -235,7 +253,12 @@ typedef DefinitionWithFields UnionDefinition;
 
 struct EnumDefinition : IdentifiedDefinition::Data {
     uint16_t field_count;
-    SIZE type_size;
+    enum SIZE : uint8_t {
+        SIZE_1,
+        SIZE_2,
+        SIZE_4,
+        SIZE_8
+    } type_size;
 
     INLINE static auto create(Buffer &buffer) {
         __CreateExtendedResult<EnumDefinition, IdentifiedDefinition> result = __create_extended<EnumDefinition, IdentifiedDefinition>(buffer);

@@ -87,9 +87,8 @@ INLINE void add_identifier (std::pair<char*, char*> name, IdentifierMap &identif
 
 struct LexTypeResult {
     char* cursor;
-    LeafCounts leaf_counts;
-    uint32_t internal_size;
-    bool is_fixed_size;
+    LeafCounts fixed_leafs_count;
+    LeafCounts var_leafs_count;
 };
 
 
@@ -109,11 +108,11 @@ LexTypeResult lex_type (char* YYCURSOR, Buffer &buffer, IdentifierMap &identifie
     #define LEAF_COUNTS_TYPE_16 {0, 1, 0, 0}
     #define LEAF_COUNTS_TYPE_32 {0, 0, 1, 0}
     #define LEAF_COUNTS_TYPE_64 {0, 0, 0, 1}
-    #define SIMPLE_TYPE(TYPE, ALIGN, LEAF_COUNTS)                       \
+    #define SIMPLE_TYPE(TYPE, ALIGN, fixed_leafs_count)                 \
     {                                                                   \
         auto type = buffer.get_next<Type>();                            \
         type->type = FIELD_TYPE::TYPE;                                  \
-        return {YYCURSOR, LEAF_COUNTS, sizeof_v<Type>, true};    \
+        return {YYCURSOR, fixed_leafs_count, {0}};             \
     }
     
     /*!local:re2c
@@ -144,28 +143,25 @@ LexTypeResult lex_type (char* YYCURSOR, Buffer &buffer, IdentifierMap &identifie
     #undef LEAF_COUNTS_TYPE_64
 
     string: {
-        bool is_fixed_size;
-        uint32_t internal_size;
-        LeafCounts leaf_counts;
+        LeafCounts fixed_leafs_count;
+        LeafCounts var_leafs_count;
 
         YYCURSOR = lex_same_line_symbol<'<', "expected argument list">(YYCURSOR);
 
         YYCURSOR = lex_range_argument(
             YYCURSOR,
-            [&buffer, &is_fixed_size, &internal_size, &leaf_counts](uint32_t value) {
-                is_fixed_size = true;
-                internal_size = sizeof_v<Type> + alignof(FixedStringType) - 1 + sizeof_v<FixedStringType>;
-                leaf_counts = {1, 0, 0, 0};
+            [&buffer, &fixed_leafs_count, &var_leafs_count](uint32_t value) {
+                fixed_leafs_count = {1, 0, 0, 0};
+                var_leafs_count = {0};
                 FixedStringType::create(buffer, value);
             },
-            [&buffer, &is_fixed_size, &internal_size, &leaf_counts](Range range) {
-                is_fixed_size = false;
+            [&buffer, &fixed_leafs_count, &var_leafs_count](Range range) {
                 auto [min, max] = range;
                 uint32_t delta = max - min;
                 SIZE size_size;
                 SIZE stored_size_size;
                 if (delta <= UINT8_MAX) {
-                    leaf_counts = {1, 0, 0, 0};
+                    fixed_leafs_count = {1, 0, 0, 0};
                     stored_size_size = SIZE_1;
                     if (max <= UINT8_MAX) {
                         size_size = SIZE_1;
@@ -175,7 +171,7 @@ LexTypeResult lex_type (char* YYCURSOR, Buffer &buffer, IdentifierMap &identifie
                         size_size = SIZE_4;
                     }
                 } else if (delta <= UINT16_MAX) {
-                    leaf_counts = {0, 1, 0, 0};
+                    fixed_leafs_count = {0, 1, 0, 0};
                     stored_size_size = SIZE_2;
                     if (max <= UINT16_MAX) {
                         size_size = SIZE_2;
@@ -183,17 +179,17 @@ LexTypeResult lex_type (char* YYCURSOR, Buffer &buffer, IdentifierMap &identifie
                         size_size = SIZE_4;
                     }
                 } else /* if (delta <= UINT32_MAX) */ {
-                    leaf_counts = {0, 0, 1, 0};
+                    fixed_leafs_count = {0, 0, 1, 0};
                     stored_size_size = SIZE_4;
                     size_size = SIZE_4;
                 }
+                var_leafs_count = {1, 0, 0, 0};
                 StringType::create(buffer, range.min, stored_size_size, size_size);
-                internal_size = sizeof_v<Type> + alignof(StringType) - 1 + sizeof_v<StringType>; 
             }
         );
 
         
-        return {YYCURSOR, leaf_counts, internal_size, is_fixed_size};
+        return {YYCURSOR, fixed_leafs_count, var_leafs_count};
     }
 
     array: {
@@ -204,37 +200,37 @@ LexTypeResult lex_type (char* YYCURSOR, Buffer &buffer, IdentifierMap &identifie
         YYCURSOR = skip_white_space(YYCURSOR);
 
         auto result = lex_type(YYCURSOR, buffer, identifier_map);
-        if (!result.is_fixed_size) {
+        if (result.var_leafs_count.total() != 0) {
             show_syntax_error("expected static size type", YYCURSOR);
         }
         YYCURSOR = result.cursor;
 
         YYCURSOR = lex_same_line_symbol<',', "expected length argument">(YYCURSOR);
 
-        bool is_fixed_size;
-        LeafCounts leaf_counts;
+        LeafCounts fixed_leafs_count;
+        LeafCounts var_leafs_count;
 
         auto extended = buffer.get(extended_idx);
         auto base = buffer.get(base_idx);
 
         YYCURSOR = lex_range_argument(
             YYCURSOR, 
-            [&buffer, &extended, &base, &is_fixed_size, &leaf_counts, &result](uint32_t length) {
+            [&buffer, &extended, &base, &fixed_leafs_count, &var_leafs_count, &result](uint32_t length) {
                 base->type = ARRAY_FIXED;
                 extended->length = length;
                 extended->stored_size_size = SIZE_0;
                 extended->size_size = SIZE_0;
-                leaf_counts = result.leaf_counts;
-                is_fixed_size = true;
+                fixed_leafs_count = result.fixed_leafs_count;
+                var_leafs_count = {0};
             },
-            [&buffer, &extended, &base, &is_fixed_size, &leaf_counts](Range range) {
+            [&buffer, &extended, &base, &fixed_leafs_count, &var_leafs_count, &result](Range range) {
                 base->type = ARRAY;
                 auto [min, max] = range;
                 uint32_t delta = max - min;
                 SIZE size_size;
                 SIZE stored_size_size;
                 if (delta <= UINT8_MAX) {
-                    leaf_counts = {1, 0, 0, 0};
+                    fixed_leafs_count = {1, 0, 0, 0};
                     stored_size_size = SIZE_1;
                     if (max <= UINT8_MAX) {
                         size_size = SIZE_1;
@@ -244,7 +240,7 @@ LexTypeResult lex_type (char* YYCURSOR, Buffer &buffer, IdentifierMap &identifie
                         size_size = SIZE_4;
                     }
                 } else if (delta <= UINT16_MAX) {
-                    leaf_counts = {0, 1, 0, 0};
+                    fixed_leafs_count = {0, 1, 0, 0};
                     stored_size_size = SIZE_2;
                     if (max <= UINT16_MAX) {
                         size_size = SIZE_2;
@@ -252,18 +248,18 @@ LexTypeResult lex_type (char* YYCURSOR, Buffer &buffer, IdentifierMap &identifie
                         size_size = SIZE_4;
                     }
                 } else /* if (delta <= UINT32_MAX) */ {
-                    leaf_counts = {0, 0, 1, 0};
+                    fixed_leafs_count = {0, 0, 1, 0};
                     stored_size_size = SIZE_4;
                     size_size = SIZE_4;
                 }
+                var_leafs_count = result.fixed_leafs_count;
                 extended->length = min;
                 extended->stored_size_size = stored_size_size;
                 extended->size_size = size_size;
-                is_fixed_size = false;
             }
         );
 
-        return {YYCURSOR, leaf_counts, static_cast<uint32_t>(result.internal_size + sizeof_v<Type> + sizeof_v<ArrayType> + alignof(ArrayType) - 1), is_fixed_size};
+        return {YYCURSOR, fixed_leafs_count, var_leafs_count};
     }
 
     variant: {
@@ -274,15 +270,15 @@ LexTypeResult lex_type (char* YYCURSOR, Buffer &buffer, IdentifierMap &identifie
         variant_count_t variant_count = 0;
 
 
-        uint32_t internal_size = sizeof_v<Type> + alignof(VariantType) - 1 + sizeof_v<VariantType>;
-        LeafCounts leaf_counts = {0, 0, 0, 0};
+        LeafCounts fixed_leafs_count = {0};
+        LeafCounts var_leafs_count = {0};
         while (1) {
             variant_count++;
             YYCURSOR = skip_white_space(YYCURSOR);
             auto result = lex_type(YYCURSOR, buffer, identifier_map);
             YYCURSOR = result.cursor;
-            internal_size += result.internal_size;
-            leaf_counts += result.leaf_counts;
+            fixed_leafs_count += result.fixed_leafs_count;
+            var_leafs_count += result.var_leafs_count;
             /* auto variant_type_size = result.value;
 
             if (variant_count > 0) {
@@ -304,7 +300,7 @@ LexTypeResult lex_type (char* YYCURSOR, Buffer &buffer, IdentifierMap &identifie
 
         buffer.get(variant_type_idx)->variant_count = variant_count;
 
-        return {YYCURSOR, leaf_counts, internal_size, false};
+        return {YYCURSOR, fixed_leafs_count, var_leafs_count};
     }
 
     identifier: {
@@ -326,11 +322,11 @@ LexTypeResult lex_type (char* YYCURSOR, Buffer &buffer, IdentifierMap &identifie
         case UNION:
         case STRUCT: {
             auto struct_definition = identifier->data()->as_struct();
-            return {YYCURSOR, struct_definition->leaf_counts, struct_definition->internal_size, struct_definition->is_fixed_size};
+            return {YYCURSOR, struct_definition->fixed_leafs_count, struct_definition->var_leafs_count};
         }
         case ENUM: {
             auto enum_definition = identifier->data()->as_enum();
-            return {YYCURSOR, enum_definition->leaf_counts, enum_definition->internal_size, true};
+            return {YYCURSOR, {1ULL << (enum_definition->type_size * sizeof(uint16_t))}, {0}};
         }
         default:
             INTERNAL_ERROR("unreachable");
@@ -344,10 +340,9 @@ INLINE char* lex_struct_or_union_fields (
     Buffer::Index<DefinitionWithFields> definition_data_idx,
     IdentifierMap &identifier_map,
     Buffer &buffer,
-    LeafCounts leaf_counts,
-    uint32_t internal_size,
-    uint16_t field_count,
-    bool is_fixed_size
+    LeafCounts fixed_leafs_count,
+    LeafCounts var_leafs_count,
+    uint16_t field_count
 ) {
     before_field:
     YYCURSOR = skip_any_white_space(YYCURSOR);
@@ -364,10 +359,9 @@ INLINE char* lex_struct_or_union_fields (
             show_syntax_error("expected at least one field", YYCURSOR - 1);
         } else {
             auto definition_data = buffer.get(definition_data_idx);
-            definition_data->leaf_counts = leaf_counts;
-            definition_data->internal_size = internal_size;
+            definition_data->fixed_leafs_count = fixed_leafs_count;
+            definition_data->var_leafs_count = var_leafs_count;
             definition_data->field_count = field_count;
-            definition_data->is_fixed_size = is_fixed_size;
             return YYCURSOR;
         }
     }
@@ -407,15 +401,14 @@ INLINE char* lex_struct_or_union_fields (
         YYCURSOR = skip_white_space(YYCURSOR);
         auto result = lex_type(YYCURSOR, buffer, identifier_map);
         YYCURSOR = result.cursor;
-        internal_size += result.internal_size;
-        leaf_counts += result.leaf_counts;
 
         YYCURSOR = lex_same_line_symbol<';'>(YYCURSOR);
 
         if constexpr (is_first_field) {
-            return lex_struct_or_union_fields<false>(YYCURSOR, definition_data_idx, identifier_map, buffer, leaf_counts, internal_size, 1, result.is_fixed_size);
+            return lex_struct_or_union_fields<false>(YYCURSOR, definition_data_idx, identifier_map, buffer, result.fixed_leafs_count, result.var_leafs_count, 1);
         } else {
-            is_fixed_size &= result.is_fixed_size;
+            fixed_leafs_count += result.fixed_leafs_count;
+            var_leafs_count += result.var_leafs_count;
             goto before_field;
         }
     }
@@ -430,7 +423,7 @@ INLINE char* lex_struct_or_union(
 ) {
     YYCURSOR = lex_same_line_symbol<'{', "expected '{'">(YYCURSOR);
 
-    return lex_struct_or_union_fields<true>(YYCURSOR, definition_data_idx, identifier_map, buffer, {0, 0, 0, 0}, sizeof_v<IdentifiedDefinition> + alignof(DefinitionWithFields) - 1 + sizeof_v<DefinitionWithFields>, 0, true);
+    return lex_struct_or_union_fields<true>(YYCURSOR, definition_data_idx, identifier_map, buffer, {0}, {0}, 0);
 }
 
 INLINE auto set_member_value (char* start, uint64_t value, bool is_negative) {
@@ -482,15 +475,14 @@ INLINE char* lex_enum_fields (
             }
             auto definition_data = buffer.get(definition_data_idx);
             definition_data->field_count = field_count;
-            constexpr auto a = std::numeric_limits<int16_t>::min();
             if (max_value_unsigned <= UINT8_MAX) {
-                definition_data->type_size = SIZE_1;
+                definition_data->type_size = EnumDefinition::SIZE_1;
             } else if (max_value_unsigned <= UINT16_MAX) {
-                definition_data->type_size = SIZE_2;
+                definition_data->type_size = EnumDefinition::SIZE_2;
             } else if (max_value_unsigned <= UINT32_MAX) {
-                definition_data->type_size = SIZE_4;
+                definition_data->type_size = EnumDefinition::SIZE_4;
             } else {
-                definition_data->type_size = SIZE_8;
+                definition_data->type_size = EnumDefinition::SIZE_8;
             }
             return YYCURSOR;
         }

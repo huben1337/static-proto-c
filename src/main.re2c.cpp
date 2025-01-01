@@ -102,9 +102,9 @@ void print_parse_result (lexer::IdentifierMap &identifier_map, Buffer &buffer) {
                 print_struct_or_union:
                 printf(name.c_str());
                 auto struct_definition = definition_data->as_struct();
-                printf(struct_definition->is_fixed_size ? " (fixed size)" : " (dynamic size)");
-                auto leaf_counts = struct_definition->leaf_counts;
-                printf(" leafes: { %d, %d, %d, %d }", leaf_counts.size8, leaf_counts.size16, leaf_counts.size32, leaf_counts.size64);
+                printf(struct_definition->var_leafs_count.as_uint64 == 0 ? " (fixed size)" : " (dynamic size)");
+                auto leaf_counts = struct_definition->fixed_leafs_count.counts;
+                printf(" leafs: { %d, %d, %d, %d }", leaf_counts.size8, leaf_counts.size16, leaf_counts.size32, leaf_counts.size64);
                 auto field = struct_definition->first_field();
                 for (uint32_t i = 0; i < struct_definition->field_count; i++) {
                     auto field_data = field->data();
@@ -297,7 +297,7 @@ int main(int argc, const char** argv) {
 
     #define DO_LEX
     #ifdef DO_LEX
-    for (size_t i = 0; i < 5000000; i++)
+    for (size_t i = 0; i < 1; i++)
     {
         lexer::IdentifierMap identifier_map;
         uint8_t __buffer[5000];
