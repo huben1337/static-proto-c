@@ -116,12 +116,18 @@ struct Line : CodeData {
     }
     template <UnsignedIntegral T>
     INLINE auto operator() (T value) {
-        uint8_t length = std::log10(value) + 1;
-        auto str = buffer.get(buffer.get_next_multi_byte<char>(length));
-        uint8_t i = length - 1;
-        while (value > 0) {
+        if (value == 0) {
+            buffer.get_next<char>()[0] = '0';
+        } else {
+            uint8_t length = std::log10(value) + 1;
+            auto str = buffer.get(buffer.get_next_multi_byte<char>(length));
+            uint8_t i = length - 1;
             str[i--] = '0' + (value % 10);
             value /= 10;
+            while (value > 0) {
+                str[i--] = '0' + (value % 10);
+                value /= 10;
+            }
         }
         return Line<Last>(this->buffer, this->indent);
     }
