@@ -57,6 +57,9 @@ union LeafCounts {
         uint16_t size16;
         uint16_t size32;
         uint16_t size64;
+        INLINE uint32_t bytes () const {
+            return size8 + size16 * 2 + size32 * 4 + size64 * 8;
+        }
         INLINE uint32_t total () const {
             return size8 + size16 + size32 + size64;
         }
@@ -72,7 +75,7 @@ union LeafCounts {
 
     INLINE void operator += (const LeafCounts& other) { as_uint64 += other.as_uint64; }
     INLINE LeafCounts operator + (const LeafCounts& other) const { return {as_uint64 + other.as_uint64}; }
-
+    INLINE uint32_t bytes () const { return counts.bytes(); }
     INLINE uint32_t total () const { return counts.total(); }
 };
 
@@ -220,6 +223,7 @@ struct EnumField {
 struct DefinitionWithFields : IdentifiedDefinition::Data {
     LeafCounts fixed_leafs_count;
     LeafCounts var_leafs_count;
+    uint64_t byte_size;
     uint16_t size_leafs_count;
     uint16_t field_count;
 
