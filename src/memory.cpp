@@ -23,8 +23,9 @@ struct Memory {
         }
     }
 
-    template <U N>
-    INLINE Memory (uint8_t (&memory)[N]) : capacity(N), memory(memory), in_heap(false) {}
+    template <typename T, U N>
+    requires (sizeof(T) * N <= max)
+    INLINE Memory (T (&memory)[N]) : capacity(sizeof(T) * N), memory(reinterpret_cast<uint8_t*>(memory)), in_heap(false) {}
 
     INLINE Memory (uint8_t* memory, U capacity) : capacity(capacity), memory(memory), in_heap(false) {}
 
