@@ -55,8 +55,32 @@ INLINE char* lex_range_argument (char* YYCURSOR, F on_fixed, G on_range) {
 }
 
 INLINE LexResult<std::pair<char*, char*>>  lex_identifier_name (char* YYCURSOR) {
+    char* YYMARKER;
     /*!local:re2c
-        white_space* [a-zA-Z_] { goto name_start; }
+        re2c:define:YYMARKER = YYMARKER;
+        
+        white_space* [a-zA-Z_]              { goto name_start; }
+
+        invalid = [^a-zA-Z0-9_];
+
+        white_space* "int8"    invalid      { UNEXPECTED_INPUT("int8 is reserved");    }
+        white_space* "int16"   invalid      { UNEXPECTED_INPUT("int16 is reserved");   }
+        white_space* "int32"   invalid      { UNEXPECTED_INPUT("int32 is reserved");   }
+        white_space* "int64"   invalid      { UNEXPECTED_INPUT("int64 is reserved");   }
+        white_space* "uint8"   invalid      { UNEXPECTED_INPUT("uint8 is reserved");   }
+        white_space* "uint16"  invalid      { UNEXPECTED_INPUT("uint16 is reserved");  }
+        white_space* "uint32"  invalid      { UNEXPECTED_INPUT("uint32 is reserved");  }
+        white_space* "uint64"  invalid      { UNEXPECTED_INPUT("uint64 is reserved");  }
+        white_space* "float32" invalid      { UNEXPECTED_INPUT("float32 is reserved"); }
+        white_space* "float64" invalid      { UNEXPECTED_INPUT("float64 is reserved"); }
+        white_space* "bool"    invalid      { UNEXPECTED_INPUT("bool is reserved");    }
+        white_space* "string"  invalid      { UNEXPECTED_INPUT("string is reserved");  }
+        white_space* "array"   invalid      { UNEXPECTED_INPUT("array is reserved");   }
+        white_space* "variant" invalid      { UNEXPECTED_INPUT("variant is reserved"); }
+        white_space* "struct"  invalid      { UNEXPECTED_INPUT("struct is reserved");  }
+        white_space* "enum"    invalid      { UNEXPECTED_INPUT("enum is reserved");    }
+        white_space* "union"   invalid      { UNEXPECTED_INPUT("union is reserved");   }
+        white_space* "target"  invalid      { UNEXPECTED_INPUT("target is reserved");  }
 
         * { UNEXPECTED_INPUT("expected name"); }
     */
@@ -704,11 +728,10 @@ INLINE std::conditional_t<target_defined, void, StructDefinition*> lex (char* YY
     loop: {
     /*!local:re2c
     
-        struct_keyword  = any_white_space* "struct" ;
-        enum_keyword    = any_white_space* "enum"   ;
-        union_keyword   = any_white_space* "union"  ;
-        typedef_keyword = any_white_space* "typedef";
-        target_keyword  = any_white_space* "target" ;
+        struct_keyword  = any_white_space* "struct"  white_space;
+        enum_keyword    = any_white_space* "enum"    white_space;
+        union_keyword   = any_white_space* "union"   white_space;
+        target_keyword  = any_white_space* "target"  white_space;
 
         any_white_space* [\x00] { goto eof; }
 
