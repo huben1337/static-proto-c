@@ -1,7 +1,8 @@
-#include <stdio.h>
-#include <stdlib.h>
-#include <stdint.h>
-#include <string.h>
+#include <cstdio>
+#include <cstdlib>
+#include <cstdint>
+#include <sys/stat.h>
+#include <fcntl.h>
 #include <iostream>
 #include <iomanip>
 #include <filesystem>
@@ -18,7 +19,7 @@
 
 
 const char* input_start;
-std::string file_path_string;
+const char* input_file_path;
 
 int printf_with_indent (uint32_t indent, const char* __format, ...) {
     printf("\033[%dC", indent);
@@ -259,37 +260,66 @@ void for_(F&& func) {
 
 #define SIMPLE_ERROR(message) std::cout << "spc.exe: error: " << message << std::endl
 
-int main(int argc, const char** argv) {
-    std::cout << "spc.exe" << std::endl;
-    if (argc <= 1) {
-        SIMPLE_ERROR("no input supplied");
-        return 1;
-    }
+#ifdef __MINGW32__
+    static inline auto realpath (const char* path, char* resolved_path) {
+        return _fullpath(resolved_path, path, PATH_MAX);
+    };
+#endif
 
-    auto path_arg = argv[1];
-    if (!std::filesystem::exists(path_arg)) {
-        SIMPLE_ERROR("file does not exist");
-        return 1;
-    }
-    auto file_path = std::filesystem::canonical(path_arg);
-    file_path_string = file_path.string();
-    auto file_size = std::filesystem::file_size(file_path);
-
-    FILE* file = fopen(path_arg, "rb");
-    if (!file) {
+static inline int open_regular (const char* path, int flags, struct stat *stat_buffer) {
+    int fd = open(path, flags);
+    if (fd < 0) {
         SIMPLE_ERROR("could not open file");
         return 1;
     }
-    char data[file_size + 1];
-    data[file_size] = 0;
-    if (fread(data, 1, file_size, file) != file_size) {
+    if (fstat(fd, stat_buffer) != 0) {
+        SIMPLE_ERROR("could not get file status");
+        return 1;
+    }
+    if (!S_ISREG(stat_buffer->st_mode)) {
+        SIMPLE_ERROR("file is not a regular file");
+        return 1;
+    }
+    return fd;
+}
+
+int main(int argc, const char** argv) {
+    std::cout << "spc.exe" << std::endl;
+    if (argc <= 2) {
+        SIMPLE_ERROR("no output and/or input supplied");
+        return 1;
+    }
+
+    const char* input_path = argv[1];
+    struct stat input_file_stat;
+    int input_fd = open_regular(input_path, O_RDONLY | O_BINARY, &input_file_stat);
+
+    const char* output_path = argv[2];
+    struct stat output_file_stat;
+    int output_fd = open_regular(output_path, O_WRONLY | O_CREAT | O_TRUNC | O_BINARY, &output_file_stat);
+    
+    char input_path_buffer[PATH_MAX];
+    input_file_path = realpath(input_path, input_path_buffer);
+    if (!input_file_path) {
+        SIMPLE_ERROR("could not get input file path");
+        return 1;
+    }
+    
+    auto input_file_size = input_file_stat.st_size;
+    char input_data[input_file_size + 1];
+    input_data[input_file_size] = 0;
+    int read_result = read(input_fd, input_data, input_file_size);
+    if (read_result != input_file_size) {
         SIMPLE_ERROR("could not read file");
         return 1;
     }
-    fclose(file);
-    
-    std::cout << "Lexing input of length: " << std::setprecision(0) << file_size << std::endl;
-    input_start = data;
+    if (close(input_fd) != 0) {
+        SIMPLE_ERROR("could not close input file");
+        return 1;
+    }
+
+    auto input_start = input_data;
+    std::cout << "Lexing input of length: " << std::setprecision(0) << input_file_size << std::endl;
 
     auto start_ts = std::chrono::high_resolution_clock::now();
 
@@ -302,7 +332,7 @@ int main(int argc, const char** argv) {
         lexer::IdentifierMap identifier_map;
         uint8_t __buffer[5000];
         auto buffer = Buffer(__buffer);
-        auto target_struct = lexer::lex<false>(data, identifier_map, buffer);
+        auto target_struct = lexer::lex<false>(input_data, identifier_map, buffer);
 
         //#define DO_EXTRACT
         #ifdef DO_EXTRACT
@@ -321,7 +351,7 @@ int main(int argc, const char** argv) {
 
         #define DO_CODEGEN
         #ifdef DO_CODEGEN
-        decode_code::generate(target_struct, buffer);
+        decode_code::generate(target_struct, buffer, output_fd);
         #endif
 
         //uint8_t __buffer2[target_data->internal_size + 8];

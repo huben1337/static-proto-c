@@ -1,8 +1,10 @@
 #pragma once
 #include <cstdint>
+#include <io.h>
 #include <cstdio>
 #include <string>
 #include <array>
+#include <memory>
 #include "base.cpp"
 #include "codegen.cpp"
 #include "string_helpers.cpp"
@@ -18,12 +20,20 @@ struct SizeLeaf {
     lexer::SIZE stored_size_size;
 };
 
+enum MODE {
+    DEFAULT,
+    ARRAY,
+    VARIANT
+};
+
 struct CodeChunks {
     uint32_t current_map_idx;
     lexer::LeafCounts::Counts fixed_leaf_counts;
     lexer::LeafCounts::Counts fixed_leaf_positions;
     lexer::LeafCounts::Counts var_leaf_counts;
     lexer::LeafCounts::Counts var_leaf_positions;
+    lexer::LeafCounts::Counts variant_leaf_counts;
+    lexer::LeafCounts::Counts variant_leaf_positions;
     uint32_t total_fixed_leafs;
     uint32_t total_var_leafs;
     uint32_t total_leafs;
@@ -45,30 +55,37 @@ struct CodeChunks {
         return reinterpret_cast<SizeLeaf*>(reinterpret_cast<size_t>(this) + sizeof(CodeChunks) + total_leafs * (sizeof(uint64_t) + sizeof(Buffer::Index<char>) + sizeof(uint32_t)) + total_var_leafs * sizeof(uint16_t));
     }
 
-    template <lexer::SIZE size, bool is_varsize>
+    template <lexer::SIZE size, MODE mode>
     INLINE auto next_fixed (uint32_t idx, uint64_t length) {
-        if constexpr (is_varsize) {
+        if constexpr (mode == MODE::ARRAY) {
             *(size_leafe_idxs() + idx) = current_size_leaf_idx;
             idx += total_fixed_leafs;
         }
+        if constexpr (mode == MODE::VARIANT) {
+            return new Buffer::Index<char>;
+        }
         *(sizes() + idx) = size * length;
         uint32_t map_idx = current_map_idx++;
-        printf("map_idx: %d, idx: %d, size: %d, %s\n", map_idx, idx, size, is_varsize ? "var" : "fixed");
+        printf("map_idx: %d, idx: %d, size: %d, %s\n", map_idx, idx, size, mode ? "var" : "fixed");
         *(chunk_map() + map_idx) = idx;
         
         return chunk_starts() + idx;
     }
-    template <bool is_varsize>
+    template <MODE mode>
     INLINE std::pair<lexer::LeafCounts::Counts&, lexer::LeafCounts::Counts&> get_counts_and_positions () {
-        if constexpr (is_varsize) {
-            return {var_leaf_counts, var_leaf_positions};
-        } else {
+        if constexpr (mode == MODE::DEFAULT) {
             return {fixed_leaf_counts, fixed_leaf_positions};
         }
+        if constexpr (mode == MODE::ARRAY) {
+            return {var_leaf_counts, var_leaf_positions};
+        }
+        if constexpr (mode == MODE::VARIANT) {
+            return {variant_leaf_counts, variant_leaf_positions};
+        }
     }
-    template <bool is_varsize>
+    template <MODE mode>
     INLINE uint32_t reserve_idx (lexer::SIZE size) {
-        auto [counts, positions] = get_counts_and_positions<is_varsize>();
+        auto [counts, positions] = get_counts_and_positions<mode>();
         switch (size) {
         case lexer::SIZE_1:
             if (positions.size8 == counts.size8) {
@@ -95,58 +112,58 @@ struct CodeChunks {
             exit(1);
         }
     }
-    template <bool is_varsize>
+    template <MODE mode>
     INLINE auto reserve_size8 (uint64_t length) {
-        auto [counts, positions] = get_counts_and_positions<is_varsize>();
+        auto [counts, positions] = get_counts_and_positions<mode>();
         if (positions.size8 == counts.size8) {
             printf("position overflow\n");
-            printf(is_varsize ? "var" : "fixed");
+            printf(mode ? "var" : "fixed");
         }
         uint32_t idx = counts.size64 + counts.size32 + counts.size16 + positions.size8++;
-        return next_fixed<lexer::SIZE_1, is_varsize>(idx, length);
+        return next_fixed<lexer::SIZE_1, mode>(idx, length);
 
     }
-    template <bool is_varsize>
+    template <MODE mode>
     INLINE auto reserve_size16 (uint64_t length) {
-        auto [counts, positions] = get_counts_and_positions<is_varsize>();
+        auto [counts, positions] = get_counts_and_positions<mode>();
         if (positions.size16 == counts.size16) {
             printf("position overflow\n");
-            printf(is_varsize ? "var" : "fixed");
+            printf(mode ? "var" : "fixed");
         }
         uint32_t idx = counts.size64 + counts.size32 + positions.size16++;
-        return next_fixed<lexer::SIZE_2, is_varsize>(idx, length);
+        return next_fixed<lexer::SIZE_2, mode>(idx, length);
     }
-    template <bool is_varsize>
+    template <MODE mode>
     INLINE auto reserve_size32 (uint64_t length) {
-        auto [counts, positions] = get_counts_and_positions<is_varsize>();
+        auto [counts, positions] = get_counts_and_positions<mode>();
         if (positions.size32 == counts.size32) {
             printf("position overflow\n");
-            printf(is_varsize ? "var" : "fixed");
+            printf(mode ? "var" : "fixed");
         }
         uint32_t idx = counts.size64 + positions.size32++;
-        return next_fixed<lexer::SIZE_4, is_varsize>(idx, length);
+        return next_fixed<lexer::SIZE_4, mode>(idx, length);
     }
-    template <bool is_varsize>
+    template <MODE mode>
     INLINE auto reserve_size64 (uint64_t length) {
-        auto [counts, positions] = get_counts_and_positions<is_varsize>();
+        auto [counts, positions] = get_counts_and_positions<mode>();
         if (positions.size64 == counts.size64) {
             printf("position overflow\n");
-            printf(is_varsize ? "var" : "fixed");
+            printf(mode ? "var" : "fixed");
         }
         uint32_t idx = positions.size64++;
-        return next_fixed<lexer::SIZE_8, is_varsize>(idx, length);
+        return next_fixed<lexer::SIZE_8, mode>(idx, length);
     }
-    template <bool is_varsize>
+    template <MODE mode>
     INLINE auto reserve_next (lexer::SIZE size, uint64_t length) {
         switch (size) {
         case lexer::SIZE_1:
-            return reserve_size8<is_varsize>(length);
+            return reserve_size8<mode>(length);
         case lexer::SIZE_2:
-            return reserve_size16<is_varsize>(length);
+            return reserve_size16<mode>(length);
         case lexer::SIZE_4:
-            return reserve_size32<is_varsize>(length);
+            return reserve_size32<mode>(length);
         case lexer::SIZE_8:
-            return reserve_size64<is_varsize>(length);
+            return reserve_size64<mode>(length);
         default:
             printf("invalid size\n");
             exit(1);
@@ -287,22 +304,19 @@ struct GenStructFieldResult {
     Derived code;
 };
 
-template <bool is_varsize>
+template <MODE mode>
 GenStructFieldResult<lexer::StructField, codegen::UnknownNestedStruct> gen_fixed_array_element (lexer::Type* inner_type, Buffer &buffer, codegen::UnknownNestedStruct array_struct, std::string base_name, CodeChunks* leafs, uint64_t outer_array_length, uint32_t* array_lengths, uint8_t array_depth, uint8_t element_depth);
 
-template <bool is_varsize>
-GenStructFieldResult<lexer::StructField, codegen::__UnknownStruct> gen_struct_field (lexer::StructField::Data* field, Buffer &buffer, codegen::__UnknownStruct code, std::string base_name, CodeChunks* leafs, uint64_t outer_array_length, uint32_t* array_lengths, uint8_t depth, uint8_t array_depth) {
+template <MODE mode>
+GenStructFieldResult<lexer::StructField, codegen::__UnknownStruct> gen_struct_field (lexer::Type* field_type, std::string unique_name, std::string name, Buffer &buffer, codegen::__UnknownStruct code, std::string base_name, CodeChunks* leafs, uint64_t outer_array_length, uint32_t* array_lengths, uint8_t depth, uint8_t array_depth) {
     using T = lexer::StructField;
-    auto field_type = field->type();
-    auto name = extract_string(field->name);
-    auto unique_name = name + "_" + std::to_string(depth);
     switch (field_type->type)
     {
     case lexer::FIELD_TYPE::STRING_FIXED: {
         auto fixed_string_type = field_type->as_fixed_string();
         uint32_t length = fixed_string_type->length;
         auto size_type_str =  get_size_type_str(length);
-        auto chunk_start_ptr = leafs->reserve_size8<is_varsize>(outer_array_length * length);
+        auto chunk_start_ptr = leafs->reserve_size8<mode>(outer_array_length * length);
 
         ArrayCtorStrs array_ctor_strs = make_array_ctor_strs(array_depth);
 
@@ -349,11 +363,11 @@ GenStructFieldResult<lexer::StructField, codegen::__UnknownStruct> gen_struct_fi
         lexer::SIZE size_size = string_type->size_size;
         lexer::SIZE stored_size_size = string_type->stored_size_size;
         auto size_type_str = get_size_type_str(size_size);
-        auto chunk_start_ptr = leafs->reserve_size8<true>(1);
+        auto chunk_start_ptr = leafs->reserve_size8<MODE::ARRAY>(1);
 
         ArrayCtorStrs array_ctor_strs = make_array_ctor_strs(array_depth);
 
-        uint32_t leaf_idx = leafs->reserve_idx<false>(stored_size_size);
+        uint32_t leaf_idx = leafs->reserve_idx<MODE::DEFAULT>(stored_size_size);
         leafs->sizes()[leaf_idx] = stored_size_size;
 
         uint16_t size_leaf_idx = leafs->current_size_leaf_idx++;
@@ -400,7 +414,7 @@ GenStructFieldResult<lexer::StructField, codegen::__UnknownStruct> gen_struct_fi
             new_array_lengths[last] = length;
         }
 
-        auto result = gen_fixed_array_element<is_varsize>(array_type->inner_type(), buffer, codegen::UnknownNestedStruct{array_struct}, base_name, leafs, array_type->length * outer_array_length, new_array_lengths, array_depth + 1, 0);
+        auto result = gen_fixed_array_element<mode>(array_type->inner_type(), buffer, codegen::UnknownNestedStruct{array_struct}, base_name, leafs, array_type->length * outer_array_length, new_array_lengths, array_depth + 1, 0);
 
         array_struct = codegen::NestedStruct<codegen::__UnknownStruct>{result.code}
             .method("constexpr " + size_type_str + " length")
@@ -423,7 +437,7 @@ GenStructFieldResult<lexer::StructField, codegen::__UnknownStruct> gen_struct_fi
         return {result.next, code};
     }
     case lexer::FIELD_TYPE::ARRAY: {
-        if constexpr(is_varsize) {
+        if constexpr (mode != MODE::DEFAULT) {
             INTERNAL_ERROR("Dynamic array cant be nested");
         }
         auto array_type = field_type->as_array();
@@ -437,9 +451,9 @@ GenStructFieldResult<lexer::StructField, codegen::__UnknownStruct> gen_struct_fi
         ._struct(unique_name)
             .ctor(array_ctor_strs.ctro_args, array_ctor_strs.ctor_inits);
 
-        auto result = gen_fixed_array_element<true>(array_type->inner_type(), buffer, codegen::UnknownNestedStruct{array_struct}, base_name, leafs, 1, nullptr, 1, 0);
+        auto result = gen_fixed_array_element<MODE::ARRAY>(array_type->inner_type(), buffer, codegen::UnknownNestedStruct{array_struct}, base_name, leafs, 1, nullptr, 1, 0);
 
-        uint32_t leaf_idx = leafs->reserve_idx<false>(stored_size_size);
+        uint32_t leaf_idx = leafs->reserve_idx<MODE::DEFAULT>(stored_size_size);
         leafs->sizes()[leaf_idx] = stored_size_size;
 
         uint16_t size_leaf_idx = leafs->current_size_leaf_idx++;
@@ -459,6 +473,39 @@ GenStructFieldResult<lexer::StructField, codegen::__UnknownStruct> gen_struct_fi
 
         return {result.next, code};
     }
+    case lexer::FIELD_TYPE::VARIANT: {
+        auto variant_type = field_type->as_variant();
+        uint16_t variant_count = variant_type->variant_count;
+
+
+        ArrayCtorStrs array_ctor_strs = make_array_ctor_strs(array_depth);
+
+        auto type = variant_type->first_variant();
+        for (uint16_t i = 0; i < variant_count; i++) {
+            std::string i_str = std::to_string(i);
+            auto result = gen_struct_field<MODE::VARIANT>(type, std::forward<std::string>("_" + i_str), std::forward<std::string>("as_" + i_str), buffer, codegen::__UnknownStruct{code}, base_name, leafs, 1, array_lengths, 0, array_depth);
+            code = result.code;
+            type = (lexer::Type*)result.next;
+        }
+
+        std::string id_type_str;
+        Buffer::Index<char>* chunk_start_ptr;
+
+        if (variant_count <= UINT8_MAX) {
+            id_type_str = "uint8_t";
+            chunk_start_ptr = leafs->reserve_size8<mode>(outer_array_length);
+        } else {
+            id_type_str = "uint16_t";
+            chunk_start_ptr = leafs->reserve_size16<mode>(outer_array_length);
+        }
+
+        code = code
+        .method(id_type_str + " id")
+            ("return *add<")(id_type_str)(">(__base__, ")(");", chunk_start_ptr).nl()
+        .end();
+
+        return {(T*)(type), code};
+    }
     case lexer::FIELD_TYPE::IDENTIFIER: {
         auto identified_type = field_type->as_identifier();
         auto identifier = buffer.get(identified_type->identifier_idx);
@@ -476,7 +523,9 @@ GenStructFieldResult<lexer::StructField, codegen::__UnknownStruct> gen_struct_fi
         auto field = struct_type->first_field();
         for (uint32_t i = 0; i < struct_type->field_count; i++) {
             auto field_data = field->data();
-            auto result = gen_struct_field<is_varsize>(field_data, buffer, codegen::__UnknownStruct{struct_code}, base_name, leafs, outer_array_length, array_lengths, depth + 1, array_depth);
+            auto name = extract_string(field_data->name);
+            auto unique_name = name + "_" + std::to_string(depth);
+            auto result = gen_struct_field<mode>(field_data->type(), std::forward<std::string>(unique_name), std::forward<std::string>(name), buffer, codegen::__UnknownStruct{struct_code}, base_name, leafs, outer_array_length, array_lengths, depth + 1, array_depth);
             field = result.next;
             struct_code = codegen::NestedStruct<codegen::__UnknownStruct>{result.code};
         }
@@ -499,12 +548,12 @@ GenStructFieldResult<lexer::StructField, codegen::__UnknownStruct> gen_struct_fi
         return {(T*)(identified_type + 1), code};
     }
     default: {
-        static const std::string types[] = { "bool", "uint8_t", "uint16_t", "uint32_t", "uint64_T", "int8_t", "int16_t", "int32_t", "int64_t", "float32_t", "float64_t" };
+        static const std::string types[] = { "bool", "uint8_t", "uint16_t", "uint32_t", "uint64_t", "int8_t", "int16_t", "int32_t", "int64_t", "float32_t", "float64_t" };
         static const std::string type_size_strs[] = { "1", "1", "2", "4", "8", "1", "2", "4", "8", "4", "8" };
         static const lexer::SIZE type_sizes[] = { lexer::SIZE_1, lexer::SIZE_1, lexer::SIZE_2, lexer::SIZE_4, lexer::SIZE_8, lexer::SIZE_1, lexer::SIZE_2, lexer::SIZE_4, lexer::SIZE_8, lexer::SIZE_4, lexer::SIZE_8 };
         std::string type_name = types[field_type->type];
         lexer::SIZE type_size = type_sizes[field_type->type];
-        auto chunk_start_ptr = leafs->reserve_next<is_varsize>(type_size, outer_array_length);
+        auto chunk_start_ptr = leafs->reserve_next<mode>(type_size, outer_array_length);
         if (array_depth == 0) {
             code = code
             .method(type_name + " " + name)
@@ -528,7 +577,7 @@ GenStructFieldResult<lexer::StructField, codegen::__UnknownStruct> gen_struct_fi
     }
 }
 
-template <bool is_varsize>
+template <MODE mode>
 GenStructFieldResult<lexer::StructField, codegen::UnknownNestedStruct> gen_fixed_array_element (lexer::Type* inner_type, Buffer &buffer, codegen::UnknownNestedStruct array_struct, std::string base_name, CodeChunks* leafs, uint64_t outer_array_length, uint32_t* array_lengths, uint8_t array_depth, uint8_t element_depth) {
     using T = lexer::StructField;
     switch (inner_type->type)
@@ -538,7 +587,7 @@ GenStructFieldResult<lexer::StructField, codegen::UnknownNestedStruct> gen_fixed
         uint32_t length = fixed_string_type->length;
         auto size_type_str = get_size_type_str(length);
         // std::string element_struct_name = "String_" + array_field_name;
-        auto chunk_start_ptr = leafs->reserve_size8<is_varsize>(outer_array_length * length);
+        auto chunk_start_ptr = leafs->reserve_size8<mode>(outer_array_length * length);
 
         ArrayCtorStrs array_ctor_strs = make_array_ctor_strs(array_depth);
 
@@ -591,7 +640,7 @@ GenStructFieldResult<lexer::StructField, codegen::UnknownNestedStruct> gen_fixed
             new_array_lengths[last] = length;
         }
 
-        auto result = gen_fixed_array_element<is_varsize>(array_type->inner_type(), buffer, codegen::UnknownNestedStruct{sub_array_struct}, base_name, leafs, array_type->length * outer_array_length, new_array_lengths, array_depth + 1, element_depth + 1);
+        auto result = gen_fixed_array_element<mode>(array_type->inner_type(), buffer, codegen::UnknownNestedStruct{sub_array_struct}, base_name, leafs, array_type->length * outer_array_length, new_array_lengths, array_depth + 1, element_depth + 1);
 
         sub_array_struct = codegen::NestedStruct<codegen::UnknownNestedStruct>{result.code}
             .method("constexpr " + size_type_str + " length")
@@ -614,7 +663,28 @@ GenStructFieldResult<lexer::StructField, codegen::UnknownNestedStruct> gen_fixed
         return {result.next, array_struct};
     }
     case lexer::FIELD_TYPE::VARIANT: {
-        INTERNAL_ERROR("not implemented");
+        auto variant_type = inner_type->as_variant();
+        uint16_t variant_count = variant_type->variant_count;
+
+
+        ArrayCtorStrs array_ctor_strs = make_array_ctor_strs(array_depth);
+
+        auto variant_struct = array_struct
+        ._struct("Variant")
+            .ctor(array_ctor_strs.ctro_args, array_ctor_strs.ctor_inits);
+
+        auto type = variant_type->first_variant();
+        for (uint16_t i = 0; i < variant_count; i++) {
+            std::string i_str = std::to_string(i);
+            auto result = gen_struct_field<MODE::VARIANT>(type, std::forward<std::string>("_" + i_str), std::forward<std::string>("as_" + i_str), buffer, codegen::__UnknownStruct{variant_struct}, base_name, leafs, 1, array_lengths, 0, array_depth);
+            variant_struct = codegen::NestedStruct<codegen::UnknownNestedStruct>{result.code};
+            type = (lexer::Type*)result.next;
+        }
+        
+        array_struct = variant_struct
+        .end();
+
+        return {(T*)(type), array_struct};
     }
     case lexer::FIELD_TYPE::IDENTIFIER: {
         auto identified_type = inner_type->as_identifier();
@@ -634,7 +704,9 @@ GenStructFieldResult<lexer::StructField, codegen::UnknownNestedStruct> gen_fixed
         auto field = struct_type->first_field();
         for (uint32_t i = 0; i < struct_type->field_count; i++) {
             auto field_data = field->data();
-            auto result = gen_struct_field<is_varsize>(field_data, buffer, codegen::__UnknownStruct{element_struct}, base_name, leafs, outer_array_length, array_lengths, 0, array_depth);
+            auto name = extract_string(field_data->name);
+            auto unique_name = name + "_0";
+            auto result = gen_struct_field<mode>(field_data->type(), std::forward<std::string>(unique_name), std::forward<std::string>(name), buffer, codegen::__UnknownStruct{element_struct}, base_name, leafs, outer_array_length, array_lengths, 0, array_depth);
             field = result.next;
             element_struct = codegen::NestedStruct<codegen::UnknownNestedStruct>{result.code};
         }
@@ -657,12 +729,12 @@ GenStructFieldResult<lexer::StructField, codegen::UnknownNestedStruct> gen_fixed
         return {(T*)(identified_type + 1), array_struct};
     }
     default: {
-        static const std::string types[] = { "bool", "uint8_t", "uint16_t", "uint32_t", "uint64_T", "int8_t", "int16_t", "int32_t", "int64_t", "float32_t", "float64_t" };
+        static const std::string types[] = { "bool", "uint8_t", "uint16_t", "uint32_t", "uint64_t", "int8_t", "int16_t", "int32_t", "int64_t", "float32_t", "float64_t" };
         static const std::string size_type_strs[] = { "1", "1", "2", "4", "8", "1", "2", "4", "8", "4", "8" };
         static const lexer::SIZE type_sizes[] = { lexer::SIZE_1, lexer::SIZE_1, lexer::SIZE_2, lexer::SIZE_4, lexer::SIZE_8, lexer::SIZE_1, lexer::SIZE_2, lexer::SIZE_4, lexer::SIZE_8, lexer::SIZE_4, lexer::SIZE_8 };
         std::string type_name = types[inner_type->type];
         lexer::SIZE type_size = type_sizes[inner_type->type];
-        auto chunk_start_ptr = leafs->reserve_next<is_varsize>(type_size, outer_array_length);
+        auto chunk_start_ptr = leafs->reserve_next<mode>(type_size, outer_array_length);
         if (array_depth == 0) {
             array_struct = array_struct
             .method(type_name + " get", "uint32_t index")
@@ -686,10 +758,80 @@ GenStructFieldResult<lexer::StructField, codegen::UnknownNestedStruct> gen_fixed
     }
 }
 
-void generate (lexer::StructDefinition* target_struct, Buffer& buffer) {
+constexpr bool is_power_of_two(size_t n) {
+    return (n != 0) && ((n & (n - 1)) == 0);
+}
+
+constexpr size_t log2(size_t n){
+  return ( (n < 2) ? 0 : 1 + log2(n >> 1));
+}
+
+static inline void handled_write (int fd, const char* buf, size_t size) {
+    int result = write(fd, buf, size);
+    if (result == -1) {
+        printf("write failed, errno: %d\n", result, errno);
+        exit(1);
+    }
+}
+
+template <size_t size>
+requires (is_power_of_two(size))
+struct Writer {
+    char buffer[size];
+    size_t position = 0;
+    int fd;
+    Writer (int fd) : fd(fd) {}
+
+    void write (std::string str) {
+        const char* start = str.c_str();
+        write(start, start + str.size());
+    }
+
+    void write (const char* start, const char* end) {
+        size_t length = end - start;
+
+        size_t free_space = size - position;
+        if (free_space >= length) {
+            memcpy(buffer + position, start, length);
+            position += length;
+            if (position == size) {
+                handled_write(fd, buffer, size);
+                position = 0;
+            }
+        } else {
+            memcpy(buffer + position, start, free_space);
+            handled_write(fd, buffer, size);
+            start += free_space;
+            while (start <= end - size) {
+                memcpy(buffer, start, size);
+                handled_write(fd, buffer, size);
+                start += size;
+            }
+            if (start < end) {
+                size_t remaining = end - start;
+                memcpy(buffer, start, remaining);
+                position = remaining;
+            } else {
+                position = 0;
+            }
+        }
+        
+    }
+
+    void done () {
+        if (position == 0) {
+            return;
+        }
+        handled_write(fd, buffer, position);
+    }
+};
+
+void generate (lexer::StructDefinition* target_struct, Buffer& buffer, int output_fd) {
     
     uint8_t _buffer[5000];
-    auto code = codegen::create_code(_buffer);
+    auto code = codegen::create_code(_buffer)
+    .line("#include \"lib/lib.hpp\"")
+    .line("");
     auto fixed_leafs_count = target_struct->fixed_leafs_count.counts;
     auto var_leafs_count = target_struct->var_leafs_count.counts;
     auto total_fixed_leafs = fixed_leafs_count.total();
@@ -706,6 +848,8 @@ void generate (lexer::StructDefinition* target_struct, Buffer& buffer) {
     code_chunks->fixed_leaf_positions = {0, 0, 0, 0};
     code_chunks->var_leaf_counts = var_leafs_count;
     code_chunks->var_leaf_positions = {0, 0, 0, 0};
+    code_chunks->variant_leaf_counts = {1000, 1000, 1000, 1000};
+    code_chunks->variant_leaf_positions = {0, 0, 0, 0};
     code_chunks->total_fixed_leafs = total_fixed_leafs;
     code_chunks->total_var_leafs = total_var_leafs;
     code_chunks->total_leafs = total_leafs;
@@ -719,7 +863,9 @@ void generate (lexer::StructDefinition* target_struct, Buffer& buffer) {
     auto field = target_struct->first_field();
     for (uint16_t i = 0; i < target_struct->field_count; i++) {
         auto field_data = field->data();
-        auto result = gen_struct_field<false>(field_data, buffer, codegen::__UnknownStruct{struct_code}, struct_name, code_chunks, 1, nullptr, 0, 0);
+        auto name = extract_string(field_data->name);
+        auto unique_name = name + "_0";
+        auto result = gen_struct_field<MODE::DEFAULT>(field_data->type(), std::forward<std::string>(unique_name), std::forward<std::string>(name), buffer, codegen::__UnknownStruct{struct_code}, struct_name, code_chunks, 1, nullptr, 0, 0);
         field = result.next;
         struct_code = codegen::Struct<decltype(struct_code)::__Last>{result.code};
     }
@@ -777,6 +923,10 @@ void generate (lexer::StructDefinition* target_struct, Buffer& buffer) {
         uint32_t i = code_chunks->chunk_map()[j];
         printf("chunk_map[%d]: %d\n", j, i);
     }
+
+    auto writer = Writer<4096>(output_fd);
+
+    
     
     char* last_offset_str = code_done.buffer().get<char>({0});
     for (uint32_t j = 0; j < total_leafs; j++) {
@@ -786,14 +936,14 @@ void generate (lexer::StructDefinition* target_struct, Buffer& buffer) {
         
         char end_backup = *offset_str;
         *offset_str = 0;
-        printf(last_offset_str);
+        writer.write(last_offset_str, offset_str);
         *offset_str = end_backup;
         last_offset_str = offset_str;
         
         if (i < total_fixed_leafs) {
-            printf(std::to_string(code_chunks->sizes()[i]).c_str());
+            writer.write(std::to_string(code_chunks->sizes()[i]));
         } else {
-            printf(last_fixed_offset_str.c_str());
+            writer.write(last_fixed_offset_str.c_str());
             uint64_t size_leafs[size_leafs_count] = {0};
             uint16_t known_size_leafs = 0;
             for (uint32_t h = total_fixed_leafs; h < i; h++) {
@@ -805,21 +955,22 @@ void generate (lexer::StructDefinition* target_struct, Buffer& buffer) {
                 *size_leaf += code_chunks->sizes()[h];
             }
             for (uint16_t size_leaf_idx = 0; size_leaf_idx < known_size_leafs; size_leaf_idx++) {
-                printf(" + ");
-                printf(struct_name.c_str());
-                printf("::size");
-                printf(std::to_string(size_leaf_idx).c_str());
+                writer.write(" + ");
+                writer.write(struct_name.c_str());
+                writer.write("::size");
+                writer.write(std::to_string(size_leaf_idx).c_str());
                 uint64_t size = size_leafs[size_leaf_idx];
                 if (size == 1) {
-                    printf("(__base__)");
+                    writer.write("(__base__)");
                 } else {
-                    printf("(__base__) * ");
-                    printf(std::to_string(size).c_str());
+                    writer.write("(__base__) * ");
+                    writer.write(std::to_string(size).c_str());
                 }
             }
         }
     }
-    printf(last_offset_str);
+    writer.write(last_offset_str, code_done.buffer().get<char>({code_done.buffer().current_position()}));
+    writer.done();
 
     code_done.dispose();
 }

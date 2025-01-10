@@ -9,13 +9,13 @@
 #define UNEXPECTED_INPUT(msg) show_syntax_error(msg, YYCURSOR); exit(1);
 
 extern const char *input_start;
-extern std::string file_path_string;
+extern const char* input_file_path;
 
 void show_syntax_error (const char *msg, const char *error, char *error_end = 0) {
     if (!input_start) {
         INTERNAL_ERROR("input_start not set\n");
     }
-    if (file_path_string.empty()) {
+    if (!input_file_path) {
         INTERNAL_ERROR("file_name not set\n");
     }
 
@@ -45,6 +45,6 @@ void show_syntax_error (const char *msg, const char *error, char *error_end = 0)
         end++;
     }
     print:
-    printf("\n\033[97m%s:%d:%d\033[0m \033[91merror:\033[97m %s\033[0m\n  %s\n\033[%dC\033[31m^\033[0m", file_path_string.c_str(), line + 1, column + 1, msg, extract_string(start, end).c_str(), column + 2);
+    printf("\n\033[97m%s:%d:%d\033[0m \033[91merror:\033[97m %s\033[0m\n  %s\n\033[%dC\033[31m^\033[0m", input_file_path, line + 1, column + 1, msg, extract_string(start, end).c_str(), column + 2);
     exit(1);
 }
