@@ -318,7 +318,7 @@ int main(int argc, const char** argv) {
         return 1;
     }
 
-    auto input_start = input_data;
+    input_start = input_data;
     std::cout << "Lexing input of length: " << std::setprecision(0) << input_file_size << std::endl;
 
     auto start_ts = std::chrono::high_resolution_clock::now();
