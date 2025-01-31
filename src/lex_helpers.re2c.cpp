@@ -14,14 +14,14 @@
 
 
 template<char symbol>
-constexpr auto lex_symbol_error = StringLiteral({'e','x','p','e', 'c', 't', 'e', 'd', ' ', 's', 'y', 'm', 'b', 'o', 'l', ':', ' ', symbol});
+constexpr auto lex_symbol_error = StringLiteral("expected symbol: ") + StringLiteral<2>(symbol);
 
 
 #define CHECK_SYMBOL                                                \
 if (yych == symbol) {                                               \
     return ++YYCURSOR;                                              \
 } else {                                                            \
-    UNEXPECTED_INPUT(error_message.value)                           \
+    UNEXPECTED_INPUT(error_message.c_str())                         \
 }
 
 /**
