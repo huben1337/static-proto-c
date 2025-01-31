@@ -7,12 +7,20 @@ template<typename T>
 concept CharPtr = is_char_ptr_v<T>;
 
 template<typename T>
+concept Integral = std::is_integral_v<T>;
+
+template<typename T>
 inline constexpr bool is_unsigned_integral_v = std::is_integral_v<T> && std::is_unsigned_v<T>;
 template<typename T>
 concept UnsignedIntegral = is_unsigned_integral_v<T>;
 
+template<typename T>
+inline constexpr bool is_signed_integral_v = std::is_integral_v<T> && std::is_signed_v<T>;
+template<typename T>
+concept SignedIntegral = is_signed_integral_v<T>;
+
 template <typename T>
-constexpr size_t sizeof_v = std::is_empty_v<T> ? 0 : sizeof(T);
+constexpr std::size_t sizeof_v = std::is_empty_v<T> ? 0 : sizeof(T);
 
 template <typename T>
 constexpr T __c_cast__ (auto value) { return (T)value; }
