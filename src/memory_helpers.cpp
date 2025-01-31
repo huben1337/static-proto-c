@@ -22,6 +22,13 @@ INLINE T* get_padded (size_t address) {
     return std::assume_aligned<alignof(T)>(reinterpret_cast<T*>(address + padding));
 }
 
+template <typename T>
+INLINE Buffer::Index<T> create_padded (Buffer &buffer) {
+    size_t padding = get_padding<T>(buffer.current_position());
+    Buffer::Index<T> idx = buffer.get_next_multi_byte<T>(sizeof_v<T> + padding);
+    return idx.add(padding);
+}
+
 template <typename T, typename U>
 INLINE T* get_extended(auto* that) {
     return get_padded<T>(reinterpret_cast<size_t>(that) + sizeof_v<U>);
@@ -33,6 +40,7 @@ struct __CreateExtendedResult {
     Buffer::Index<Base> base;
 };
 template <typename T, typename Base>
+requires (alignof(Base) == 1)
 INLINE __CreateExtendedResult<T, Base> __create_extended (Buffer &buffer) {
     size_t padding = get_padding<T>(buffer.current_position() + sizeof_v<Base>);
     Buffer::Index<Base> base_idx = buffer.get_next_multi_byte<Base>(sizeof_v<Base> + padding + sizeof_v<T>);
@@ -46,9 +54,10 @@ struct CreateExtendedResult {
     Base* base;
 };
 template <typename T, typename Base>
+requires (alignof(Base) == 1)
 INLINE CreateExtendedResult<T, Base> create_extended (Buffer &buffer) {
     size_t padding = get_padding<T>(buffer.current_position() + sizeof_v<Base>);
     Buffer::Index<Base> base_idx = buffer.get_next_multi_byte<Base>(sizeof_v<Base> + padding + sizeof_v<T>);
     auto extended_idx = Buffer::Index<T>{static_cast<uint32_t>(base_idx.value + padding + sizeof_v<Base>)};
-    return {buffer.get(extended_idx), buffer.get(base_idx)};
+    return {buffer.get_aligned(extended_idx), buffer.get_aligned(base_idx)};
 }
