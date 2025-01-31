@@ -35,8 +35,7 @@ struct Memory {
         position = 0;
     }
 
-
-    INLINE void free () {
+    INLINE ~Memory () {
         if (in_heap) {
             std::free(memory);
         }
@@ -62,6 +61,11 @@ struct Memory {
 
     INLINE constexpr U current_position () {
         return position;
+    }
+
+    template <typename T>
+    INLINE constexpr Index<T> position_idx () {
+        return {position};
     }
 
     template <typename T>
