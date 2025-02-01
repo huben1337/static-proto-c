@@ -16,6 +16,7 @@
 #include "memory.cpp"
 #include "lexer.re2c.cpp"
 #include "decode_code.cpp"
+#include "constexpr_helpers.cpp"
 
 
 const char* input_start;
@@ -104,7 +105,7 @@ void print_parse_result (lexer::IdentifierMap &identifier_map, Buffer &buffer) {
                 printf(name.c_str());
                 auto struct_definition = definition_data->as_struct();
                 printf(struct_definition->var_leafs_count.as_uint64 == 0 ? " (fixed size)" : " (dynamic size)");
-                auto leaf_counts = struct_definition->fixed_leafs_count.counts;
+                auto leaf_counts = struct_definition->fixed_leaf_counts.counts;
                 printf(" leafs: { %d, %d, %d, %d }", leaf_counts.size8, leaf_counts.size16, leaf_counts.size32, leaf_counts.size64);
                 auto field = struct_definition->first_field();
                 for (uint32_t i = 0; i < struct_definition->field_count; i++) {
@@ -246,18 +247,6 @@ void __extract_leafes_def (lexer::KEYWORDS keyword, lexer::IdentifiedDefinition:
     }
 }
 
-
-template <typename F, typename T, T Value>
-concept CallableWithValue = requires(F func) {
-    func.template operator()<Value>();
-};
-
-template <typename T, T... Values, typename F>
-requires (CallableWithValue<F, T, Values> && ...)
-void for_(F&& func) {
-    (func.template operator()<Values>(), ...);
-}
-
 #define SIMPLE_ERROR(message) std::cout << "spc.exe: error: " << message << std::endl
 
 #ifdef __MINGW32__
@@ -323,8 +312,6 @@ int main(int argc, const char** argv) {
 
     auto start_ts = std::chrono::high_resolution_clock::now();
 
-    // codegen::test();
-
     #define DO_LEX
     #ifdef DO_LEX
     for (size_t i = 0; i < 1; i++)
@@ -364,7 +351,6 @@ int main(int argc, const char** argv) {
 
         // printf("\ntarget internal size: %d\n", target_data->internal_size);
         // printf("buffer position: %d\n", buffer.current_position());
-        buffer.free();
     }
     #endif
 
