@@ -34,18 +34,7 @@ struct StringLiteral {
     }
 };
 
-template <typename T>
-constexpr auto to_constexpr (T t) { return t; }
-
-
 template<StringLiteral str>
 constexpr auto operator ""_sl () {
     return str;
 }
-/*
-template <const std::string& str>
-constexpr auto make_string_literal () {
-    constexpr auto N = str.length();
-    return StringLiteral<N>(str.c_str());
-} 
-*/
