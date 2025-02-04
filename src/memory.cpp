@@ -80,29 +80,29 @@ struct Memory {
 
     template <typename T>
     INLINE T* get_next () {
-        return get(get_next_idx<T>());
+        return get(next_idx<T>());
     }
 
     template <typename T>
     INLINE T* get_next_aligned () {
-        return get_aligned(get_next_idx<T>());
+        return get_aligned(next_idx<T>());
     }
 
 
     template <typename T>
-    INLINE Index<T> get_next_idx () {
+    INLINE Index<T> next_idx () {
         if constexpr (sizeof_v<T> == 0) {
             return Index<T>{position};
         } else if  constexpr (sizeof_v<T> == 1) {
-            return get_next_single_byte<T>();
+            return next_single_byte<T>();
         } else {
-            return get_next_multi_byte<T>(sizeof_v<T>);
+            return next_multi_byte<T>(sizeof_v<T>);
         }
     }
     
     template <typename T>
     requires (sizeof_v<T> == 1)
-    INLINE Index<T> get_next_single_byte () {
+    INLINE Index<T> next_single_byte () {
         if (position == capacity) {
             if (capacity >= (max / 2)) {
                 INTERNAL_ERROR("memory overflow\n");
@@ -113,7 +113,7 @@ struct Memory {
     }
 
     template <typename T, UnsignedIntegral Size>
-    INLINE Index<T> get_next_multi_byte (Size size) {
+    INLINE Index<T> next_multi_byte (Size size) {
         U next = position;
         position += size;
         if (position < next) {

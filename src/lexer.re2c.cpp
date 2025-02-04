@@ -486,7 +486,7 @@ std::conditional_t<expect_fixed, LexFixedTypeResult, LexTypeResult> lex_type (ch
             printf("WATT");
             exit(1);
         }
-        buffer.get_next_multi_byte<void>(variant_count * sizeof(VariantType::TypeMeta));
+        buffer.next_multi_byte<void>(variant_count * sizeof(VariantType::TypeMeta));
 
         auto types_start_ptr = reinterpret_cast<uint8_t*>(buffer.get(types_start_idx));
         auto types_end_ptr = reinterpret_cast<uint8_t*>(buffer.get(types_end_idx));

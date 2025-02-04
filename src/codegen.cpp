@@ -127,7 +127,7 @@ struct CodeData {
     INLINE void write_strs (T&&... strs) {
         uint16_t indent_size = indent * 4;
         size_t size = (... + get_str_size(strs)) + indent_size;
-        auto dst_idx = buffer.get_next_multi_byte<char>(size);
+        auto dst_idx = buffer.next_multi_byte<char>(size);
         char *dst = buffer.get(dst_idx);
         char* dst_start = dst;
         dst = make_indent(indent_size, dst);
@@ -311,7 +311,7 @@ struct __Struct : CodeData {
     INLINE auto method (T&& type, U&& name) {
         uint16_t indent_size = indent * 4;
         size_t str_size = indent_size + get_str_size(type) + 1 + get_str_size(name) + 6;
-        char* str = buffer.get(buffer.get_next_multi_byte<char>(str_size));
+        char* str = buffer.get(buffer.next_multi_byte<char>(str_size));
         str = make_indent(indent_size, str);
         str = write_string(str, type);
         str = write_string(str, " ");
@@ -326,7 +326,7 @@ struct __Struct : CodeData {
     INLINE auto method (T&& type, U&& name, std::tuple<V...> args) {
         uint16_t indent_size = indent * 4;
         size_t str_size = indent_size + get_str_size(type) + 1 + get_str_size(name) + 2 + get_str_tuple_size(args, std::make_index_sequence<sizeof...(V)>{}) + (sizeof...(V) - 1)*2 + 4;
-        char* str = buffer.get(buffer.get_next_multi_byte<char>(str_size));
+        char* str = buffer.get(buffer.next_multi_byte<char>(str_size));
         str = make_indent(indent_size, str);
         str = write_string(str, type);
         str = write_string(str, " ");
@@ -343,7 +343,7 @@ struct __Struct : CodeData {
     INLINE auto method (std::tuple<T...> attributes, U&& type, V&& name) {
         uint16_t indent_size = indent * 4;
         size_t str_size = indent_size + get_str_tuple_size(attributes, std::make_index_sequence<sizeof...(T)>{}) + (sizeof...(T) - 1) + 1 + get_str_size(type) + 1 + get_str_size(name) + 6;
-        char* str = buffer.get(buffer.get_next_multi_byte<char>(str_size));
+        char* str = buffer.get(buffer.next_multi_byte<char>(str_size));
         str = make_indent(indent_size, str);
         str = write_str_tuple<" ">(str, attributes);
         str = write_string(str, " ");
@@ -360,7 +360,7 @@ struct __Struct : CodeData {
     INLINE auto method (std::tuple<T...> attributes, U&& type, V&& name, std::tuple<W...> args) {
         uint16_t indent_size = indent * 4;
         size_t str_size = indent_size + get_str_tuple_size(attributes, std::make_index_sequence<sizeof...(T)>{}) + (sizeof...(T) - 1) + 1 + get_str_size(type) + 1 + get_str_size(name) + 2 + get_str_tuple_size(args, std::make_index_sequence<sizeof...(W)>{}) + (sizeof...(W) - 1)*2 + 4;
-        char* str = buffer.get(buffer.get_next_multi_byte<char>(str_size));
+        char* str = buffer.get(buffer.next_multi_byte<char>(str_size));
         str = make_indent(indent_size, str);
         str = write_str_tuple<" ">(str, attributes);
         str = write_string(str, " ");

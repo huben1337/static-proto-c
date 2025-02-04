@@ -247,9 +247,7 @@ struct DefinitionWithFields : IdentifiedDefinition::Data {
     }
 
     INLINE static StructField::Data* reserve_field(Buffer &buffer) {
-        size_t padding = get_padding<StructField::Data>(buffer.current_position());
-        auto idx = buffer.get_next_multi_byte<StructField::Data>(sizeof_v<StructField::Data> + padding);
-        return buffer.get_aligned(idx.add(padding));
+        return create_padded<StructField::Data>(buffer);
     }
 
     INLINE StructField* first_field() {
