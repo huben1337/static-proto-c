@@ -60,7 +60,7 @@ union LeafCounts {
         INLINE uint32_t bytes () const {
             return size8 + size16 * 2 + size32 * 4 + size64 * 8;
         }
-        INLINE uint32_t total () const {
+        INLINE uint16_t total () const {
             return size8 + size16 + size32 + size64;
         }
     } counts;
@@ -76,7 +76,7 @@ union LeafCounts {
     INLINE void operator += (const LeafCounts& other) { as_uint64 += other.as_uint64; }
     INLINE LeafCounts operator + (const LeafCounts& other) const { return {as_uint64 + other.as_uint64}; }
     INLINE uint32_t bytes () const { return counts.bytes(); }
-    INLINE uint32_t total () const { return counts.total(); }
+    INLINE uint16_t total () const { return counts.total(); }
 };
 
 struct IdentifiedDefinition {
@@ -183,10 +183,22 @@ struct VariantType {
         return created.extended;
     }
 
-    variant_count_t variant_count;
+    uint64_t _dummy; // TODO : get rid of this (need to align TypeMetas)
+    uint16_t variant_count;
+    uint16_t level_variant_leafs;
+    SIZE max_alignment;
+
+    struct TypeMeta {
+        LeafCounts leaf_counts;
+        LeafCounts variant_field_counts;
+    };
+
+    INLINE TypeMeta* type_metas () {
+        return reinterpret_cast<TypeMeta*>(this + 1);
+    }
 
     INLINE Type* first_variant() {
-        return (Type*)(this + 1);
+        return reinterpret_cast<Type*>(reinterpret_cast<size_t>(type_metas()) + variant_count * sizeof(TypeMeta));
     }
 };
 INLINE auto Type::as_variant () const {
@@ -221,15 +233,18 @@ struct EnumField {
 };
 
 struct DefinitionWithFields : IdentifiedDefinition::Data {
-    LeafCounts fixed_leafs_count;
+    LeafCounts fixed_leaf_counts;
     LeafCounts var_leafs_count;
+    LeafCounts variant_field_counts;
     uint64_t byte_size;
     uint16_t size_leafs_count;
+    uint16_t level_variant_fields;
+    uint16_t total_variant_leafs;
     uint16_t field_count;
+    SIZE max_alignment;
 
     INLINE static auto create(Buffer &buffer) {
-        __CreateExtendedResult<DefinitionWithFields, IdentifiedDefinition> result = __create_extended<DefinitionWithFields, IdentifiedDefinition>(buffer);
-        return result;
+        return __create_extended<DefinitionWithFields, IdentifiedDefinition>(buffer);
     }
 
     INLINE static StructField::Data* reserve_field(Buffer &buffer) {
@@ -257,8 +272,7 @@ struct EnumDefinition : IdentifiedDefinition::Data {
     } type_size;
 
     INLINE static auto create(Buffer &buffer) {
-        __CreateExtendedResult<EnumDefinition, IdentifiedDefinition> result = __create_extended<EnumDefinition, IdentifiedDefinition>(buffer);
-        return result;
+        return __create_extended<EnumDefinition, IdentifiedDefinition>(buffer);
     }
 
     INLINE static EnumField* reserve_field(Buffer &buffer) {
@@ -300,7 +314,7 @@ template <typename T>
 INLINE T* skip_variant_type (VariantType* variant_type) {
     auto types_count = variant_type->variant_count;
     Type* type = variant_type->first_variant();
-    for (variant_count_t i = 0; i < types_count; i++) {
+    for (uint16_t i = 0; i < types_count; i++) {
         type = skip_type<Type>(type);
     }
     return reinterpret_cast<T*>(type);
