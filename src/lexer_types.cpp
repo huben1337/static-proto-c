@@ -178,12 +178,11 @@ INLINE auto Type::as_array () const {
 
 struct VariantType {
     INLINE static Buffer::Index<VariantType> create (Buffer &buffer) {
-        auto created = __create_extended<VariantType, Type>(buffer);
+        auto created = __create_extended<VariantType, Type, TypeMeta>(buffer);
         buffer.get(created.base)->type = VARIANT;
         return created.extended;
     }
 
-    uint64_t _dummy; // TODO : get rid of this (need to align TypeMetas)
     uint16_t variant_count;
     uint16_t level_variant_leafs;
     SIZE max_alignment;
@@ -194,7 +193,7 @@ struct VariantType {
     };
 
     INLINE TypeMeta* type_metas () {
-        return reinterpret_cast<TypeMeta*>(this + 1);
+        return get_padded<TypeMeta>(this + 1);
     }
 
     INLINE Type* first_variant() {
