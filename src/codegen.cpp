@@ -188,7 +188,8 @@ struct __CodeBlock : CodeData {
 
     INLINE auto _if (std::string_view condition);
     INLINE auto _switch (std::string_view key);
-    INLINE auto _struct (std::string name);
+    template <typename ...T>
+    INLINE auto _struct (T&&... strs);
 
     template <typename ...T>
     INLINE Derived line (T&&... strs) {
@@ -286,7 +287,10 @@ struct __Struct : CodeData {
     using __Last = Last;
     using __Derived = Derived;
 
-    std::string name;
+    struct StructName {
+        Buffer::Index<char> start;
+        Buffer::Index<char> end;
+    } name;
 
     INLINE auto _private () {
         _line("private:");
@@ -304,7 +308,7 @@ struct __Struct : CodeData {
 
     template <typename T, typename U>
     INLINE auto ctor (T&& args, U&& initializers) {
-        _line(name, " (", args, ") : ", initializers, " {}");
+        _line(std::string_view{buffer.get(name.start), buffer.get(name.end)}, " (", args, ") : ", initializers, " {}");
         return EmptyCtor<Derived>({{buffer, indent}});
     }
     template <typename T, typename U>
@@ -323,7 +327,7 @@ struct __Struct : CodeData {
 
     template <typename T, typename U, typename ...V>
     requires (sizeof...(V) > 0)
-    INLINE auto method (T&& type, U&& name, std::tuple<V...> args) {
+    INLINE auto method (T&& type, U&& name, std::tuple<V...>&& args) {
         uint16_t indent_size = indent * 4;
         size_t str_size = indent_size + get_str_size(type) + 1 + get_str_size(name) + 2 + get_str_tuple_size(args, std::make_index_sequence<sizeof...(V)>{}) + (sizeof...(V) - 1)*2 + 4;
         char* str = buffer.get(buffer.next_multi_byte<char>(str_size));
@@ -340,7 +344,7 @@ struct __Struct : CodeData {
 
     template <typename ...T, typename U, typename V>
     requires (sizeof...(T) > 0)
-    INLINE auto method (std::tuple<T...> attributes, U&& type, V&& name) {
+    INLINE auto method (std::tuple<T...>&& attributes, U&& type, V&& name) {
         uint16_t indent_size = indent * 4;
         size_t str_size = indent_size + get_str_tuple_size(attributes, std::make_index_sequence<sizeof...(T)>{}) + (sizeof...(T) - 1) + 1 + get_str_size(type) + 1 + get_str_size(name) + 6;
         char* str = buffer.get(buffer.next_multi_byte<char>(str_size));
@@ -357,7 +361,7 @@ struct __Struct : CodeData {
 
     template <typename ...T, typename U, typename V, typename ...W>
     requires (sizeof...(T) > 0 && sizeof...(W) > 0)
-    INLINE auto method (std::tuple<T...> attributes, U&& type, V&& name, std::tuple<W...> args) {
+    INLINE auto method (std::tuple<T...>&& attributes, U&& type, V&& name, std::tuple<W...>&& args) {
         uint16_t indent_size = indent * 4;
         size_t str_size = indent_size + get_str_tuple_size(attributes, std::make_index_sequence<sizeof...(T)>{}) + (sizeof...(T) - 1) + 1 + get_str_size(type) + 1 + get_str_size(name) + 2 + get_str_tuple_size(args, std::make_index_sequence<sizeof...(W)>{}) + (sizeof...(W) - 1)*2 + 4;
         char* str = buffer.get(buffer.next_multi_byte<char>(str_size));
@@ -380,8 +384,8 @@ struct __Struct : CodeData {
         return c_cast<Derived>(__Struct<Last, Derived>({buffer, indent}));
     } 
 
-    INLINE auto _struct (std::string name);
-    INLINE auto _struct (std::string_view attributes, std::string name);
+    template <typename ...T>
+    INLINE auto _struct (T&&... strs);
 };
 template <typename Last>
 INLINE auto Method<Last>::end ()  {
@@ -403,10 +407,13 @@ struct Struct : __Struct<Last, Struct<Last>> {
     }
 };
 template <typename Last, typename Derived>
-INLINE auto __CodeBlock<Last, Derived>::_struct (std::string name) {
-    _line("struct ", name, " {");
-    this->indent++;
-    return Struct<Derived>({{this->buffer, this->indent}, name});
+template <typename ...T>
+INLINE auto __CodeBlock<Last, Derived>::_struct (T&&... strs) {
+    Buffer::Index<char> name_start_idx = buffer.position_idx<char>().add(7 + indent * 4);
+    _line("struct ", strs..., " {");
+    Buffer::Index<char> name_end_idx = buffer.position_idx<char>().sub(3);
+    indent++;
+    return Struct<Derived>({{buffer, indent}, {name_start_idx, name_end_idx}});
 };
 template <typename Last>
 struct NestedStruct : __Struct<Last, NestedStruct<Last>> {
@@ -428,16 +435,13 @@ struct NestedStruct : __Struct<Last, NestedStruct<Last>> {
     }
 };
 template <typename Last, typename Derived>
-INLINE auto __Struct<Last, Derived>::_struct (std::string name) {
-    _line("struct ", name, " {");
+template <typename ...T>
+INLINE auto __Struct<Last, Derived>::_struct (T&&... strs) {
+    Buffer::Index<char> name_start_idx = buffer.position_idx<char>().add(7 + indent * 4);
+    _line("struct ", strs..., " {");
+    Buffer::Index<char> name_end_idx = buffer.position_idx<char>().sub(3);
     indent++;
-    return NestedStruct<Derived>({{buffer, indent}, name});
-}
-template <typename Last, typename Derived>
-INLINE auto __Struct<Last, Derived>::_struct (std::string_view attributes, std::string name) {
-    _line(attributes, " struct ", name, " {");
-    indent++;
-    return NestedStruct<Derived>({{buffer, indent}, name});
+    return NestedStruct<Derived>({{buffer, indent}, {name_start_idx, name_end_idx}});
 }
 
 struct Empty {};
