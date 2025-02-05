@@ -11,6 +11,26 @@
 
 namespace codegen {
 
+template <typename... T>
+constexpr INLINE auto make_tuple(T&&... args) {
+    return std::tuple<T...>{std::forward<T>(args)...};
+}
+
+template <StringLiteral seperator, typename ...T>
+struct _CodeParts {
+    _CodeParts (T&&... args) : values(std::tuple<T...>{std::forward<T>(args)...}) {}
+    std::tuple<T...> values;
+};
+
+template <typename... T>
+using StringParts = _CodeParts<"", T...>;
+
+template <typename... T>
+using Attributes = _CodeParts<" ", T...>;
+
+template <typename... T>
+using Args = _CodeParts<", ", T...>;
+
 INLINE char* make_indent (uint16_t indent_size, char* dst) {
     char* indent_end = dst + indent_size;
     for (; dst < indent_end; dst++) {
@@ -87,22 +107,32 @@ INLINE size_t get_str_size (size_t value) {
     }
 }
 
-template <typename ...T, size_t... Indices>
-INLINE char* _write_str_tuple (char* dst, std::tuple<T...> values, std::index_sequence<Indices...>) {
-    ((dst = write_string(dst, std::get<Indices>(values))), ...);
+template <StringLiteral seperator, typename ...T, size_t... Indices>
+INLINE char* _write_str_tuple (char* dst, _CodeParts<seperator, T...> value, std::index_sequence<Indices...>) {
+    ((dst = write_string(write_string(dst, std::get<Indices>(value.values)), seperator)), ...);
     return dst;
 };
-template <typename ...T>
-INLINE char* write_string(char* dst, std::tuple<T...> values) {
-    return _write_str_tuple(dst, values, std::make_index_sequence<sizeof...(T)>{});
+template <StringLiteral seperator, typename ...T>
+INLINE char* write_string(char* dst, _CodeParts<seperator, T...> value) {
+    if constexpr (sizeof...(T) == 0) {
+        return dst;
+    } else {
+        dst =  _write_str_tuple(dst, value, std::make_index_sequence<sizeof...(T) - 1>{});
+        return write_string(dst, std::get<sizeof...(T) - 1>(value.values));
+    }
 }
-template <typename ...T, size_t... Indices>
-INLINE size_t _get_str_tuple_size (std::tuple<T...> values, std::index_sequence<Indices...>) {
-    return (... + get_str_size(std::get<Indices>(values)));
+template <StringLiteral seperator, typename ...T, size_t... Indices>
+INLINE size_t _get_str_tuple_size (_CodeParts<seperator, T...> value, std::index_sequence<Indices...>) {
+    if constexpr (sizeof...(T) == 0) {
+        return 0;
+    } else {
+        return (... + get_str_size(std::get<Indices>(value.values)));
+    }
 };
-template <typename ...T>
-INLINE size_t get_str_size (std::tuple<T...> values) {
-    return _get_str_tuple_size(values, std::make_index_sequence<sizeof...(T)>{});
+
+template <StringLiteral seperator, typename ...T>
+INLINE size_t get_str_size (_CodeParts<seperator, T...> value) {
+    return _get_str_tuple_size(value, std::make_index_sequence<sizeof...(T)>{}) + (sizeof...(T) - 1) * seperator.size();
 }
 
 template <typename T>
@@ -313,67 +343,32 @@ struct __Struct : CodeData {
     }
     template <typename T, typename U>
     INLINE auto method (T&& type, U&& name) {
-        uint16_t indent_size = indent * 4;
-        size_t str_size = indent_size + get_str_size(type) + 1 + get_str_size(name) + 6;
-        char* str = buffer.get(buffer.next_multi_byte<char>(str_size));
-        str = make_indent(indent_size, str);
-        str = write_string(str, type);
-        str = write_string(str, " ");
-        str = write_string(str, name);
-        str = write_string(str, " () {\n");
+        _line(type, " ", name, " () {");
         indent++;
         return Method<Derived>({{buffer, indent}});
     }
 
     template <typename T, typename U, typename ...V>
     requires (sizeof...(V) > 0)
-    INLINE auto method (T&& type, U&& name, std::tuple<V...>&& args) {
+    INLINE auto method (T&& type, U&& name, Args<V...> args) {
         uint16_t indent_size = indent * 4;
-        size_t str_size = indent_size + get_str_size(type) + 1 + get_str_size(name) + 2 + get_str_tuple_size(args, std::make_index_sequence<sizeof...(V)>{}) + (sizeof...(V) - 1)*2 + 4;
-        char* str = buffer.get(buffer.next_multi_byte<char>(str_size));
-        str = make_indent(indent_size, str);
-        str = write_string(str, type);
-        str = write_string(str, " ");
-        str = write_string(str, name);
-        str = write_string(str, " (");
-        str = write_str_tuple<", ">(str, args);
-        str = write_string(str, ") {\n");
+        _line(type, " ", name, " (", args, ") {");
         indent++;
         return Method<Derived>({{buffer, indent}});
     }
 
     template <typename ...T, typename U, typename V>
     requires (sizeof...(T) > 0)
-    INLINE auto method (std::tuple<T...>&& attributes, U&& type, V&& name) {
-        uint16_t indent_size = indent * 4;
-        size_t str_size = indent_size + get_str_tuple_size(attributes, std::make_index_sequence<sizeof...(T)>{}) + (sizeof...(T) - 1) + 1 + get_str_size(type) + 1 + get_str_size(name) + 6;
-        char* str = buffer.get(buffer.next_multi_byte<char>(str_size));
-        str = make_indent(indent_size, str);
-        str = write_str_tuple<" ">(str, attributes);
-        str = write_string(str, " ");
-        str = write_string(str, type);
-        str = write_string(str, " ");
-        str = write_string(str, name);
-        str = write_string(str, " () {\n");
+    INLINE auto method (Attributes<T...> attributes, U&& type, V&& name) {
+        _line(attributes, " ", type, " ", name, " () {");
         indent++;
         return Method<Derived>({{buffer, indent}});
     }
 
     template <typename ...T, typename U, typename V, typename ...W>
     requires (sizeof...(T) > 0 && sizeof...(W) > 0)
-    INLINE auto method (std::tuple<T...>&& attributes, U&& type, V&& name, std::tuple<W...>&& args) {
-        uint16_t indent_size = indent * 4;
-        size_t str_size = indent_size + get_str_tuple_size(attributes, std::make_index_sequence<sizeof...(T)>{}) + (sizeof...(T) - 1) + 1 + get_str_size(type) + 1 + get_str_size(name) + 2 + get_str_tuple_size(args, std::make_index_sequence<sizeof...(W)>{}) + (sizeof...(W) - 1)*2 + 4;
-        char* str = buffer.get(buffer.next_multi_byte<char>(str_size));
-        str = make_indent(indent_size, str);
-        str = write_str_tuple<" ">(str, attributes);
-        str = write_string(str, " ");
-        str = write_string(str, type);
-        str = write_string(str, " ");
-        str = write_string(str, name);
-        str = write_string(str, " (");
-        str = write_str_tuple<", ">(str, args);
-        str = write_string(str, ") {\n");
+    INLINE auto method (Attributes<T...> attributes, U&& type, V&& name, Args<W...> args) {
+        _line(attributes, " ", type, " ", name, " (", args, ") {");
         indent++;
         return Method<Derived>({{buffer, indent}});
     }
