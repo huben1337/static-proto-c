@@ -30,9 +30,10 @@ struct VariantField {
 };
 
 enum MODE {
-    DEFAULT = 0b00,
-    ARRAY   = 0b01,
-    VARIANT = 0b10
+    DEFAULT         = 0b0000,
+    FIXED_ARRAY     = 0b0001,
+    ARRAY           = 0b0010,
+    VARIANT         = 0b0100,
 };
 template <MODE target, MODE mode>
 constexpr bool is_mode () {
@@ -152,7 +153,7 @@ struct CodeChunks {
     template <MODE mode>
     requires (!is_mode<MODE::VARIANT, mode>())
     INLINE std::pair<lexer::LeafCounts::Counts&, lexer::LeafCounts::Counts&> get_counts_and_positions () {
-        if constexpr (is_mode<MODE::DEFAULT, mode>()) {
+        if constexpr (is_mode<MODE::DEFAULT, mode>() || is_mode<MODE::FIXED_ARRAY, mode>()) {
             return {fixed_leaf_counts, fixed_leaf_positions};
         } else if constexpr (is_mode<MODE::ARRAY, mode>()) {
             return {var_leaf_counts, var_leaf_positions};
@@ -164,22 +165,23 @@ struct CodeChunks {
         switch (size) {
         case lexer::SIZE_1:
             if (positions.size8 == counts.size8) {
-                printf("position overflowA\n");
+                printf("[CodeChunks] position overflow %s\n", is_mode<MODE::ARRAY, mode>() ? "array" : "default");
+                printf("counts.size8: %d\n", counts.size8);
             }
             return counts.size64 + counts.size32 + counts.size16 + positions.size8++;
         case lexer::SIZE_2:
             if (positions.size16 == counts.size16) {
-                printf("position overflowA\n");
+                printf("[CodeChunks] position overflow %s\n", is_mode<MODE::ARRAY, mode>() ? "array" : "default");
             }
             return counts.size64 + counts.size32 + positions.size16++;
         case lexer::SIZE_4:
             if (positions.size32 == counts.size32) {
-                printf("position overflowA\n");
+                printf("[CodeChunks] position overflow %s\n", is_mode<MODE::ARRAY, mode>() ? "array" : "default");
             }
             return counts.size64 + positions.size32++;
         case lexer::SIZE_8:
             if (positions.size64 == counts.size64) {
-                printf("position overflowA\n");
+                printf("[CodeChunks] position overflow %s\n", is_mode<MODE::ARRAY, mode>() ? "array" : "default");
             }
             return positions.size64++;
         default:
@@ -630,27 +632,135 @@ struct GenStructFieldResult {
     Derived code;
 };
 
-template <typename... T>
-constexpr INLINE auto make_tuple(T&&... args) {
-    return std::tuple<T...>{args...};
+
+
+
+struct GenFixedArrayLeafArgs {
+    uint64_t outer_array_length;
+    uint32_t* array_lengths;
+    uint16_t depth;
+    uint8_t array_depth;
+};
+
+struct GenArrayLeafArgs {
+};
+
+struct GenVariantLeafArgs {
+    uint16_t variant_id;
+    uint16_t variant_depth;
+};
+
+struct GenStructLeafArgsDefault {
+    std::string_view name;
+    uint16_t depth;
+};
+
+struct GenStructLeafArgsInArray {
+    std::string_view name;
+    uint64_t outer_array_length;
+    uint32_t* array_lengths;
+    uint16_t depth;
+    uint8_t array_depth;
+};
+
+template <MODE mode>
+using GenStructLeafArgs = std::conditional_t<is_mode<MODE::FIXED_ARRAY, mode>(), GenStructLeafArgsInArray, GenStructLeafArgsDefault>;
+
+template <MODE mode, MODE pl_mode>
+using additional_args_t =
+std::conditional_t<pl_mode == MODE::DEFAULT, GenStructLeafArgs<mode>,
+std::conditional_t<pl_mode == MODE::FIXED_ARRAY, GenFixedArrayLeafArgs,
+std::conditional_t<pl_mode == MODE::ARRAY, GenArrayLeafArgs,
+std::conditional_t<pl_mode == MODE::VARIANT, GenVariantLeafArgs,
+void>>>>;
+
+template <MODE pl_mode>
+constexpr bool is_array_element = pl_mode == MODE::ARRAY || pl_mode == MODE::FIXED_ARRAY;
+
+template <typename F, typename ... Args>
+constexpr size_t arg_count( F(*f)(Args ...))
+{
+   return sizeof...(Args);
 }
 
+template <MODE mode, MODE pl_mode, StringLiteral element_name>
+constexpr INLINE auto get_unique_name (additional_args_t<mode, pl_mode> additional_args) {
+    if constexpr (is_array_element<pl_mode>) {
+        return element_name;
+    } else if constexpr (pl_mode == MODE::VARIANT) {
+        return codegen::StringParts{"_"_sl, std::forward<uint16_t>(additional_args.variant_depth), "_"_sl, std::forward<uint16_t>(additional_args.variant_id)};
+    } else {
+        return codegen::StringParts{std::forward<std::string_view>(additional_args.name), "_"_sl, std::forward<uint16_t>(additional_args.depth)};
+    }
+}
 
-template <MODE mode, bool is_array_element>
+template <MODE mode, MODE pl_mode, typename F>
+constexpr INLINE auto get_unique_name (additional_args_t<mode, pl_mode> additional_args, F on_element) {
+    if constexpr (is_array_element<pl_mode>) {
+        return on_element();
+    } else if constexpr (pl_mode == MODE::VARIANT) {
+        return codegen::StringParts{"_"_sl, std::forward<uint16_t>(additional_args.variant_depth), "_"_sl, std::forward<uint16_t>(additional_args.variant_id)};
+    } else {
+        return codegen::StringParts{std::forward<std::string_view>(additional_args.name), "_"_sl, std::forward<uint16_t>(additional_args.depth)};
+    }
+}
+
+template <MODE mode, MODE pl_mode>
+requires (!is_array_element<pl_mode>)
+constexpr INLINE auto get_unique_name (additional_args_t<mode, pl_mode> additional_args) {
+    if constexpr (pl_mode == MODE::VARIANT) {
+        return codegen::StringParts{"_"_sl, std::forward<uint16_t>(additional_args.variant_depth), "_"_sl, std::forward<uint16_t>(additional_args.variant_id)};
+    } else {
+        return codegen::StringParts{std::forward<std::string_view>(additional_args.name), "_"_sl, std::forward<uint16_t>(additional_args.depth)};
+    }
+}
+
+template <MODE mode, MODE pl_mode>
+requires (!is_array_element<pl_mode>)
+constexpr INLINE auto get_name (additional_args_t<mode, pl_mode> additional_args, auto unique_name) {
+    if constexpr (pl_mode == MODE::VARIANT) {
+        return  codegen::StringParts{"as_"_sl, std::forward<uint16_t>(additional_args.variant_id)};
+    } else {
+        return unique_name;
+    }
+}
+
+template <MODE mode, MODE pl_mode>
+requires (!is_array_element<pl_mode>)
+constexpr INLINE auto get_name (additional_args_t<mode, pl_mode> additional_args) {
+    if constexpr (pl_mode == MODE::VARIANT) {
+        return  codegen::StringParts{"as_"_sl, std::forward<uint16_t>(additional_args.variant_id)};
+    } else {
+        return codegen::StringParts{std::forward<std::string_view>(additional_args.name), "_"_sl, std::forward<uint16_t>(additional_args.depth)};
+    }
+}
+
+template <MODE mode, MODE pl_mode>
 GenStructFieldResult<lexer::StructField, codegen::__UnknownStruct> gen_leaf (
     lexer::Type* field_type,
-    std::string unique_name,
-    std::string name,
     Buffer &buffer,
     codegen::__UnknownStruct code,
-    std::string base_name,
+    std::string_view base_name,
     std::conditional_t<is_mode<MODE::VARIANT, mode>(), VariantLeafs, Leafs> leafs,
-    uint64_t outer_array_length,
-    uint32_t* array_lengths,
-    uint8_t array_depth,
-    uint8_t depth
+    additional_args_t<mode, pl_mode> additional_args
+
 ) {
     using T = lexer::StructField;
+    uint64_t outer_array_length;
+    uint32_t* array_lengths;
+    uint8_t array_depth;
+    if constexpr (is_mode<MODE::ARRAY, mode>()) {
+        outer_array_length = 1;
+        array_depth = 1;
+    } else if constexpr (pl_mode == MODE::FIXED_ARRAY ||  (pl_mode == MODE::DEFAULT && is_mode<MODE::FIXED_ARRAY, mode>())) {
+        outer_array_length = additional_args.outer_array_length;
+        array_lengths = additional_args.array_lengths;
+        array_depth = additional_args.array_depth;
+    } else {
+        outer_array_length = 1;
+        array_depth = 0;
+    }
+
     lexer::FIELD_TYPE _type = field_type->type;
     switch (_type)
     {
@@ -662,9 +772,7 @@ GenStructFieldResult<lexer::StructField, codegen::__UnknownStruct> gen_leaf (
 
         ArrayCtorStrs array_ctor_strs = make_array_ctor_strs(array_depth);
 
-        if constexpr (is_array_element) {
-            unique_name = "String";
-        }
+        auto unique_name = get_unique_name<mode, pl_mode, "String">(additional_args);
 
         auto string_struct = code
         ._struct(unique_name)
@@ -672,7 +780,7 @@ GenStructFieldResult<lexer::StructField, codegen::__UnknownStruct> gen_leaf (
         
         auto c_str_method = string_struct
         .method("const char*", "c_str");
-        if constexpr (is_array_element) {
+        if constexpr (is_array_element<pl_mode>) {
             c_str_method = c_str_method
             .line("return reinterpret_cast<const char*>(base + ", chunk_start_ptr, " + ", make_idx_calc<false>(array_lengths, array_depth), " * ", length, ");");
         } else {
@@ -687,10 +795,10 @@ GenStructFieldResult<lexer::StructField, codegen::__UnknownStruct> gen_leaf (
 
         string_struct = c_str_method
             .end()
-            .method(make_tuple("constexpr"), size_type_str, "size")
+            .method(codegen::Attributes("constexpr"), size_type_str, "size")
                 .line("return ", length, ";")
             .end()
-            .method(make_tuple("constexpr"), size_type_str, "length")
+            .method(codegen::Attributes("constexpr"), size_type_str, "length")
                 .line("return size() - 1;")
             .end()
             ._private()
@@ -698,26 +806,29 @@ GenStructFieldResult<lexer::StructField, codegen::__UnknownStruct> gen_leaf (
 
         for (uint8_t i = 0; i < array_depth; i++) {
             string_struct = string_struct
-            .field("uint32_t", make_tuple("idx_", i));
+            .field("uint32_t", codegen::StringParts("idx_", i));
         }
         
         code = string_struct
         .end();
 
-        if constexpr (is_array_element) {
+        if constexpr (is_array_element<pl_mode>) {
             code = code
-            .method("String", "get", make_tuple("uint32_t idx"))
+            .method(unique_name, "get", codegen::Args("uint32_t idx"))
                 .line(array_ctor_strs.el_ctor_used)
             .end();
         } else {
             code = code
-            .method(unique_name, name)
+            .method(unique_name, get_name<mode, pl_mode>(additional_args, unique_name))
                 .line(array_ctor_strs.ctor_used)
             .end();
         }
         return {(T*)(fixed_string_type + 1), code};
     }
     case lexer::FIELD_TYPE::STRING: {
+        if constexpr (is_mode<MODE::ARRAY, mode>() || is_mode<MODE::FIXED_ARRAY, mode>()) {
+            INTERNAL_ERROR("Dynamic array cant be nested");
+        } else {
         auto string_type = field_type->as_string();
         lexer::SIZE size_size = string_type->size_size;
         lexer::SIZE stored_size_size = string_type->stored_size_size;
@@ -731,6 +842,8 @@ GenStructFieldResult<lexer::StructField, codegen::__UnknownStruct> gen_leaf (
 
         uint16_t size_leaf_idx = leafs.cc->current_size_leaf_idx++;
         leafs.cc->size_leafs()[size_leaf_idx] = {leaf_idx, string_type->min_length, size_size, stored_size_size};
+
+        auto unique_name = get_unique_name<mode, pl_mode>(additional_args);
 
         code = code
         ._struct(unique_name)
@@ -747,11 +860,12 @@ GenStructFieldResult<lexer::StructField, codegen::__UnknownStruct> gen_leaf (
             ._private()
             .field("size_t", "base")
         .end()
-        .method(unique_name, name)
+        .method(unique_name, get_name<mode, pl_mode>(additional_args, unique_name))
             .line(array_ctor_strs.ctor_used)
         .end();
 
         return {(T*)(string_type + 1), code};
+        }
     }
     case lexer::FIELD_TYPE::ARRAY_FIXED: {
         auto array_type = field_type->as_array();
@@ -760,10 +874,14 @@ GenStructFieldResult<lexer::StructField, codegen::__UnknownStruct> gen_leaf (
 
         ArrayCtorStrs array_ctor_strs = make_array_ctor_strs(array_depth);
 
-        std::string retrive_method_qualifier;
-        if constexpr (is_array_element) {
-            unique_name = "Array_" + std::to_string(depth++);
+        uint16_t depth;
+        if constexpr (pl_mode == MODE::FIXED_ARRAY) {
+            depth = additional_args.depth + 1;
+        } else {
+            depth = 0;
         }
+
+        auto unique_name = get_unique_name<mode, pl_mode>(additional_args, [depth]() { return codegen::StringParts{"Array_"_sl, depth}; });
 
         codegen::NestedStruct<codegen::__UnknownStruct> array_struct = code
         ._struct(unique_name)
@@ -778,10 +896,17 @@ GenStructFieldResult<lexer::StructField, codegen::__UnknownStruct> gen_leaf (
             new_array_lengths[last] = length;
         }
 
-        auto result = gen_leaf<mode, true>(array_type->inner_type(), "", "", buffer, codegen::__UnknownStruct{array_struct}, base_name, leafs, array_type->length * outer_array_length, new_array_lengths, array_depth + 1, depth);
+        auto result = gen_leaf<static_cast<MODE>(mode | MODE::FIXED_ARRAY), MODE::FIXED_ARRAY>(
+            array_type->inner_type(),
+            buffer,
+            codegen::__UnknownStruct{array_struct},
+            base_name,
+            leafs,
+            GenFixedArrayLeafArgs{array_type->length * outer_array_length, new_array_lengths, depth, static_cast<uint8_t>(array_depth + 1)}
+            );
 
         array_struct = codegen::NestedStruct<codegen::__UnknownStruct>{result.code}
-            .method(make_tuple("constexpr"), size_type_str, "length")
+            .method(codegen::Attributes("constexpr"), size_type_str, "length")
                 .line("return ", length, ";")
             .end()
             ._private()
@@ -789,27 +914,27 @@ GenStructFieldResult<lexer::StructField, codegen::__UnknownStruct> gen_leaf (
 
         for (uint8_t i = 0; i < array_depth; i++) {
             array_struct = array_struct
-            .field("uint32_t", make_tuple("idx_", i));
+            .field("uint32_t", codegen::StringParts("idx_", i));
         }
 
         code = array_struct
         .end();
         
-        if constexpr (is_array_element) {
+        if constexpr (is_array_element<pl_mode>) {
             code = code
-            .method(unique_name, "get", make_tuple("uint32_t idx"))
+            .method(unique_name, "get", codegen::Args("uint32_t idx"))
                 .line(array_ctor_strs.el_ctor_used)
             .end();
         } else {
             code = code
-            .method(unique_name, name)
+            .method(unique_name, get_name<mode, pl_mode>(additional_args, unique_name))
                 .line(array_ctor_strs.ctor_used)
             .end();
         }
         return {result.next, code};
     }
     case lexer::FIELD_TYPE::ARRAY: {
-        if constexpr (is_mode<MODE::ARRAY, mode>()) {
+        if constexpr (is_mode<MODE::ARRAY, mode>() || is_mode<MODE::FIXED_ARRAY, mode>()) {
             INTERNAL_ERROR("Dynamic array cant be nested");
         } else {
         auto array_type = field_type->as_array();
@@ -819,11 +944,20 @@ GenStructFieldResult<lexer::StructField, codegen::__UnknownStruct> gen_leaf (
 
         ArrayCtorStrs array_ctor_strs = make_array_ctor_strs(0);
 
+        auto unique_name = get_unique_name<mode, pl_mode>(additional_args);
+
         auto array_struct = code
         ._struct(unique_name)
             .ctor(array_ctor_strs.ctor_args, array_ctor_strs.ctor_inits).end();
 
-        auto result = gen_leaf<static_cast<MODE>(mode | MODE::ARRAY), true>(array_type->inner_type(), "", "", buffer, codegen::__UnknownStruct{array_struct}, base_name, leafs, 1, nullptr, 1, 0);
+        auto result = gen_leaf<static_cast<MODE>(mode | MODE::ARRAY), MODE::ARRAY>(
+            array_type->inner_type(),
+            buffer,
+            codegen::__UnknownStruct{array_struct},
+            base_name,
+            leafs,
+            GenArrayLeafArgs{}
+        );
 
         uint16_t leaf_idx = leafs.template reserve_idx<MODE::DEFAULT>(stored_size_size);
         leafs.cc->sizes()[leaf_idx] = stored_size_size;
@@ -839,7 +973,7 @@ GenStructFieldResult<lexer::StructField, codegen::__UnknownStruct> gen_leaf (
             .field("size_t", "base")
             .field("uint32_t", "idx_0")
         .end()
-        .method(unique_name, name)
+        .method(unique_name, get_name<mode, pl_mode>(additional_args, unique_name))
             .line(array_ctor_strs.ctor_used)
         .end();
 
@@ -852,9 +986,7 @@ GenStructFieldResult<lexer::StructField, codegen::__UnknownStruct> gen_leaf (
 
         CodeChunks *cc = leafs.cc;
 
-        if constexpr (is_array_element) {
-            unique_name = "Variant"; 
-        }
+        auto unique_name = get_unique_name<mode, pl_mode, "Variant">(additional_args);
 
         ArrayCtorStrs array_ctor_strs = make_array_ctor_strs(array_depth);
         
@@ -909,19 +1041,33 @@ GenStructFieldResult<lexer::StructField, codegen::__UnknownStruct> gen_leaf (
 
         // printf("variant idx range: %d - %d\n", current_variant_idx, cc->current_variant_base_idx);
         uint64_t max_offset = 0;
+
+        uint16_t variant_depth;
+        if constexpr (pl_mode == MODE::VARIANT) {
+            variant_depth = additional_args.variant_depth + 1;
+        } else {
+            variant_depth = 0;
+        }
         
         for (uint16_t i = 0; i < variant_count; i++) {
-            std::string i_str = std::to_string(i);
-
             auto type_meta = variant_type->type_metas()[i];
             auto leaf_counts = type_meta.leaf_counts.counts;
             auto variant_field_counts = type_meta.variant_field_counts.counts;
             uint16_t total_leafs = leaf_counts.total();
             uint16_t level_variant_fields = variant_field_counts.total();
 
+            
+
             uint8_t data[sizeof(lexer::LeafCounts::Counts) * 2 + total_leafs * (sizeof(uint64_t) + sizeof(uint16_t)) + sizeof(uint16_t) + level_variant_fields * (sizeof(VariantField))];
             VariantLeafs variant_leafs = {cc, leaf_counts, total_leafs, variant_field_counts, level_variant_fields, current_variant_idx, data};
-            auto result = gen_leaf<MODE::VARIANT, false>(type, std::forward<std::string>("_" + i_str), std::forward<std::string>("as_" + i_str), buffer, codegen::__UnknownStruct{variant_struct}, base_name, variant_leafs, 1, nullptr, 0, 0);
+            auto result = gen_leaf<static_cast<MODE>(mode | MODE::VARIANT), MODE::VARIANT>(
+                type,
+                buffer,
+                codegen::__UnknownStruct{variant_struct},
+                base_name,
+                variant_leafs,
+                GenVariantLeafArgs{i, variant_depth}
+            );
             variant_struct = codegen::NestedStruct<codegen::__UnknownStruct>{result.code};
             type = (lexer::Type*)result.next;
 
@@ -972,20 +1118,20 @@ GenStructFieldResult<lexer::StructField, codegen::__UnknownStruct> gen_leaf (
         }
         for (uint8_t i = 0; i < array_depth; i++) {
             variant_struct = variant_struct
-            .field("uint32_t", make_tuple("idx_", i));
+            .field("uint32_t", codegen::StringParts("idx_", i));
         }
 
         code = variant_struct
         .end();
 
-        if constexpr (is_array_element) {
+        if constexpr (is_array_element<pl_mode>) {
             code = code
-            .method("Variant", "get", make_tuple("uint32_t idx"))
+            .method("Variant", "get", codegen::Args("uint32_t idx"))
                 .line("return {base, base + ", make_idx_calc<false, true>(array_lengths, array_depth), " * ", max_size, std::string_view{array_ctor_strs.el_ctor_used.data() + 12, array_ctor_strs.el_ctor_used.length() - 12})
             .end();
         } else {
             auto variant_get_method = code
-            .method(unique_name, name);
+            .method(unique_name, get_name<mode, pl_mode>(additional_args, unique_name));
             if (array_depth == 0) {
                 variant_get_method = variant_get_method
                 .line(array_ctor_strs.ctor_used);
@@ -1009,9 +1155,7 @@ GenStructFieldResult<lexer::StructField, codegen::__UnknownStruct> gen_leaf (
 
         ArrayCtorStrs array_ctor_strs = make_array_ctor_strs(array_depth);
 
-        if constexpr (is_array_element) {
-            unique_name = extract_string(struct_type->name);
-        }
+        auto unique_name = get_unique_name<mode, pl_mode>(additional_args, [&struct_type]() { return extract_string(struct_type->name); });
         
         codegen::NestedStruct<codegen::__UnknownStruct> struct_code = code
         ._struct(unique_name)
@@ -1021,8 +1165,28 @@ GenStructFieldResult<lexer::StructField, codegen::__UnknownStruct> gen_leaf (
         for (uint16_t i = 0; i < struct_type->field_count; i++) {
             auto field_data = field->data();
             auto name = extract_string(field_data->name);
-            auto unique_name = name + "_" + std::to_string(depth);
-            auto result = gen_leaf<mode, false>(field_data->type(), std::forward<std::string>(unique_name), std::forward<std::string>(name), buffer, codegen::__UnknownStruct{struct_code}, base_name, leafs, outer_array_length, array_lengths, array_depth, 0);
+            uint16_t struct_depth;
+            if constexpr (pl_mode == MODE::DEFAULT) {
+                struct_depth = additional_args.depth + 1;
+            } else {
+                struct_depth = 0;
+            }
+
+            GenStructLeafArgs<mode> args;
+            if constexpr (is_mode<MODE::FIXED_ARRAY, mode>()) {
+                args = GenStructLeafArgsInArray{name, outer_array_length, array_lengths, struct_depth, array_depth};
+            } else {
+                args = GenStructLeafArgsDefault{name, struct_depth};
+            }
+            
+            auto result = gen_leaf<mode, MODE::DEFAULT>(
+                field_data->type(),
+                buffer,
+                codegen::__UnknownStruct{struct_code},
+                base_name,
+                leafs,
+                args
+            );
             field = result.next;
             struct_code = codegen::NestedStruct<codegen::__UnknownStruct>{result.code};
         }
@@ -1033,20 +1197,20 @@ GenStructFieldResult<lexer::StructField, codegen::__UnknownStruct> gen_leaf (
         
         for (uint8_t i = 0; i < array_depth; i++) {
             struct_code = struct_code
-            .field("uint32_t", make_tuple("idx_", i));
+            .field("uint32_t", codegen::StringParts("idx_", i));
         }
 
         code = struct_code
         .end();
 
-        if constexpr (is_array_element) {
+        if constexpr (is_array_element<pl_mode>) {
             code = code
-            .method(unique_name, "get", make_tuple("uint32_t idx"))
+            .method(unique_name, "get", codegen::Args("uint32_t idx"))
                 .line(array_ctor_strs.el_ctor_used)
             .end();
         } else {
             code = code
-            .method(unique_name, name)
+            .method(unique_name, get_name<mode, pl_mode>(additional_args, unique_name))
                 .line(array_ctor_strs.ctor_used)
             .end();
         }
@@ -1075,19 +1239,20 @@ GenStructFieldResult<lexer::StructField, codegen::__UnknownStruct> gen_leaf (
         auto [type_name, type_size, type_size_str] = type_infos[_type];
         printf("outer_array_length: %d\n", outer_array_length);
         auto chunk_start_ptr = leafs.template reserve_next<mode>(type_size, outer_array_length);
-        if constexpr (is_array_element) {
+        if constexpr (is_array_element<pl_mode>) {
             if (type_size == lexer::SIZE::SIZE_1) {
                 code = code
-                .method(type_name, "get", make_tuple("uint32_t idx"))
+                .method(type_name, "get", codegen::Args("uint32_t idx"))
                     .line("return *add_offset<", type_name, ">(base, ", chunk_start_ptr, " + ", make_idx_calc<true ,true>(array_lengths, array_depth), ");")
                 .end();
             } else {
                 code = code
-                .method(type_name, "get", make_tuple("uint32_t idx"))
+                .method(type_name, "get", codegen::Args("uint32_t idx"))
                     .line("return *add_offset<", type_name, ">(base, ", chunk_start_ptr, " + ", make_idx_calc<false, true>(array_lengths, array_depth), " * ", type_size_str, ");")
                 .end();
             }
         } else {
+            auto name = get_name<mode, pl_mode>(additional_args);
             if (array_depth == 0) {
                 code = code
                 .method(type_name, name)
@@ -1223,8 +1388,14 @@ void generate (lexer::StructDefinition* target_struct, Buffer& buffer, int outpu
     for (uint16_t i = 0; i < target_struct->field_count; i++) {
         auto field_data = field->data();
         auto name = extract_string(field_data->name);
-        auto unique_name = name + "_0";
-        auto result = gen_leaf<MODE::DEFAULT, false>(field_data->type(), std::forward<std::string>(unique_name), std::forward<std::string>(name), buffer, codegen::__UnknownStruct{struct_code}, struct_name, code_chunks, 1, nullptr, 0, 1);
+        auto result = gen_leaf<MODE::DEFAULT, MODE::DEFAULT>(
+            field_data->type(),
+            buffer,
+            codegen::__UnknownStruct{struct_code},
+            struct_name,
+            code_chunks,
+            GenStructLeafArgsDefault{name, 0}
+        );
         field = result.next;
         struct_code = codegen::Struct<decltype(struct_code)::__Last>{result.code};
     }
@@ -1239,7 +1410,7 @@ void generate (lexer::StructDefinition* target_struct, Buffer& buffer, int outpu
         printf("size_leaf map_idx: %d, leaf_idx: %d\n", map_idx, leaf_idx);
         code_chunks->chunk_map()[map_idx] = leaf_idx;
         struct_code = struct_code
-        .method(make_tuple("static"), get_size_type_str(size_size), make_tuple("size", i), make_tuple("size_t base"))
+        .method(codegen::Attributes("static"), get_size_type_str(size_size), codegen::StringParts("size", i), codegen::Args("size_t base"))
             .line("return *add_offset<", get_size_type_str(stored_size_size), ">(base, ", code_chunks->chunk_starts() + leaf_idx, ");")
         .end();
 
