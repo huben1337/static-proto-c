@@ -202,17 +202,19 @@ std::conditional_t<expect_fixed, LexFixedTypeResult, LexTypeResult> lex_type (ch
             LeafCounts var_leafs_count;
             uint64_t byte_size;
             uint16_t size_leafs_count;
+            SIZE alignment;
 
             YYCURSOR = lex_range_argument(
                 YYCURSOR,
-                [&buffer, &fixed_leaf_counts, &var_leafs_count, &byte_size, &size_leafs_count](uint32_t length) {
+                [&buffer, &fixed_leaf_counts, &var_leafs_count, &byte_size, &size_leafs_count, &alignment](uint32_t length) {
                     fixed_leaf_counts = {1, 0, 0, 0};
                     var_leafs_count = {0};
                     byte_size = length;
                     size_leafs_count = 0;
+                    alignment = SIZE_1;
                     FixedStringType::create(buffer, length);
                 },
-                [&buffer, &fixed_leaf_counts, &var_leafs_count, &size_leafs_count](Range range) {
+                [&buffer, &fixed_leaf_counts, &var_leafs_count, &size_leafs_count, &alignment](Range range) {
                     auto [min, max] = range;
                     uint32_t delta = max - min;
                     SIZE size_size;
@@ -242,10 +244,11 @@ std::conditional_t<expect_fixed, LexFixedTypeResult, LexTypeResult> lex_type (ch
                     }
                     var_leafs_count = {1, 0, 0, 0};
                     size_leafs_count = 1;
+                    alignment = stored_size_size;
                     StringType::create(buffer, range.min, stored_size_size, size_size);
                 }
             );
-            return LexTypeResult{YYCURSOR, fixed_leaf_counts, var_leafs_count, {0}, byte_size, 0, 0, size_leafs_count, SIZE_1};
+            return LexTypeResult{YYCURSOR, fixed_leaf_counts, var_leafs_count, {0}, byte_size, 0, 0, size_leafs_count, alignment};
         } else {
             uint64_t byte_size;
             YYCURSOR = lex_range_argument(
