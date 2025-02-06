@@ -16,7 +16,6 @@
 #include "memory.cpp"
 #include "lexer.re2c.cpp"
 #include "decode_code.cpp"
-#include "constexpr_helpers.cpp"
 
 
 const char* input_start;
@@ -150,103 +149,6 @@ void print_parse_result (lexer::IdentifierMap &identifier_map, Buffer &buffer) {
     }
 }
 
-constexpr size_t get_type_size (lexer::FIELD_TYPE type) {
-    switch (type) {
-        case lexer::INT8:       return 8;
-        case lexer::INT16:      return 16;
-        case lexer::INT32:      return 32;
-        case lexer::INT64:      return 64;
-        case lexer::UINT8:      return 8;
-        case lexer::UINT16:     return 16;
-        case lexer::UINT32:     return 32;
-        case lexer::UINT64:     return 64;
-        case lexer::FLOAT32:    return 32;
-        case lexer::FLOAT64:    return 64;
-        case lexer::BOOL:       return 1;
-        default:                return 0;
-    }
-}
-
-
-template <size_t leaf_size>
-void __extract_leafes_def (lexer::KEYWORDS keyword, lexer::IdentifiedDefinition::Data* definition_data, Buffer &buffer, std::string path);
-
-template <size_t leaf_size, typename T>
-T* __extract_leafes_type (lexer::Type* type, Buffer &buffer, std::string path) {
-    switch (type->type)
-    {
-    case lexer::FIELD_TYPE::STRING_FIXED: {
-        if constexpr (leaf_size == 8) {
-            printf("%s\n", path.c_str());
-        }
-        return (T*)(type->as_fixed_string() + 1);
-    }
-    case lexer::FIELD_TYPE::STRING: {
-        auto string_type = type->as_string();
-        if (string_type->stored_size_size * 8 == leaf_size) {
-            printf("%s\n", (path + " (hidden)").c_str());
-        }
-        return (T*)(string_type + 1);
-    }
-    case lexer::FIELD_TYPE::ARRAY_FIXED: {
-        auto array_type = type->as_array();
-        return __extract_leafes_type<leaf_size, T>(array_type->inner_type(), buffer, path + "[" + std::to_string(array_type->length) + "]");
-    }
-    case lexer::FIELD_TYPE::ARRAY: {
-        auto array_type = type->as_array();
-        if (array_type->stored_size_size * 8 == leaf_size) {
-            printf("%s\n", (path + " (hidden)").c_str());
-        }
-        return skip_type<T>(array_type->inner_type());
-    }
-    case lexer::FIELD_TYPE::VARIANT: {
-        INTERNAL_ERROR("not implemented");
-    }
-    case lexer::FIELD_TYPE::IDENTIFIER: {
-        auto identified_type = type->as_identifier();
-        auto identifier = buffer.get(identified_type->identifier_idx);
-        auto identifier_data = identifier->data();
-        __extract_leafes_def<leaf_size>(identifier->keyword, identifier_data, buffer, path + "->" + extract_string(identifier_data->name));
-        return (T*)(identified_type + 1);
-    }
-    default:
-        if (get_type_size(type->type) == leaf_size) {
-            printf("%s\n", path.c_str());
-        }
-        return (T*)(type + 1);
-    }
-}
-
-template <size_t leaf_size>
-void __extract_leafes_def (lexer::KEYWORDS keyword, lexer::IdentifiedDefinition::Data* definition_data, Buffer &buffer, std::string path) {
-    switch (keyword)
-        {
-        case lexer::KEYWORDS::UNION:
-            INTERNAL_ERROR("union not implemented");
-            break;
-        case lexer::KEYWORDS::ENUM:
-            INTERNAL_ERROR("enum not implemented");
-            break;
-        /* case TYPEDEF: {
-            auto typedef_definition = definition_data->as_typedef();
-            auto type = typedef_definition->type();
-            __extract_leafes_type<leaf_size, Type>(type, buffer, path);
-            break;
-        } */
-        case lexer::KEYWORDS::STRUCT: {
-            auto struct_definition = definition_data->as_struct();
-            auto field = struct_definition->first_field()->data();
-            for (uint32_t i = 0; i < struct_definition->field_count - 1; i++) {
-                auto name = extract_string(field->name);
-                field = __extract_leafes_type<leaf_size, lexer::StructField>(field->type(), buffer, path + "." + name)->data();
-            }
-            auto name = extract_string(field->name);
-            __extract_leafes_type<leaf_size, void>(field->type(), buffer, path + "." + name);
-        }
-        
-    }
-}
-
 #define SIMPLE_ERROR(message) std::cout << "spc.exe: error: " << message << std::endl
 
 #ifdef __MINGW32__
@@ -321,14 +223,6 @@ int main(int argc, const char** argv) {
         auto buffer = Buffer(__buffer);
         auto target_struct = lexer::lex<false>(input_data, identifier_map, buffer);
 
-        //#define DO_EXTRACT
-        #ifdef DO_EXTRACT
-        auto target_name = extract_string(target_struct->name);
-        for_<size_t, 64, 32, 16, 8>([&target_struct, &buffer, &target_name]<size_t v>() {
-            printf("size: %d\n", v);
-            __extract_leafes_def<v>(lexer::KEYWORDS::STRUCT, target_struct, buffer, target_name);
-        });
-        #endif
         // #define DO_PRINT
         #ifdef DO_PRINT
         printf("\n\n- target: ");
