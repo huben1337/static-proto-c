@@ -62,6 +62,76 @@ INLINE LexResult<T> lex_attribute_value (char* YYCURSOR) {
     return parse_int<uint64_t>(YYCURSOR);
 }
 
+struct VariantAttributes {
+    uint64_t max_wasted_bytes;
+    uint64_t shared_id;
+};
+
+INLINE LexResult<VariantAttributes> lex_variant_attributes (char* YYCURSOR) {
+    uint64_t max_wasted_bytes = 32;
+    uint64_t shared_id;
+    bool has_shared_id = false;
+    bool has_max_wasted_bytes = false;
+
+    char* YYMARKER = YYCURSOR;
+    /*!local:re2c
+        white_space* "[" { goto maybe_lex_attributes; }
+        * { YYCURSOR = YYMARKER; goto lex_attributes_done; }
+    */
+
+    maybe_lex_attributes: {
+        /*!local:re2c
+            "[" {}
+            * { show_syntax_error("unexpected character", YYCURSOR - 1); }
+        */
+        YYCURSOR = skip_white_space(YYCURSOR);
+        
+        lex_attributes: {
+            /*!local:re2c
+                "max_wasted" { goto lex_max_wasted_bytes; }
+                "shared_id" { goto lex_shared_id; }
+                * { show_syntax_error("unexpected attribute", YYCURSOR - 1); }
+            */
+            lex_max_wasted_bytes: {
+                if (has_max_wasted_bytes) {
+                    show_syntax_error("conflicting attributes", YYCURSOR - 1);
+                }
+                has_max_wasted_bytes = true;
+                auto parsed = lex_attribute_value<uint64_t>(YYCURSOR);
+                max_wasted_bytes = parsed.value;
+                YYCURSOR = parsed.cursor;
+                goto attribute_end;
+            }
+            lex_shared_id: {
+                if (has_shared_id) {
+                    show_syntax_error("conflicting attributes", YYCURSOR - 1);
+                }
+                has_shared_id = true;
+                auto parsed = lex_attribute_value<uint64_t>(YYCURSOR);
+                shared_id = parsed.value;
+                YYCURSOR = parsed.cursor;
+                goto attribute_end;
+            }
+            attribute_end: {
+                /*!local:re2c
+                    white_space* "]" { goto close_attributes; }
+                    white_space* "," { goto lex_attributes; }
+                    * { show_syntax_error("expected end of attributes or next ", YYCURSOR); }
+                */
+            }
+        }
+
+        close_attributes:
+        /*!local:re2c
+            "]" { goto lex_attributes_done; }
+            * { show_syntax_error("expected closing of attributes", YYCURSOR); }
+        */
+    }
+    lex_attributes_done: {
+        return {YYCURSOR, {max_wasted_bytes, shared_id}};
+    }
+}
+
 INLINE LexResult<std::pair<char*, char*>>  lex_identifier_name (char* YYCURSOR) {
     char* YYMARKER;
     /*!local:re2c
@@ -137,6 +207,246 @@ struct LexFixedTypeResult {
     uint16_t total_variant_leafs;
     SIZE alignment;
 };
+
+struct LexVariantTypeResult {
+    char* cursor;
+    uint64_t max_byte_size;
+    uint64_t min_byte_size;
+    variant_count_t variant_count;
+    uint16_t total_variant_leafs;
+    uint16_t level_variant_leafs;
+    uint16_t level_variant_fields;
+    SIZE max_alignment;
+    bool is_dynamic;
+};
+
+template <bool is_dynamic>
+using _VariantTypeMeta = std::conditional_t<is_dynamic, DynamicVariantTypeMeta, VariantTypeMeta>;
+
+template <bool expect_fixed>
+std::conditional_t<expect_fixed, LexFixedTypeResult, LexTypeResult> lex_type (char* YYCURSOR, Buffer &buffer, IdentifierMap &identifier_map);
+
+template <bool is_dynamic, bool expect_fixed>
+INLINE std::conditional_t<expect_fixed, LexFixedTypeResult, LexTypeResult> add_variant_type (
+    char* YYCURSOR,
+    uint64_t max_byte_size,
+    uint64_t min_byte_size,
+    Buffer& buffer,
+	Buffer& type_meta_buffer,
+    IdentifierMap& identifier_map,
+    __CreateExtendedResult<DynamicVariantType, Type> created_variant_type,
+    Buffer::Index<uint8_t> types_start_idx,
+    variant_count_t variant_count,
+    uint16_t total_variant_leafs,
+    uint16_t level_variant_leafs,
+    uint16_t level_variant_fields,
+    SIZE max_alignment
+) {
+    auto attribute_lex_result = lex_variant_attributes(YYCURSOR);
+    YYCURSOR = attribute_lex_result.cursor;
+    auto [max_wasted_bytes, shared_id] = attribute_lex_result.value;
+
+
+    LeafCounts fixed_leaf_counts;
+    uint64_t byte_size;
+    if (variant_count <= UINT8_MAX) {
+        fixed_leaf_counts = {1, 0, 0, 0};
+        byte_size = max_byte_size + 1;
+    } else {
+        fixed_leaf_counts = {0, 1, 0, 0};
+        byte_size = max_byte_size + 2;
+    }
+
+    auto types_end_idx = buffer.position_idx<uint8_t>();
+
+    size_t type_metas_mem_size = variant_count * sizeof(_VariantTypeMeta<is_dynamic>);
+    buffer.next_multi_byte<void>(type_metas_mem_size);
+
+    uint8_t* types_start_ptr = buffer.get(types_start_idx);
+    uint8_t* types_end_ptr = buffer.get(types_end_idx);
+    // based on the way the memory overlaps we can reverse copy
+    uint8_t* types_src = types_end_ptr - 1;
+    uint8_t* types_dst = types_end_ptr - 1 + type_metas_mem_size;
+    while (types_src >= types_start_ptr) {
+        *(types_dst--) = *(types_src--);
+    }
+    
+    // printf("aligned: %d", (size_t)types_start_ptr % 8); - use this to confirm alignment - now VariantType is 8 byte aligned so it should always be aligned
+    auto leafs_count_src = type_meta_buffer.get<_VariantTypeMeta<!expect_fixed>>({0});
+    auto leafs_count_dst = reinterpret_cast<_VariantTypeMeta<is_dynamic>*>(types_start_ptr);
+    for (size_t i = 0; i < variant_count; i++) {
+        if constexpr (expect_fixed) {
+            static_assert(!is_dynamic);
+            *leafs_count_dst = *leafs_count_src;
+        } if constexpr (is_dynamic) {
+            *leafs_count_dst = *leafs_count_src;
+        } else {
+            *leafs_count_dst = {leafs_count_src->leaf_counts, leafs_count_src->variant_field_counts};
+        }
+        leafs_count_dst++;
+        leafs_count_src++;
+    }
+    if constexpr (is_dynamic) {
+        printf("[Debug] found DYNAMIC_VARIANT\n");
+        buffer.get(created_variant_type.base)->type = DYNAMIC_VARIANT;
+    } else {
+        if ((max_byte_size - min_byte_size) > max_wasted_bytes) {
+            printf("[Debug] packing variant to satisfy size requirements\n");
+            buffer.get(created_variant_type.base)->type = PACKED_VARIANT;
+        } else {
+            buffer.get(created_variant_type.base)->type = VARIANT;
+        }
+    }
+
+    auto variant_type = buffer.get_aligned(created_variant_type.extended);
+    variant_type->variant_count = variant_count;
+    variant_type->max_alignment = max_alignment;
+    variant_type->level_variant_leafs = level_variant_leafs;
+
+    LeafCounts variant_field_counts;
+    switch (max_alignment)
+    {
+        case SIZE_1:
+            variant_field_counts = {1, 0, 0, 0};
+            break;
+        case SIZE_2:
+            variant_field_counts = {0, 1, 0, 0};
+            break;
+        case SIZE_4:
+            variant_field_counts = {0, 0, 1, 0};
+            break;
+        case SIZE_8:
+            variant_field_counts = {0, 0, 0, 1};
+            break;
+        default:
+            variant_field_counts = {0};
+    }
+    
+
+    if constexpr (expect_fixed) {
+        return LexFixedTypeResult{YYCURSOR, fixed_leaf_counts, variant_field_counts, byte_size, 1, total_variant_leafs, max_alignment};
+    } else {
+        if constexpr (is_dynamic) {
+            return LexTypeResult{YYCURSOR, fixed_leaf_counts + LeafCounts{0, 0, 0, 1}, {0}, variant_field_counts, byte_size, 1, total_variant_leafs, 1, max_alignment};
+        } else {
+            return LexTypeResult{YYCURSOR, fixed_leaf_counts, {0}, variant_field_counts, byte_size, 1, total_variant_leafs, 0, max_alignment};
+        }
+    }
+}
+
+template <bool is_dynamic, bool expect_fixed>
+INLINE std::conditional_t<expect_fixed, LexFixedTypeResult, LexTypeResult> lex_variant_types (
+    char* YYCURSOR,
+    uint64_t max_byte_size,
+    uint64_t min_byte_size,
+    Buffer& buffer,
+	Buffer& type_meta_buffer,
+    IdentifierMap& identifier_map,
+    __CreateExtendedResult<DynamicVariantType, Type> created_variant_type,
+    Buffer::Index<uint8_t> types_start_idx,
+    variant_count_t variant_count,
+    uint16_t total_variant_leafs,
+    uint16_t level_variant_leafs,
+    uint16_t level_variant_fields,
+    SIZE max_alignment
+) {
+    while (1) {
+        variant_count++;
+        YYCURSOR = skip_white_space(YYCURSOR);
+        auto result = lex_type<expect_fixed>(YYCURSOR, buffer, identifier_map);
+        YYCURSOR = result.cursor;
+
+        uint16_t level_total_leafs;
+        if constexpr (expect_fixed) {
+            *type_meta_buffer.get_next<VariantTypeMeta>() = {result.fixed_leaf_counts, result.variant_field_counts};
+            level_total_leafs = result.fixed_leaf_counts.total();
+        } else {
+            *type_meta_buffer.get_next<DynamicVariantTypeMeta>() = {result.fixed_leaf_counts, result.variant_field_counts, result.var_leafs_count, result.size_leafs_count};
+            level_total_leafs = result.fixed_leaf_counts.total() + result.var_leafs_count.total();
+        }
+
+        total_variant_leafs += level_total_leafs + result.total_variant_leafs;
+        level_variant_leafs += level_total_leafs;
+        level_variant_fields += result.level_variant_fields;
+
+        max_alignment = std::max(max_alignment, result.alignment);
+
+        if constexpr (!is_dynamic && !expect_fixed) {
+            if (result.var_leafs_count.as_uint64 > 0) {
+                /*!local:re2c
+                    white_space* "," { goto dynamic_variant_next; }
+                    white_space* ">" { goto dynamic_variant_done;  }
+                    * { UNEXPECTED_INPUT("expected ',' or '>'"); }
+                */
+                dynamic_variant_next: {
+                    return lex_variant_types<true, expect_fixed>(
+                        YYCURSOR,
+                        max_byte_size,
+                        min_byte_size,
+                        buffer,
+                        type_meta_buffer,
+                        identifier_map,
+                        created_variant_type,
+                        types_start_idx,
+                        variant_count,
+                        total_variant_leafs,
+                        level_variant_leafs,
+                        level_variant_fields,
+                        max_alignment
+                    );
+                }
+                dynamic_variant_done: {
+                    return add_variant_type<true, expect_fixed>(
+                        YYCURSOR,
+                        max_byte_size,
+                        min_byte_size,
+                        buffer,
+                        type_meta_buffer,
+                        identifier_map,
+                        created_variant_type,
+                        types_start_idx,
+                        variant_count,
+                        total_variant_leafs,
+                        level_variant_leafs,
+                        level_variant_fields,
+                        max_alignment
+                    );
+                }
+            }
+        }
+        uint64_t byte_size = result.byte_size;
+        if (byte_size > max_byte_size) {
+            max_byte_size = byte_size;
+            if (min_byte_size == 0) {
+                min_byte_size = max_byte_size;
+            }
+        } else if (byte_size < min_byte_size) {
+            min_byte_size = byte_size;
+        }
+        /*!local:re2c
+            white_space* "," { continue; }
+            white_space* ">" { goto variant_done; }
+            * { UNEXPECTED_INPUT("expected ',' or '>'"); }
+        */
+        variant_done: {
+            return add_variant_type<is_dynamic, expect_fixed>(
+                YYCURSOR,
+                max_byte_size,
+                min_byte_size,
+                buffer,
+                type_meta_buffer,
+                identifier_map,
+                created_variant_type,
+                types_start_idx,
+                variant_count,
+                total_variant_leafs,
+                level_variant_leafs,
+                level_variant_fields,
+                max_alignment
+            );
+        }
+    }
+}
 
 
 constexpr SIZE delta_to_size (uint32_t delta) {
@@ -363,188 +673,28 @@ std::conditional_t<expect_fixed, LexFixedTypeResult, LexTypeResult> lex_type (ch
 
         YYCURSOR = lex_same_line_symbol<'<', "expected argument list">(YYCURSOR);
 
-        auto variant_type_idx = VariantType::create(buffer);
-        variant_count_t variant_count = 0;
+        auto created_variant_type = DynamicVariantType::create(buffer);
 
-        uint64_t max_byte_size = 0;
-        uint64_t min_byte_size = 0;
-        // LeafCounts _mem[16];
-        // auto leaf_counts_buffer = Buffer(_mem);
+        _VariantTypeMeta<!expect_fixed> type_meta_mem[8];
+        auto type_meta_buffer = Buffer(type_meta_mem);
 
-        uint16_t total_variant_leafs = 0;
-        uint16_t level_variant_leafs = 0;
-        uint16_t level_variant_fields = 0;
+        auto types_start_idx = buffer.position_idx<uint8_t>();
 
-        VariantType::TypeMeta _leaf_counts_mem[4];
-        auto leaf_counts_buffer = Buffer(_leaf_counts_mem);
-
-        auto types_start_idx = buffer.position_idx<void>();
-
-        SIZE max_alignment = SIZE_1;
-
-        while (1) {
-            variant_count++;
-            YYCURSOR = skip_white_space(YYCURSOR);
-            auto result = lex_type<true>(YYCURSOR, buffer, identifier_map);
-            YYCURSOR = result.cursor;
-            uint64_t byte_size = result.byte_size;
-            if (byte_size > max_byte_size) {
-                max_byte_size = byte_size;
-            } else if (byte_size < min_byte_size) {
-                min_byte_size = byte_size;
-            }
-            *leaf_counts_buffer.get_next<VariantType::TypeMeta>() = {result.fixed_leaf_counts, result.variant_field_counts};
-            // *leaf_counts_buffer.get_next<LeafCounts>() = result.fixed_leaf_counts;
-            uint16_t total_fixed_leafs = result.fixed_leaf_counts.total();
-            total_variant_leafs += total_fixed_leafs + result.total_variant_leafs;
-            level_variant_leafs += total_fixed_leafs;
-            level_variant_fields += result.level_variant_fields;
-
-            max_alignment = std::max(max_alignment, result.alignment);
-
-            /*!local:re2c
-                white_space* "," { continue; }
-                white_space* ">" { break; }
-                * { UNEXPECTED_INPUT("expected ',' or '>'"); }
-            */
-        }
-
-        uint64_t max_wasted_bytes = 32;
-        uint64_t shared_id;
-        bool has_shared_id = false;
-        bool has_max_wasted_bytes = false;
-
-        char* YYMARKER = YYCURSOR;
-        /*!local:re2c
-            white_space* "[" { goto maybe_lex_attributes; }
-            * { YYCURSOR = YYMARKER; goto max_wasted_bytes_check; }
-        */
-
-        maybe_lex_attributes: {
-            /*!local:re2c
-                "[" {}
-                * { show_syntax_error("unexpected character", YYCURSOR - 1); }
-            */
-            YYCURSOR = skip_white_space(YYCURSOR);
-            
-            lex_attributes: {
-                /*!local:re2c
-                    "max_wasted" { goto lex_max_wasted_bytes; }
-                    "shared_id" { goto lex_shared_id; }
-                    * { show_syntax_error("unexpected attribute", YYCURSOR - 1); }
-                */
-                lex_max_wasted_bytes: {
-                    if (has_max_wasted_bytes) {
-                        show_syntax_error("conflicting attributes", YYCURSOR - 1);
-                    }
-                    has_max_wasted_bytes = true;
-                    auto parsed = lex_attribute_value<uint64_t>(YYCURSOR);
-                    max_wasted_bytes = parsed.value;
-                    YYCURSOR = parsed.cursor;
-                    goto attribute_end;
-                }
-                lex_shared_id: {
-                    if (has_shared_id) {
-                        show_syntax_error("conflicting attributes", YYCURSOR - 1);
-                    }
-                    has_shared_id = true;
-                    auto parsed = lex_attribute_value<uint64_t>(YYCURSOR);
-                    shared_id = parsed.value;
-                    YYCURSOR = parsed.cursor;
-                    goto attribute_end;
-                }
-                attribute_end: {
-                    /*!local:re2c
-                        white_space* "]" { goto close_attributes; }
-                        white_space* "," { goto lex_attributes; }
-                        * { show_syntax_error("expected end of attributes or next ", YYCURSOR); }
-                    */
-                }
-            }
-
-            close_attributes:
-            /*!local:re2c
-                "]" { goto max_wasted_bytes_check; }
-                * { show_syntax_error("expected closing of attributes", YYCURSOR); }
-            */
-        }
-        max_wasted_bytes_check:
-        if ((max_byte_size - min_byte_size) > max_wasted_bytes) {
-            show_syntax_error("too many bytes wasted in variant", identifier_start);
-        }
-        LeafCounts fixed_leaf_counts;
-        uint64_t byte_size;
-        if (variant_count <= UINT8_MAX) {
-            fixed_leaf_counts = {1, 0, 0, 0};
-            byte_size = max_byte_size + 1;
-        } else {
-            fixed_leaf_counts = {0, 1, 0, 0};
-            byte_size = max_byte_size + 2;
-        }
-
-        auto types_end_idx = buffer.position_idx<void>();
-
-        uint32_t leaf_counts_mem_size = leaf_counts_buffer.current_position();
-        if (leaf_counts_mem_size != variant_count * sizeof(VariantType::TypeMeta)) {
-            printf("WATT");
-            exit(1);
-        }
-        buffer.next_multi_byte<void>(variant_count * sizeof(VariantType::TypeMeta));
-
-        auto types_start_ptr = reinterpret_cast<uint8_t*>(buffer.get(types_start_idx));
-        auto types_end_ptr = reinterpret_cast<uint8_t*>(buffer.get(types_end_idx));
-        // based on the way the memory overlaps we can reverse copy
-        uint8_t* types_src = types_end_ptr - 1;
-        uint8_t* types_dst = types_end_ptr - 1 + leaf_counts_mem_size;
-        /* while (types_src >= types_start_ptr + sizeof(size_t)) {
-            *(std::assume_aligned<alignof(size_t)>(reinterpret_cast<size_t*>(types_dst))) = *(std::assume_aligned<alignof(size_t)>(reinterpret_cast<const size_t*>(types_src)));
-            types_src -= sizeof(size_t);
-            types_dst -= sizeof(size_t);
-        } */
-        while (types_src >= types_start_ptr) {
-            *(types_dst--) = *(types_src--);
-        }
-        
-        // printf("aligned: %d", (size_t)types_start_ptr % 8); - use this to confirm alignment - now VariantType is 8 byte aligned so it should always be aligned
-        auto leafs_count_src = leaf_counts_buffer.get<VariantType::TypeMeta>({0});
-        auto leafs_count_dst = reinterpret_cast<VariantType::TypeMeta*>(types_start_ptr);
-        for (size_t i = 0; i < variant_count; i++) {
-            *leafs_count_dst = *leafs_count_src;
-            leafs_count_dst++;
-            leafs_count_src++;
-        }
-        // memcpy(types_start_ptr, leaf_counts_buffer.get<LeafCounts>({0}), leaf_counts_mem_size);
-        
-        auto variant_type = buffer.get(variant_type_idx);
-        variant_type->variant_count = variant_count;
-        variant_type->max_alignment = max_alignment;
-        variant_type->level_variant_leafs = level_variant_leafs;
-
-        LeafCounts variant_field_counts;
-        switch (max_alignment)
-        {
-            case SIZE_1:
-                variant_field_counts = {1, 0, 0, 0};
-                break;
-            case SIZE_2:
-                variant_field_counts = {0, 1, 0, 0};
-                break;
-            case SIZE_4:
-                variant_field_counts = {0, 0, 1, 0};
-                break;
-            case SIZE_8:
-                variant_field_counts = {0, 0, 0, 1};
-                break;
-            default:
-                variant_field_counts = {0};
-        }
-        
-
-        if constexpr (!expect_fixed) {
-            return LexTypeResult{YYCURSOR, fixed_leaf_counts, {0}, variant_field_counts, byte_size, 1, total_variant_leafs, 0, max_alignment};
-        } else {
-            return LexFixedTypeResult{YYCURSOR, fixed_leaf_counts, variant_field_counts, byte_size, 1, total_variant_leafs, max_alignment};
-        }
+        return lex_variant_types<false, expect_fixed>(
+            YYCURSOR,
+            0,
+            0,
+            buffer,
+            type_meta_buffer,
+            identifier_map,
+            created_variant_type,
+            types_start_idx,
+            0,
+            0,
+            0,
+            0,
+            SIZE_1
+        );        
     }
 
     identifier: {

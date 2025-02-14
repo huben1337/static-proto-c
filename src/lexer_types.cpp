@@ -9,7 +9,8 @@
 #include "memory_helpers.cpp"
 
 namespace lexer {
-    enum KEYWORDS : uint8_t {
+
+enum KEYWORDS : uint8_t {
     STRUCT,
     ENUM,
     UNION,
@@ -32,6 +33,8 @@ enum FIELD_TYPE : uint8_t {
     ARRAY_FIXED,
     ARRAY,
     VARIANT,
+    PACKED_VARIANT,
+    DYNAMIC_VARIANT,
     IDENTIFIER
 };
 
@@ -104,6 +107,8 @@ struct Type {
     INLINE auto as_identifier () const;
     INLINE auto as_array () const;
     INLINE auto as_variant () const;
+    INLINE auto as_packed_variant () const;
+    INLINE auto as_dynamic_variant () const;
 };
 
 
@@ -176,32 +181,53 @@ INLINE auto Type::as_array () const {
     return get_extended_type<ArrayType>(this);
 }
 
-struct VariantType {
-    INLINE static Buffer::Index<VariantType> create (Buffer &buffer) {
-        auto created = __create_extended<VariantType, Type, TypeMeta>(buffer);
-        buffer.get(created.base)->type = VARIANT;
-        return created.extended;
+
+
+template <typename TypeMeta_T>
+struct _VariantType {
+    INLINE static auto create (Buffer &buffer) {
+        return __create_extended<_VariantType, Type, TypeMeta_T>(buffer);
     }
 
     uint16_t variant_count;
     uint16_t level_variant_leafs;
     SIZE max_alignment;
 
-    struct TypeMeta {
-        LeafCounts leaf_counts;
-        LeafCounts variant_field_counts;
-    };
-
-    INLINE TypeMeta* type_metas () {
-        return get_padded<TypeMeta>(this + 1);
+    INLINE TypeMeta_T* type_metas () {
+        return get_padded<TypeMeta_T>(this + 1);
     }
 
     INLINE Type* first_variant() {
-        return reinterpret_cast<Type*>(reinterpret_cast<size_t>(type_metas()) + variant_count * sizeof(TypeMeta));
+        return reinterpret_cast<Type*>(reinterpret_cast<size_t>(type_metas()) + variant_count * sizeof(TypeMeta_T));
     }
 };
+
+
+struct VariantTypeMeta {
+    LeafCounts leaf_counts;
+    LeafCounts variant_field_counts;
+};
+
+struct DynamicVariantTypeMeta {
+    LeafCounts leaf_counts;
+    LeafCounts variant_field_counts;
+    LeafCounts var_leaf_counts;
+    LeafCounts size_leaf_counts;
+};
+
+typedef _VariantType<VariantTypeMeta> VariantType;
 INLINE auto Type::as_variant () const {
     return get_extended_type<VariantType>(this);
+}
+
+typedef _VariantType<VariantTypeMeta> PackedVariantType;
+INLINE auto Type::as_packed_variant () const {
+    return get_extended_type<PackedVariantType>(this);
+}
+
+typedef _VariantType<DynamicVariantTypeMeta> DynamicVariantType;
+INLINE auto Type::as_dynamic_variant () const {
+    return get_extended_type<DynamicVariantType>(this);
 }
 
 
@@ -307,8 +333,8 @@ typedef std::unordered_map<std::string, IdentifedDefinitionIndex> IdentifierMap;
 template <typename T>
 T* skip_type (Type* type);
 
-template <typename T>
-INLINE T* skip_variant_type (VariantType* variant_type) {
+template <typename T, typename U>
+INLINE T* skip_variant_type (_VariantType<U>* variant_type) {
     auto types_count = variant_type->variant_count;
     Type* type = variant_type->first_variant();
     for (uint16_t i = 0; i < types_count; i++) {
@@ -332,10 +358,18 @@ T* skip_type (Type* type) {
     case VARIANT: {
         return skip_variant_type<T>(type->as_variant());
     }
-    case IDENTIFIER:
+    case PACKED_VARIANT: {
+        return skip_variant_type<T>(type->as_packed_variant());
+    }
+    case DYNAMIC_VARIANT: {
+        return skip_variant_type<T>(type->as_dynamic_variant());
+    }
+    case IDENTIFIER: {
         return reinterpret_cast<T*>(type->as_identifier() + 1);
-    default:
+    }
+    default: {
         return reinterpret_cast<T*>(type + 1);
+    }
     }
     }
 }
