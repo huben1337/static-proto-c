@@ -55,108 +55,126 @@ constexpr bool is_mode (MODE mode) {
 struct CodeChunks {
     static INLINE CodeChunks* create (
         uint8_t* mem,
-        lexer::LeafCounts::Counts fixed_leaf_counts,
-        lexer::LeafCounts::Counts var_leaf_counts,
-        lexer::LeafCounts::Counts variant_field_counts,
         uint16_t total_leafs,
-        uint16_t total_fixed_leafs,
-        uint16_t total_var_leafs,
-        uint16_t level_variant_fields
-        ) {
+        uint16_t variant_base_idx
+    ) {
         CodeChunks* self = reinterpret_cast<CodeChunks*>(mem);
-
-        self->fixed_leaf_counts = fixed_leaf_counts;
-        self->fixed_leaf_positions = {0, 0, 0, 0};
-        self->var_leaf_counts = var_leaf_counts;
-        self->var_leaf_positions = {0, 0, 0, 0};
-        self->variant_field_counts = variant_field_counts;
-        self->variant_field_positions = {0, 0, 0, 0};
-        self->total_leafs = total_leafs;
-        self->total_fixed_leafs = total_fixed_leafs;
-        self->total_var_leafs = total_var_leafs;
-        self->current_map_idx = 0;
-        self->current_size_leaf_idx = 0;
-        self->current_variant_base_idx = total_fixed_leafs + total_var_leafs;
-        self->level_variant_fields = level_variant_fields;
         
+        self->total_leafs = total_leafs;
+        self->current_map_idx = 0;
+        self->current_variant_base_idx = variant_base_idx;
+
         return self;
     }
-    static INLINE size_t mem_size (uint16_t total_leafs, uint16_t total_fixed_leafs, uint16_t total_var_leafs, uint16_t size_leafs_count, uint16_t level_variant_fields) {
-        return sizeof(CodeChunks) + total_leafs * (sizeof(uint64_t) + sizeof(Buffer::Index<char>) + sizeof(uint16_t)) + total_var_leafs * sizeof(uint16_t) + size_leafs_count * sizeof(SizeLeaf) + level_variant_fields * sizeof(VariantField);
+
+    static INLINE size_t mem_size (uint16_t total_leafs) {
+        return (sizeof(CodeChunks) + 2) + total_leafs * (sizeof(uint64_t) + sizeof(Buffer::Index<char>) + sizeof(uint16_t));
     }
-    lexer::LeafCounts::Counts fixed_leaf_counts;
-    lexer::LeafCounts::Counts fixed_leaf_positions;
-    lexer::LeafCounts::Counts var_leaf_counts;
-    lexer::LeafCounts::Counts var_leaf_positions;
-    lexer::LeafCounts::Counts variant_field_counts;
-    lexer::LeafCounts::Counts variant_field_positions;
+
     uint16_t total_leafs;
-    uint16_t total_fixed_leafs;
-    uint16_t total_var_leafs;
     uint16_t current_map_idx;
-    uint16_t current_size_leaf_idx;
     uint16_t current_variant_base_idx;
-    uint16_t level_variant_fields;
-    
+
     INLINE auto sizes () {
-        return reinterpret_cast<uint64_t*>(reinterpret_cast<size_t>(this) + sizeof(CodeChunks));
-    }
-    INLINE VariantField* variant_fields () {
-        return reinterpret_cast<VariantField*>(reinterpret_cast<size_t>(sizes()) + total_leafs * sizeof(uint64_t));
+        return reinterpret_cast<uint64_t*>(reinterpret_cast<size_t>(this) + (sizeof(CodeChunks) + 2));
     }
     INLINE auto chunk_starts () {
-        return reinterpret_cast<Buffer::Index<char>*>(reinterpret_cast<size_t>(variant_fields()) + level_variant_fields * sizeof(VariantField));
+        return reinterpret_cast<Buffer::Index<char>*>(reinterpret_cast<size_t>(sizes()) + total_leafs * sizeof(uint64_t));
     }
     INLINE auto chunk_map () {
         return reinterpret_cast<uint16_t*>(reinterpret_cast<size_t>(chunk_starts()) + total_leafs * sizeof(Buffer::Index<char>));
     }
-    INLINE auto size_leafe_idxs () {
-        return reinterpret_cast<uint16_t*>(reinterpret_cast<size_t>(chunk_map()) + total_leafs * sizeof(uint16_t));
-    }
-    INLINE auto size_leafs () {
-        return reinterpret_cast<SizeLeaf*>(reinterpret_cast<size_t>(size_leafe_idxs()) + total_var_leafs * sizeof(uint16_t));
+};
+
+
+template <bool in_variant>
+struct Leafs {
+    Leafs () = default;
+    Leafs (
+        CodeChunks* cc,
+        uint8_t* data,
+        lexer::LeafCounts::Counts fixed_leaf_counts,
+        lexer::LeafCounts::Counts var_leaf_counts,
+        lexer::LeafCounts::Counts variant_field_counts,
+        uint16_t total_fixed_leafs,
+        uint16_t total_var_leafs,
+        uint16_t total_size_leafs,
+        uint16_t level_variant_fields,
+        uint16_t current_variant_idx_base
+    )
+    :   cc(cc),
+        data(data),
+        fixed_leaf_counts(fixed_leaf_counts),
+        var_leaf_counts(var_leaf_counts),
+        variant_field_counts(variant_field_counts),
+        total_fixed_leafs(total_fixed_leafs),
+        total_var_leafs(total_var_leafs),
+        total_size_leafs(total_size_leafs),
+        level_variant_fields(level_variant_fields),
+        current_variant_idx_base(current_variant_idx_base)
+    {   
+        if constexpr (in_variant) {
+            *current_variant_idx() = current_variant_idx_base;
+        }
+        *current_size_leaf_idx() = 0;
+        *fixed_leaf_positions() = {0, 0, 0, 0};
+        *var_leaf_positions() = {0, 0, 0, 0};
+        *variant_field_positions() = {0, 0, 0, 0};
     }
 
-    INLINE auto reserve_variant_field (lexer::SIZE size) {
-        uint16_t idx;
+    CodeChunks* const cc;
+    uint8_t* const data;
+    const lexer::LeafCounts::Counts fixed_leaf_counts;
+    const lexer::LeafCounts::Counts var_leaf_counts;
+    const lexer::LeafCounts::Counts variant_field_counts;
+    const uint16_t total_fixed_leafs;
+    const uint16_t total_var_leafs;
+    const uint16_t total_size_leafs;
+    const uint16_t level_variant_fields;
+    const uint16_t current_variant_idx_base;
+
+    static INLINE size_t mem_size (uint16_t total_var_leafs, uint16_t total_size_leafs, uint16_t level_variant_fields) {
+        return sizeof(lexer::LeafCounts::Counts) * 3 + level_variant_fields * sizeof(VariantField) + total_size_leafs * sizeof(SizeLeaf) + total_var_leafs * sizeof(uint16_t) + sizeof(uint16_t) * 2;
+    }
+
+    template <MODE mode>
+    INLINE auto reserve_next (lexer::SIZE size, uint64_t length) {
         switch (size) {
         case lexer::SIZE_1:
-            idx = variant_field_counts.size64 + variant_field_counts.size32 + variant_field_counts.size16 + variant_field_positions.size8++;
-            break;
+            return reserve_size8<mode>(length);
         case lexer::SIZE_2:
-            idx = variant_field_counts.size64 + variant_field_counts.size32 + variant_field_positions.size16++;
-            break;
+            return reserve_size16<mode>(length);
         case lexer::SIZE_4:
-            idx = variant_field_counts.size64 + variant_field_positions.size32++;
-            break;
+            return reserve_size32<mode>(length);
         case lexer::SIZE_8:
-            idx = variant_field_positions.size64++;
-            break;
+            return reserve_size64<mode>(length);
+        default:
+            printf("[reserve_next] invalid size\n");
+            exit(1);
         }
-        return variant_fields() + idx;
     }
-
-    template <lexer::SIZE size, MODE mode>
-    requires (!is_mode<MODE::VARIANT, mode>())
-    INLINE auto next_fixed (uint16_t idx, uint64_t length) {
+    template <MODE mode, lexer::SIZE size>
+    INLINE auto next (uint16_t idx, uint64_t length) {
         if constexpr (is_mode<MODE::ARRAY, mode>()) {
-            size_leafe_idxs()[idx] = current_size_leaf_idx;
+            size_leafe_idxs()[idx] = *current_size_leaf_idx();
             idx += total_fixed_leafs;
         }
-        sizes()[idx] = size * length;
-        uint16_t map_idx = current_map_idx++;
-        printf("map_idx: %d, idx: %d, size: %d, %s\n", map_idx, idx, size * length, mode ? "var" : "fixed");
-        chunk_map()[map_idx] = idx;
-        
-        return chunk_starts() + idx;
+        uint16_t cc_idx = current_variant_idx_base + idx;
+        if constexpr (in_variant) {
+            current_variant_idx()[0]++;
+        }
+        cc->sizes()[cc_idx] = length * size;
+        uint16_t cc_map_idx = cc->current_map_idx++;
+        printf("cc_map_idx: %d, cc_idx: %d, size: %d, length: %d, variant\n", cc_map_idx, cc_idx, size * length, length);
+        cc->chunk_map()[cc_map_idx] = cc_idx;
+        return cc->chunk_starts() + cc_idx;
     }
     template <MODE mode>
-    requires (!is_mode<MODE::VARIANT, mode>())
-    INLINE std::pair<lexer::LeafCounts::Counts&, lexer::LeafCounts::Counts&> get_counts_and_positions () {
-        if constexpr (is_mode<MODE::DEFAULT, mode>() || is_mode<MODE::FIXED_ARRAY, mode>()) {
-            return {fixed_leaf_counts, fixed_leaf_positions};
+    INLINE std::pair<lexer::LeafCounts::Counts, lexer::LeafCounts::Counts*> get_counts_and_positions () {
+        if constexpr (is_mode<MODE::DEFAULT, mode>() || is_mode<MODE::FIXED_ARRAY, mode>() || is_mode<MODE::VARIANT, mode>()) {
+            return {fixed_leaf_counts, fixed_leaf_positions()};
         } else if constexpr (is_mode<MODE::ARRAY, mode>()) {
-            return {var_leaf_counts, var_leaf_positions};
+            return {var_leaf_counts, var_leaf_positions()};
         }
     }
     template <MODE mode>
@@ -164,26 +182,26 @@ struct CodeChunks {
         auto [counts, positions] = get_counts_and_positions<mode>();
         switch (size) {
         case lexer::SIZE_1:
-            if (positions.size8 == counts.size8) {
+            if (positions->size8 == counts.size8) {
                 printf("[CodeChunks] position overflow %s\n", is_mode<MODE::ARRAY, mode>() ? "array" : "default");
                 printf("counts.size8: %d\n", counts.size8);
             }
-            return counts.size64 + counts.size32 + counts.size16 + positions.size8++;
+            return counts.size64 + counts.size32 + counts.size16 + positions->size8++;
         case lexer::SIZE_2:
-            if (positions.size16 == counts.size16) {
+            if (positions->size16 == counts.size16) {
                 printf("[CodeChunks] position overflow %s\n", is_mode<MODE::ARRAY, mode>() ? "array" : "default");
             }
-            return counts.size64 + counts.size32 + positions.size16++;
+            return counts.size64 + counts.size32 + positions->size16++;
         case lexer::SIZE_4:
-            if (positions.size32 == counts.size32) {
+            if (positions->size32 == counts.size32) {
                 printf("[CodeChunks] position overflow %s\n", is_mode<MODE::ARRAY, mode>() ? "array" : "default");
             }
-            return counts.size64 + positions.size32++;
+            return counts.size64 + positions->size32++;
         case lexer::SIZE_8:
-            if (positions.size64 == counts.size64) {
+            if (positions->size64 == counts.size64) {
                 printf("[CodeChunks] position overflow %s\n", is_mode<MODE::ARRAY, mode>() ? "array" : "default");
             }
-            return positions.size64++;
+            return positions->size64++;
         default:
             printf("[reserve_idx, fixed] invalid size\n");
             exit(1);
@@ -192,155 +210,26 @@ struct CodeChunks {
     template <MODE mode>
     INLINE auto reserve_size8 (uint64_t length) {
         auto [counts, positions] = get_counts_and_positions<mode>();
-        if (positions.size8 == counts.size8) {
-            printf("position overflow\n");
-            printf(mode ? "var" : "fixed");
-        }
-        uint16_t idx = counts.size64 + counts.size32 + counts.size16 + positions.size8++;
-        return next_fixed<lexer::SIZE_1, mode>(idx, length);
+        uint16_t idx = counts.size64 + counts.size32 + counts.size16 + positions->size8++;
+        return next<mode, lexer::SIZE_1>(idx, length);
     }
     template <MODE mode>
     INLINE auto reserve_size16 (uint64_t length) {
         auto [counts, positions] = get_counts_and_positions<mode>();
-        if (positions.size16 == counts.size16) {
-            printf("position overflow\n");
-            printf(mode ? "var" : "fixed");
-        }
-        uint16_t idx = counts.size64 + counts.size32 + positions.size16++;
-        return next_fixed<lexer::SIZE_2, mode>(idx, length);
+        uint16_t idx = counts.size64 + counts.size32 + positions->size16++;
+        return next<mode, lexer::SIZE_2>(idx, length);
     }
     template <MODE mode>
     INLINE auto reserve_size32 (uint64_t length) {
         auto [counts, positions] = get_counts_and_positions<mode>();
-        if (positions.size32 == counts.size32) {
-            printf("position overflow\n");
-            printf(mode ? "var" : "fixed");
-        }
-        uint16_t idx = counts.size64 + positions.size32++;
-        return next_fixed<lexer::SIZE_4, mode>(idx, length);
+        uint16_t idx = counts.size64 + positions->size32++;
+        return next<mode, lexer::SIZE_4>(idx, length);
     }
     template <MODE mode>
     INLINE auto reserve_size64 (uint64_t length) {
         auto [counts, positions] = get_counts_and_positions<mode>();
-        if (positions.size64 == counts.size64) {
-            printf("position overflow\n");
-            printf(mode ? "var" : "fixed");
-        }
-        uint16_t idx = positions.size64++;
-        return next_fixed<lexer::SIZE_8, mode>(idx, length);
-    }
-    template <MODE mode>
-    INLINE auto reserve_next (lexer::SIZE size, uint64_t length) {
-        switch (size) {
-        case lexer::SIZE_1:
-            return reserve_size8<mode>(length);
-        case lexer::SIZE_2:
-            return reserve_size16<mode>(length);
-        case lexer::SIZE_4:
-            return reserve_size32<mode>(length);
-        case lexer::SIZE_8:
-            return reserve_size64<mode>(length);
-        default:
-            printf("[reserve_next] invalid size\n");
-            exit(1);
-        }
-    }
-};
-
-struct Leafs {
-    Leafs () = default;
-    Leafs (CodeChunks* cc) : cc(cc) {}
-    INLINE auto reserve_variant_field (lexer::SIZE size) {
-        return cc->reserve_variant_field(size);
-    }
-
-    template <MODE mode>
-    INLINE auto reserve_next (lexer::SIZE size, uint64_t length) {
-        return cc->reserve_next<mode>(size, length);
-    }
-    template <MODE mode>
-    INLINE auto reserve_idx (lexer::SIZE size) {
-        return cc->reserve_idx<mode>(size);
-    }
-    template <MODE mode>
-    INLINE auto reserve_size8 (uint64_t length) {
-        return cc->reserve_size8<mode>(length);
-    }
-    template <MODE mode>
-    INLINE auto reserve_size16 (uint64_t length) {
-        return cc->reserve_size16<mode>(length);
-    }
-    template <MODE mode>
-    INLINE auto reserve_size32 (uint64_t length) {
-        return cc->reserve_size32<mode>(length);
-    }
-    template <MODE mode>
-    INLINE auto reserve_size64 (uint64_t length) {
-        return cc->reserve_size64<mode>(length);
-    }
-    CodeChunks* cc;
-};
-
-struct VariantLeafs {
-    VariantLeafs () = default;
-    VariantLeafs (CodeChunks* cc, lexer::LeafCounts::Counts leaf_counts, uint16_t total_leafs, lexer::LeafCounts::Counts variant_field_counts, uint16_t level_variant_fields, uint16_t _current_variant_idx, uint8_t* data)
-    : cc(cc), leaf_counts(leaf_counts), total_leafs(total_leafs), variant_field_counts(variant_field_counts), level_variant_fields(level_variant_fields), data(data) {
-        *current_variant_idx() = _current_variant_idx;
-        *leaf_positions() = {0, 0, 0, 0};
-        *variant_field_positions() = {0, 0, 0, 0};
-    }
-    CodeChunks* cc;
-
-    template <MODE mode>
-    INLINE auto reserve_next (lexer::SIZE size, uint64_t length) {
-        switch (size) {
-        case lexer::SIZE_1:
-            return reserve_size8<mode>(length);
-        case lexer::SIZE_2:
-            return reserve_size16<mode>(length);
-        case lexer::SIZE_4:
-            return reserve_size32<mode>(length);
-        case lexer::SIZE_8:
-            return reserve_size64<mode>(length);
-        default:
-            printf("[reserve_next] invalid size\n");
-            exit(1);
-        }
-    }
-    template <lexer::SIZE size>
-    INLINE auto next (uint16_t idx, uint64_t length) {
-        sizes()[idx] = length * size;
-        uint16_t cc_idx = (*current_variant_idx())++;
-        // cc->variant_fields_idxs()[variant_idx] = variant_field_idx;
-        cc_idxs()[idx] = cc_idx;
-        uint16_t cc_map_idx = cc->current_map_idx++;
-        printf("cc_map_idx: %d, cc_idx: %d, size: %d, length: %d, variant\n", cc_map_idx, cc_idx, size * length, length);
-        cc->chunk_map()[cc_map_idx] = cc_idx;
-        return cc->chunk_starts() + cc_idx;
-    }
-    template <MODE mode>
-    INLINE auto reserve_idx (lexer::SIZE size) {
-        return cc->reserve_idx<mode>(size);
-    }
-    template <MODE mode>
-    INLINE auto reserve_size8 (uint64_t length) {
-        uint16_t idx = leaf_counts.size64 + leaf_counts.size32 + leaf_counts.size16 + leaf_positions()->size8++;
-        return next<lexer::SIZE_1>(idx, length);
-    }
-    template <MODE mode>
-    INLINE auto reserve_size16 (uint64_t length) {
-        uint16_t idx = leaf_counts.size64 + leaf_counts.size32 + leaf_positions()->size16++;
-        return next<lexer::SIZE_2>(idx, length);
-    }
-    template <MODE mode>
-    INLINE auto reserve_size32 (uint64_t length) {
-        uint16_t idx = leaf_counts.size64 + leaf_positions()->size32++;
-        return next<lexer::SIZE_4>(idx, length);
-    }
-    template <MODE mode>
-    INLINE auto reserve_size64 (uint64_t length) {
-        uint16_t idx = leaf_positions()->size64++;
-        return next<lexer::SIZE_8>(idx, length);
+        uint16_t idx = positions->size64++;
+        return next<mode, lexer::SIZE_8>(idx, length);
     }
     INLINE auto reserve_variant_field (lexer::SIZE size) {
         uint16_t idx;
@@ -360,33 +249,43 @@ struct VariantLeafs {
         }
         return variant_fields() + idx;
     }
-    INLINE lexer::LeafCounts::Counts* leaf_positions () {
+    INLINE lexer::LeafCounts::Counts* fixed_leaf_positions () {
         return reinterpret_cast<lexer::LeafCounts::Counts*>(reinterpret_cast<size_t>(data));
     }
+    INLINE lexer::LeafCounts::Counts* var_leaf_positions () {
+        return reinterpret_cast<lexer::LeafCounts::Counts*>(reinterpret_cast<size_t>(fixed_leaf_positions()) + sizeof(lexer::LeafCounts::Counts));
+    }
     INLINE lexer::LeafCounts::Counts* variant_field_positions () {
-        return reinterpret_cast<lexer::LeafCounts::Counts*>(reinterpret_cast<size_t>(leaf_positions()) + sizeof(lexer::LeafCounts::Counts));
+        return reinterpret_cast<lexer::LeafCounts::Counts*>(reinterpret_cast<size_t>(var_leaf_positions()) + sizeof(lexer::LeafCounts::Counts));
     }
-    /* TODO: Implment variant fields like leafs, so they get placed based on their alignment */
-    INLINE VariantField* variant_fields () {
-        return reinterpret_cast<VariantField*>(reinterpret_cast<size_t>(variant_field_positions()) + sizeof(lexer::LeafCounts::Counts));
-    }
-    INLINE uint64_t* sizes () {
-        return reinterpret_cast<uint64_t*>(reinterpret_cast<size_t>(variant_fields()) + level_variant_fields * sizeof(VariantField));
-    }
-    INLINE uint16_t* cc_idxs () {
-        return reinterpret_cast<uint16_t*>(reinterpret_cast<size_t>(sizes()) + total_leafs * sizeof(uint64_t));
+    INLINE uint16_t* current_size_leaf_idx () {
+        return reinterpret_cast<uint16_t*>(reinterpret_cast<size_t>(variant_field_positions()) + sizeof(lexer::LeafCounts::Counts));
     }
     INLINE uint16_t* current_variant_idx () {
-        return reinterpret_cast<uint16_t*>(reinterpret_cast<size_t>(cc_idxs()) + total_leafs * sizeof(uint16_t));
+        if constexpr (in_variant) {
+            return reinterpret_cast<uint16_t*>(reinterpret_cast<size_t>(current_size_leaf_idx()) + sizeof(uint16_t));
+        } else {
+            return nullptr;
+        }
+        
     }
-    private:
-    uint8_t* data;
-    lexer::LeafCounts::Counts leaf_counts;
-    lexer::LeafCounts::Counts variant_field_counts;
-    uint16_t total_leafs;
-    uint16_t level_variant_fields;
+    INLINE VariantField* variant_fields () {
+        if constexpr (in_variant) {
+            return reinterpret_cast<VariantField*>(reinterpret_cast<size_t>(current_variant_idx()) + sizeof(uint16_t) + 2);
+        } else {
+            return reinterpret_cast<VariantField*>(reinterpret_cast<size_t>(current_size_leaf_idx()) + sizeof(uint16_t) + 3);
+        }
+    }
+    INLINE SizeLeaf* size_leafs () {
+        return reinterpret_cast<SizeLeaf*>(reinterpret_cast<size_t>(variant_fields()) + level_variant_fields * sizeof(VariantField));
+    }
+    INLINE auto size_leafe_idxs () {
+        return reinterpret_cast<uint16_t*>(reinterpret_cast<size_t>(size_leafs()) + total_size_leafs * sizeof(SizeLeaf));
+    }
+    INLINE uint16_t next_size_leaf_idx () {
+        return current_size_leaf_idx()[0]++;
+    }
 };
-
 
 INLINE std::string get_size_type_str (lexer::SIZE size) {
     switch (size)
@@ -684,42 +583,42 @@ constexpr size_t arg_count( F(*f)(Args ...))
 }
 
 template <MODE mode, MODE pl_mode, StringLiteral element_name>
-constexpr INLINE auto get_unique_name (additional_args_t<mode, pl_mode> additional_args) {
+constexpr INLINE auto get_unique_name (const additional_args_t<mode, pl_mode>& additional_args) {
     if constexpr (is_array_element<pl_mode>) {
         return element_name;
     } else if constexpr (pl_mode == MODE::VARIANT) {
-        return codegen::StringParts{"_"_sl, std::forward<uint16_t>(additional_args.variant_depth), "_"_sl, std::forward<uint16_t>(additional_args.variant_id)};
+        return codegen::StringParts{"_"_sl, additional_args.variant_depth, "_"_sl, additional_args.variant_id};
     } else {
-        return codegen::StringParts{std::forward<std::string_view>(additional_args.name), "_"_sl, std::forward<uint16_t>(additional_args.depth)};
+        return codegen::StringParts{additional_args.name, "_"_sl, additional_args.depth};
     }
 }
 
 template <MODE mode, MODE pl_mode, typename F>
-constexpr INLINE auto get_unique_name (additional_args_t<mode, pl_mode> additional_args, F on_element) {
+constexpr INLINE auto get_unique_name (const additional_args_t<mode, pl_mode>& additional_args, F on_element) {
     if constexpr (is_array_element<pl_mode>) {
         return on_element();
     } else if constexpr (pl_mode == MODE::VARIANT) {
-        return codegen::StringParts{"_"_sl, std::forward<uint16_t>(additional_args.variant_depth), "_"_sl, std::forward<uint16_t>(additional_args.variant_id)};
+        return codegen::StringParts{"_"_sl, additional_args.variant_depth, "_"_sl, additional_args.variant_id};
     } else {
-        return codegen::StringParts{std::forward<std::string_view>(additional_args.name), "_"_sl, std::forward<uint16_t>(additional_args.depth)};
+        return codegen::StringParts{additional_args.name, "_"_sl, additional_args.depth};
     }
 }
 
 template <MODE mode, MODE pl_mode>
 requires (!is_array_element<pl_mode>)
-constexpr INLINE auto get_unique_name (additional_args_t<mode, pl_mode> additional_args) {
+constexpr INLINE auto get_unique_name (const additional_args_t<mode, pl_mode>& additional_args) {
     if constexpr (pl_mode == MODE::VARIANT) {
-        return codegen::StringParts{"_"_sl, std::forward<uint16_t>(additional_args.variant_depth), "_"_sl, std::forward<uint16_t>(additional_args.variant_id)};
+        return codegen::StringParts{"_"_sl, additional_args.variant_depth, "_"_sl, additional_args.variant_id};
     } else {
-        return codegen::StringParts{std::forward<std::string_view>(additional_args.name), "_"_sl, std::forward<uint16_t>(additional_args.depth)};
+        return codegen::StringParts{additional_args.name, "_"_sl, additional_args.depth};
     }
 }
 
 template <MODE mode, MODE pl_mode>
 requires (!is_array_element<pl_mode>)
-constexpr INLINE auto get_name (additional_args_t<mode, pl_mode> additional_args, auto unique_name) {
+constexpr INLINE auto get_name (const additional_args_t<mode, pl_mode>& additional_args, auto unique_name) {
     if constexpr (pl_mode == MODE::VARIANT) {
-        return  codegen::StringParts{"as_"_sl, std::forward<uint16_t>(additional_args.variant_id)};
+        return  codegen::StringParts{"as_"_sl, additional_args.variant_id};
     } else {
         return unique_name;
     }
@@ -727,11 +626,11 @@ constexpr INLINE auto get_name (additional_args_t<mode, pl_mode> additional_args
 
 template <MODE mode, MODE pl_mode>
 requires (!is_array_element<pl_mode>)
-constexpr INLINE auto get_name (additional_args_t<mode, pl_mode> additional_args) {
+constexpr INLINE auto get_name (const additional_args_t<mode, pl_mode>& additional_args) {
     if constexpr (pl_mode == MODE::VARIANT) {
-        return  codegen::StringParts{"as_"_sl, std::forward<uint16_t>(additional_args.variant_id)};
+        return  codegen::StringParts{"as_"_sl, additional_args.variant_id};
     } else {
-        return codegen::StringParts{std::forward<std::string_view>(additional_args.name), "_"_sl, std::forward<uint16_t>(additional_args.depth)};
+        return codegen::StringParts{additional_args.name, "_"_sl, additional_args.depth};
     }
 }
 
@@ -741,9 +640,8 @@ GenStructFieldResult<lexer::StructField, codegen::__UnknownStruct> gen_leaf (
     Buffer &buffer,
     codegen::__UnknownStruct code,
     std::string_view base_name,
-    std::conditional_t<is_mode<MODE::VARIANT, mode>(), VariantLeafs, Leafs> leafs,
+    Leafs<is_mode<MODE::VARIANT, mode>()> leafs,
     additional_args_t<mode, pl_mode> additional_args
-
 ) {
     using T = lexer::StructField;
     uint64_t outer_array_length;
@@ -838,10 +736,12 @@ GenStructFieldResult<lexer::StructField, codegen::__UnknownStruct> gen_leaf (
         ArrayCtorStrs array_ctor_strs = make_array_ctor_strs(array_depth);
 
         uint16_t leaf_idx = leafs.template reserve_idx<MODE::DEFAULT>(stored_size_size);
+        printf("STRING.size leaf idx: %d\n", leaf_idx);
         leafs.cc->sizes()[leaf_idx] = stored_size_size;
 
-        uint16_t size_leaf_idx = leafs.cc->current_size_leaf_idx++;
-        leafs.cc->size_leafs()[size_leaf_idx] = {leaf_idx, string_type->min_length, size_size, stored_size_size};
+        uint16_t size_leaf_idx = leafs.next_size_leaf_idx();
+        printf("STRING size_leaf_idx: %d\n", size_leaf_idx);
+        leafs.size_leafs()[size_leaf_idx] = {leaf_idx, string_type->min_length, size_size, stored_size_size};
 
         auto unique_name = get_unique_name<mode, pl_mode>(additional_args);
 
@@ -962,8 +862,8 @@ GenStructFieldResult<lexer::StructField, codegen::__UnknownStruct> gen_leaf (
         uint16_t leaf_idx = leafs.template reserve_idx<MODE::DEFAULT>(stored_size_size);
         leafs.cc->sizes()[leaf_idx] = stored_size_size;
 
-        uint16_t size_leaf_idx = leafs.cc->current_size_leaf_idx++;
-        leafs.cc->size_leafs()[size_leaf_idx] = {leaf_idx, array_type->length, size_size, stored_size_size};
+        uint16_t size_leaf_idx = leafs.next_size_leaf_idx();
+        leafs.size_leafs()[size_leaf_idx] = {leaf_idx, array_type->length, size_size, stored_size_size};
 
         code = codegen::NestedStruct<codegen::__UnknownStruct>{result.code}
             .method(size_type_str, "length")
@@ -1039,7 +939,7 @@ GenStructFieldResult<lexer::StructField, codegen::__UnknownStruct> gen_leaf (
         uint16_t end_variant_idx = current_variant_idx + variant_type->level_variant_leafs;
         cc->current_variant_base_idx = end_variant_idx;
 
-        // printf("variant idx range: %d - %d\n", current_variant_idx, cc->current_variant_base_idx);
+        printf("variant idx range: %d - %d\n", current_variant_idx, cc->current_variant_base_idx);
         uint64_t max_offset = 0;
 
         uint16_t variant_depth;
@@ -1051,15 +951,27 @@ GenStructFieldResult<lexer::StructField, codegen::__UnknownStruct> gen_leaf (
         
         for (uint16_t i = 0; i < variant_count; i++) {
             auto type_meta = variant_type->type_metas()[i];
-            auto leaf_counts = type_meta.leaf_counts.counts;
+            auto fixed_leaf_counts = type_meta.leaf_counts.counts;
+            auto var_leaf_counts = lexer::LeafCounts{0}.counts;
             auto variant_field_counts = type_meta.variant_field_counts.counts;
-            uint16_t total_leafs = leaf_counts.total();
+            uint16_t total_fixed_leafs = fixed_leaf_counts.total();
+            uint16_t total_var_leafs = var_leaf_counts.total();
             uint16_t level_variant_fields = variant_field_counts.total();
+            uint16_t total_size_leafs = 0;
 
-            
-
-            uint8_t data[sizeof(lexer::LeafCounts::Counts) * 2 + total_leafs * (sizeof(uint64_t) + sizeof(uint16_t)) + sizeof(uint16_t) + level_variant_fields * (sizeof(VariantField))];
-            VariantLeafs variant_leafs = {cc, leaf_counts, total_leafs, variant_field_counts, level_variant_fields, current_variant_idx, data};
+            uint8_t data[Leafs<true>::mem_size(total_var_leafs, total_size_leafs, level_variant_fields)];
+            Leafs<true> variant_leafs = {
+                cc,
+                data,
+                fixed_leaf_counts,
+                var_leaf_counts,
+                variant_field_counts,
+                total_fixed_leafs,
+                total_var_leafs,
+                total_size_leafs,
+                level_variant_fields,
+                current_variant_idx
+            };
             auto result = gen_leaf<static_cast<MODE>(mode | MODE::VARIANT), MODE::VARIANT>(
                 type,
                 buffer,
@@ -1074,13 +986,12 @@ GenStructFieldResult<lexer::StructField, codegen::__UnknownStruct> gen_leaf (
             uint64_t offset = 0;
             offset = set_sizes(
                 offset,
-                leaf_counts,
+                fixed_leaf_counts,
                 variant_field_counts,
-                [&variant_leafs](uint16_t i, uint64_t offset) {
-                    uint16_t cc_idx = variant_leafs.cc_idxs()[i];
+                [&variant_leafs, current_variant_idx](uint16_t i, uint64_t offset) {
+                    uint16_t cc_idx = i + current_variant_idx;
+                    uint64_t size = variant_leafs.cc->sizes()[cc_idx];
                     variant_leafs.cc->sizes()[cc_idx] = offset;
-                    // printf("Setting variant leaf offset: %d\n", offset);
-                    uint64_t size = variant_leafs.sizes()[i];
                     return offset + size;
                 },
                 [&variant_leafs](uint16_t i, uint64_t offset) {
@@ -1143,7 +1054,19 @@ GenStructFieldResult<lexer::StructField, codegen::__UnknownStruct> gen_leaf (
             .end();
         }
 
-        return {(T*)(type), code};
+        return {(lexer::StructField*)(type), code};
+    }
+    case lexer::FIELD_TYPE::PACKED_VARIANT: {
+        printf("[ERROR] PACKED_VARIANT not supported.\n");
+        exit(1);
+    }
+    case lexer::FIELD_TYPE::DYNAMIC_VARIANT: {
+        printf("[ERROR] DYNAMIC_VARIANT not supported.\n");
+        exit(1);
+        if constexpr (is_mode<MODE::ARRAY, mode>() || is_mode<MODE::FIXED_ARRAY, mode>()) {
+            INTERNAL_ERROR("Dynamic array cant be nested");
+        } else {
+        }
     }
     case lexer::FIELD_TYPE::IDENTIFIER: {
         auto identified_type = field_type->as_identifier();
@@ -1155,7 +1078,7 @@ GenStructFieldResult<lexer::StructField, codegen::__UnknownStruct> gen_leaf (
 
         ArrayCtorStrs array_ctor_strs = make_array_ctor_strs(array_depth);
 
-        auto unique_name = get_unique_name<mode, pl_mode>(additional_args, [&struct_type]() { return extract_string(struct_type->name); });
+        auto unique_name = get_unique_name<mode, pl_mode>(additional_args, [&struct_type]() { return std::string_view{struct_type->name.offset, struct_type->name.length}; });
         
         codegen::NestedStruct<codegen::__UnknownStruct> struct_code = code
         ._struct(unique_name)
@@ -1164,7 +1087,7 @@ GenStructFieldResult<lexer::StructField, codegen::__UnknownStruct> gen_leaf (
         auto field = struct_type->first_field();
         for (uint16_t i = 0; i < struct_type->field_count; i++) {
             auto field_data = field->data();
-            auto name = extract_string(field_data->name);
+            auto name = std::string_view{field_data->name.offset, field_data->name.length};
             uint16_t struct_depth;
             if constexpr (pl_mode == MODE::DEFAULT) {
                 struct_depth = additional_args.depth + 1;
@@ -1297,8 +1220,8 @@ struct Writer {
     int fd;
     Writer (int fd) : fd(fd) {}
 
-    void write (std::string str) {
-        const char* start = str.c_str();
+    void write (std::string_view str) {
+        const char* start = str.data();
         write(start, start + str.size());
     }
 
@@ -1347,6 +1270,10 @@ struct Writer {
     }
 };
 
+void print_leafs (const char* name, lexer::LeafCounts leafs) {
+    printf("%s: {8: %u, 16: %u, 32: %u, 64: %u, total: %u}\n", name, leafs.counts.size8, leafs.counts.size16, leafs.counts.size32, leafs.counts.size64, leafs.total());
+}
+
 void generate (lexer::StructDefinition* target_struct, Buffer& buffer, int output_fd) {
     uint8_t _buffer[5000];
     auto code = codegen::create_code(_buffer)
@@ -1360,26 +1287,37 @@ void generate (lexer::StructDefinition* target_struct, Buffer& buffer, int outpu
     uint16_t level_variant_fields = variant_field_counts.total();
     uint16_t total_variant_leafs = target_struct->total_variant_leafs;
     uint16_t total_leafs = total_fixed_leafs + total_var_leafs + total_variant_leafs;
-    uint16_t size_leafs_count = target_struct->size_leafs_count;
-    printf("fixed_field_counts: %d\n", total_fixed_leafs);
-    printf("var_field_counts: %d\n", total_var_leafs);
-    printf("variant_leaf_counts: %d\n", total_variant_leafs);
-    printf("total_leafs: %d\n", total_leafs);
-    printf("size_leafs_count: %d\n", size_leafs_count);
+    uint16_t variant_base_idx = total_fixed_leafs + total_var_leafs;
+    uint16_t total_size_leafs = target_struct->size_leafs_count;
+    print_leafs("fixed_leaf_counts", fixed_leaf_counts);
+    print_leafs("var_leaf_counts", var_leaf_counts);
+    print_leafs("variant_field_counts", variant_field_counts);
+    printf("total_variant_leafs: %u\n", total_variant_leafs);
+    printf("total_leafs: %u\n", total_leafs);
+    printf("total_size_leafs: %u\n", total_size_leafs);
 
-    uint8_t _mem[CodeChunks::mem_size(total_leafs, total_fixed_leafs, total_var_leafs, size_leafs_count, level_variant_fields)];
+    uint8_t _mem[CodeChunks::mem_size(total_leafs)];
     CodeChunks* code_chunks = CodeChunks::create(
         _mem,
+        total_leafs,
+        variant_base_idx
+    );
+
+    uint8_t data[Leafs<false>::mem_size(total_var_leafs, total_size_leafs, level_variant_fields)];
+    Leafs<false> leafs = {
+        code_chunks,
+        data,
         fixed_leaf_counts,
         var_leaf_counts,
         variant_field_counts,
-        total_leafs,
         total_fixed_leafs,
         total_var_leafs,
-        level_variant_fields
-    );
+        total_size_leafs,
+        level_variant_fields,
+        0
+    };
     
-    std::string struct_name = extract_string(target_struct->name);
+    std::string_view struct_name = std::string_view{target_struct->name.offset, target_struct->name.length};
     auto struct_code = code
     ._struct(struct_name)
         .ctor("size_t base", "base(base)").end();
@@ -1387,13 +1325,13 @@ void generate (lexer::StructDefinition* target_struct, Buffer& buffer, int outpu
     auto field = target_struct->first_field();
     for (uint16_t i = 0; i < target_struct->field_count; i++) {
         auto field_data = field->data();
-        auto name = extract_string(field_data->name);
+        auto name = std::string_view{field_data->name.offset, field_data->name.length};
         auto result = gen_leaf<MODE::DEFAULT, MODE::DEFAULT>(
             field_data->type(),
             buffer,
             codegen::__UnknownStruct{struct_code},
             struct_name,
-            code_chunks,
+            leafs,
             GenStructLeafArgsDefault{name, 0}
         );
         field = result.next;
@@ -1404,8 +1342,8 @@ void generate (lexer::StructDefinition* target_struct, Buffer& buffer, int outpu
     ._private()
     .field("size_t", "base");
 
-    for (uint16_t i = 0; i < size_leafs_count; i++) {
-        auto [leaf_idx, min_size, size_size, stored_size_size] = code_chunks->size_leafs()[i];
+    for (uint16_t i = 0; i < total_size_leafs; i++) {
+        auto [leaf_idx, min_size, size_size, stored_size_size] = leafs.size_leafs()[i];
         uint16_t map_idx = code_chunks->current_map_idx++;
         printf("size_leaf map_idx: %d, leaf_idx: %d\n", map_idx, leaf_idx);
         code_chunks->chunk_map()[map_idx] = leaf_idx;
@@ -1413,8 +1351,11 @@ void generate (lexer::StructDefinition* target_struct, Buffer& buffer, int outpu
         .method(codegen::Attributes("static"), get_size_type_str(size_size), codegen::StringParts("size", i), codegen::Args("size_t base"))
             .line("return *add_offset<", get_size_type_str(stored_size_size), ">(base, ", code_chunks->chunk_starts() + leaf_idx, ");")
         .end();
-
     }
+
+    auto code_done = struct_code
+    .end()
+    .end();
  
     uint64_t offset = 0;
     // printf ("offset: %d\n", offset);
@@ -1430,8 +1371,8 @@ void generate (lexer::StructDefinition* target_struct, Buffer& buffer, int outpu
             *size_ptr = offset;
             return offset + size;
         },
-        [&code_chunks](uint16_t i, uint64_t offset) {
-            auto variant_field = code_chunks->variant_fields()[i];
+        [&leafs, &code_chunks](uint16_t i, uint64_t offset) {
+            auto variant_field = leafs.variant_fields()[i];
             for (uint16_t cc_idx = variant_field.start; cc_idx < variant_field.end; cc_idx++) {
                 printf("Adding varaint base of %d to leaf cc_idx: %d\n", offset, cc_idx);
                 code_chunks->sizes()[cc_idx] += offset;
@@ -1464,10 +1405,6 @@ void generate (lexer::StructDefinition* target_struct, Buffer& buffer, int outpu
     }
     std::string last_fixed_offset_str = std::to_string(offset);
 
-    auto code_done = struct_code
-    .end()
-    .end();
-
     for (uint16_t j = 0; j < total_leafs; j++) {
         uint16_t i = code_chunks->chunk_map()[j];
         printf("chunk_map[%d]: %d\n", j, i);
@@ -1493,11 +1430,11 @@ void generate (lexer::StructDefinition* target_struct, Buffer& buffer, int outpu
             writer.write(std::to_string(code_chunks->sizes()[i]));
         } else if (i < total_fixed_leafs + total_var_leafs) {
             writer.write(last_fixed_offset_str);
-            uint64_t size_leafs[size_leafs_count];
+            uint64_t size_leafs[total_size_leafs];
             memset(size_leafs, 0, sizeof(size_leafs));
             uint16_t known_size_leafs = 0;
             for (uint16_t h = total_fixed_leafs; h < i; h++) {
-                uint16_t size_leaf_idx = code_chunks->size_leafe_idxs()[h - total_fixed_leafs];
+                uint16_t size_leaf_idx = leafs.size_leafe_idxs()[h - total_fixed_leafs];
                 uint64_t* size_leaf = size_leafs + size_leaf_idx;
                 if (*size_leaf == 0) {
                     known_size_leafs++;
