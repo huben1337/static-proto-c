@@ -188,10 +188,13 @@ struct _VariantType {
     INLINE static auto create (Buffer &buffer) {
         return __create_extended<_VariantType, Type, TypeMeta_T>(buffer);
     }
-
+    
+    uint64_t min_byte_size;
     uint16_t variant_count;
     uint16_t level_variant_leafs;
     SIZE max_alignment;
+    SIZE stored_size_size;
+    SIZE size_size;
 
     INLINE TypeMeta_T* type_metas () {
         return get_padded<TypeMeta_T>(this + 1);
@@ -212,7 +215,7 @@ struct DynamicVariantTypeMeta {
     LeafCounts leaf_counts;
     LeafCounts variant_field_counts;
     LeafCounts var_leaf_counts;
-    LeafCounts size_leaf_counts;
+    uint16_t size_leafs_count;
 };
 
 typedef _VariantType<VariantTypeMeta> VariantType;
@@ -261,7 +264,8 @@ struct DefinitionWithFields : IdentifiedDefinition::Data {
     LeafCounts fixed_leaf_counts;
     LeafCounts var_leafs_count;
     LeafCounts variant_field_counts;
-    uint64_t byte_size;
+    uint64_t min_byte_size;
+    uint64_t max_byte_size;
     uint16_t size_leafs_count;
     uint16_t level_variant_fields;
     uint16_t total_variant_leafs;

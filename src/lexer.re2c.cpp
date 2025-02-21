@@ -191,7 +191,8 @@ struct LexTypeResult {
     LeafCounts fixed_leaf_counts;
     LeafCounts var_leafs_count;
     LeafCounts variant_field_counts;
-    uint64_t byte_size;
+    uint64_t min_byte_size;
+    uint64_t max_byte_size;
     uint16_t level_variant_fields;
     uint16_t total_variant_leafs;
     uint16_t size_leafs_count;
@@ -208,18 +209,6 @@ struct LexFixedTypeResult {
     SIZE alignment;
 };
 
-struct LexVariantTypeResult {
-    char* cursor;
-    uint64_t max_byte_size;
-    uint64_t min_byte_size;
-    variant_count_t variant_count;
-    uint16_t total_variant_leafs;
-    uint16_t level_variant_leafs;
-    uint16_t level_variant_fields;
-    SIZE max_alignment;
-    bool is_dynamic;
-};
-
 template <bool is_dynamic>
 using _VariantTypeMeta = std::conditional_t<is_dynamic, DynamicVariantTypeMeta, VariantTypeMeta>;
 
@@ -229,8 +218,8 @@ std::conditional_t<expect_fixed, LexFixedTypeResult, LexTypeResult> lex_type (ch
 template <bool is_dynamic, bool expect_fixed>
 INLINE std::conditional_t<expect_fixed, LexFixedTypeResult, LexTypeResult> add_variant_type (
     char* YYCURSOR,
-    uint64_t max_byte_size,
-    uint64_t min_byte_size,
+    uint64_t inner_min_byte_size,
+    uint64_t inner_max_byte_size,
     Buffer& buffer,
 	Buffer& type_meta_buffer,
     IdentifierMap& identifier_map,
@@ -245,17 +234,6 @@ INLINE std::conditional_t<expect_fixed, LexFixedTypeResult, LexTypeResult> add_v
     auto attribute_lex_result = lex_variant_attributes(YYCURSOR);
     YYCURSOR = attribute_lex_result.cursor;
     auto [max_wasted_bytes, shared_id] = attribute_lex_result.value;
-
-
-    LeafCounts fixed_leaf_counts;
-    uint64_t byte_size;
-    if (variant_count <= UINT8_MAX) {
-        fixed_leaf_counts = {1, 0, 0, 0};
-        byte_size = max_byte_size + 1;
-    } else {
-        fixed_leaf_counts = {0, 1, 0, 0};
-        byte_size = max_byte_size + 2;
-    }
 
     auto types_end_idx = buffer.position_idx<uint8_t>();
 
@@ -290,18 +268,13 @@ INLINE std::conditional_t<expect_fixed, LexFixedTypeResult, LexTypeResult> add_v
         printf("[Debug] found DYNAMIC_VARIANT\n");
         buffer.get(created_variant_type.base)->type = DYNAMIC_VARIANT;
     } else {
-        if ((max_byte_size - min_byte_size) > max_wasted_bytes) {
+        if ((inner_max_byte_size - inner_min_byte_size) > max_wasted_bytes) {
             printf("[Debug] packing variant to satisfy size requirements\n");
             buffer.get(created_variant_type.base)->type = PACKED_VARIANT;
         } else {
             buffer.get(created_variant_type.base)->type = VARIANT;
         }
     }
-
-    auto variant_type = buffer.get_aligned(created_variant_type.extended);
-    variant_type->variant_count = variant_count;
-    variant_type->max_alignment = max_alignment;
-    variant_type->level_variant_leafs = level_variant_leafs;
 
     LeafCounts variant_field_counts;
     switch (max_alignment)
@@ -311,25 +284,97 @@ INLINE std::conditional_t<expect_fixed, LexFixedTypeResult, LexTypeResult> add_v
             break;
         case SIZE_2:
             variant_field_counts = {0, 1, 0, 0};
+            inner_max_byte_size += 1; // In the worst case we need to add 1 byte
             break;
         case SIZE_4:
             variant_field_counts = {0, 0, 1, 0};
+            inner_max_byte_size += 3; // In the worst case we need to add 3 bytes
             break;
         case SIZE_8:
             variant_field_counts = {0, 0, 0, 1};
+            inner_max_byte_size += 7; // In the worst case we need to add 7 bytes
             break;
         default:
-            variant_field_counts = {0};
+            INTERNAL_ERROR("INVALID max_alignment\n");
     }
+
+    auto variant_type = buffer.get_aligned(created_variant_type.extended);
+    variant_type->variant_count = variant_count;
+    variant_type->max_alignment = max_alignment;
+    variant_type->level_variant_leafs = level_variant_leafs;
+
+    LeafCounts fixed_leaf_counts;
+    uint64_t max_byte_size = inner_max_byte_size;
+    uint64_t min_byte_size = inner_min_byte_size;
+    if (variant_count <= UINT8_MAX) {
+        fixed_leaf_counts = {1, 0, 0, 0};
+        max_byte_size += 1;
+        min_byte_size += 1;
+    } else {
+        fixed_leaf_counts = {0, 1, 0, 0};
+        max_byte_size += 2;
+        min_byte_size += 2;
+    }
+    
+    if constexpr (is_dynamic) {
+        uint64_t max = inner_max_byte_size;
+        uint64_t delta = inner_max_byte_size - inner_min_byte_size;
+        SIZE stored_size_size;
+        SIZE size_size;
+        if (delta <= UINT8_MAX) {
+            fixed_leaf_counts += {1, 0, 0, 0};
+            max_byte_size += 1;
+            stored_size_size = SIZE_1;
+            if (max <= UINT8_MAX) {
+                size_size = SIZE_1;
+            } else if (max <= UINT16_MAX) {
+                size_size = SIZE_2;
+            } else if (max <= UINT32_MAX) {
+                size_size = SIZE_4;
+            } else {
+                size_size = SIZE_8;
+            }
+        } else if (delta <= UINT16_MAX) {
+            fixed_leaf_counts += {0, 1, 0, 0};
+            max_byte_size += 2;
+            stored_size_size = SIZE_2;
+            if (max <= UINT16_MAX) {
+                size_size = SIZE_2;
+            } else if (max <= UINT32_MAX) {
+                size_size = SIZE_4;
+            } else {
+                size_size = SIZE_8;
+            }
+        } else if (delta <= UINT32_MAX) {
+            fixed_leaf_counts += {0, 0, 1, 0};
+            max_byte_size += 4;
+            stored_size_size = SIZE_4;
+            size_size = SIZE_4;
+            if (max <= UINT32_MAX) {
+                size_size = SIZE_4;
+            } else {
+                size_size = SIZE_8;
+            }
+        } else {
+            fixed_leaf_counts += {0, 0, 0, 1};
+            max_byte_size += 8;
+            stored_size_size = SIZE_8;
+            size_size = SIZE_8;
+        }
+        variant_type->min_byte_size = inner_min_byte_size;
+        variant_type->stored_size_size = stored_size_size;
+        variant_type->size_size = size_size;
+    }
+    
     
 
     if constexpr (expect_fixed) {
-        return LexFixedTypeResult{YYCURSOR, fixed_leaf_counts, variant_field_counts, byte_size, 1, total_variant_leafs, max_alignment};
+        return LexFixedTypeResult{YYCURSOR, fixed_leaf_counts, variant_field_counts, max_byte_size, 1, total_variant_leafs, max_alignment};
     } else {
         if constexpr (is_dynamic) {
-            return LexTypeResult{YYCURSOR, fixed_leaf_counts + LeafCounts{0, 0, 0, 1}, {0}, variant_field_counts, byte_size, 1, total_variant_leafs, 1, max_alignment};
+            return LexTypeResult{YYCURSOR, fixed_leaf_counts, variant_field_counts, {0}, min_byte_size, max_byte_size, 1, total_variant_leafs, 1, max_alignment};
         } else {
-            return LexTypeResult{YYCURSOR, fixed_leaf_counts, {0}, variant_field_counts, byte_size, 1, total_variant_leafs, 0, max_alignment};
+            return LexTypeResult{YYCURSOR, fixed_leaf_counts, {0}, variant_field_counts, min_byte_size, max_byte_size, 1, total_variant_leafs, 0, max_alignment};
         }
     }
 }
@@ -337,8 +382,8 @@ INLINE std::conditional_t<expect_fixed, LexFixedTypeResult, LexTypeResult> add_v
 template <bool is_dynamic, bool expect_fixed>
 INLINE std::conditional_t<expect_fixed, LexFixedTypeResult, LexTypeResult> lex_variant_types (
     char* YYCURSOR,
-    uint64_t max_byte_size,
     uint64_t min_byte_size,
+    uint64_t max_byte_size,
     Buffer& buffer,
 	Buffer& type_meta_buffer,
     IdentifierMap& identifier_map,
@@ -370,6 +415,15 @@ INLINE std::conditional_t<expect_fixed, LexFixedTypeResult, LexTypeResult> lex_v
         level_variant_fields += result.level_variant_fields;
 
         max_alignment = std::max(max_alignment, result.alignment);
+        if constexpr (expect_fixed) {
+            uint64_t byte_size = result.byte_size;
+            min_byte_size = std::min(min_byte_size, byte_size);
+            max_byte_size = std::max(max_byte_size, byte_size);
+        } else {
+            min_byte_size = std::min(min_byte_size, result.min_byte_size);
+            max_byte_size = std::max(max_byte_size, result.max_byte_size);
+        }
+        
 
         if constexpr (!is_dynamic && !expect_fixed) {
             if (result.var_leafs_count.as_uint64 > 0) {
@@ -381,8 +435,8 @@ INLINE std::conditional_t<expect_fixed, LexFixedTypeResult, LexTypeResult> lex_v
                 dynamic_variant_next: {
                     return lex_variant_types<true, expect_fixed>(
                         YYCURSOR,
-                        max_byte_size,
                         min_byte_size,
+                        max_byte_size,
                         buffer,
                         type_meta_buffer,
                         identifier_map,
@@ -398,8 +452,8 @@ INLINE std::conditional_t<expect_fixed, LexFixedTypeResult, LexTypeResult> lex_v
                 dynamic_variant_done: {
                     return add_variant_type<true, expect_fixed>(
                         YYCURSOR,
-                        max_byte_size,
                         min_byte_size,
+                        max_byte_size,
                         buffer,
                         type_meta_buffer,
                         identifier_map,
@@ -414,15 +468,7 @@ INLINE std::conditional_t<expect_fixed, LexFixedTypeResult, LexTypeResult> lex_v
                 }
             }
         }
-        uint64_t byte_size = result.byte_size;
-        if (byte_size > max_byte_size) {
-            max_byte_size = byte_size;
-            if (min_byte_size == 0) {
-                min_byte_size = max_byte_size;
-            }
-        } else if (byte_size < min_byte_size) {
-            min_byte_size = byte_size;
-        }
+        
         /*!local:re2c
             white_space* "," { continue; }
             white_space* ">" { goto variant_done; }
@@ -431,8 +477,8 @@ INLINE std::conditional_t<expect_fixed, LexFixedTypeResult, LexTypeResult> lex_v
         variant_done: {
             return add_variant_type<is_dynamic, expect_fixed>(
                 YYCURSOR,
-                max_byte_size,
                 min_byte_size,
+                max_byte_size,
                 buffer,
                 type_meta_buffer,
                 identifier_map,
@@ -466,15 +512,15 @@ std::conditional_t<expect_fixed, LexFixedTypeResult, LexTypeResult> lex_type (ch
     #define LEAF_COUNTS_TYPE_16 {0, 1, 0, 0}
     #define LEAF_COUNTS_TYPE_32 {0, 0, 1, 0}
     #define LEAF_COUNTS_TYPE_64 {0, 0, 0, 1}
-    #define SIMPLE_TYPE(TYPE, ALIGN, fixed_leaf_counts)                                         \
-    {                                                                                           \
-        auto type = buffer.get_next<Type>();                                                    \
-        type->type = FIELD_TYPE::TYPE;                                                          \
-        if constexpr (expect_fixed) {                                                           \
-            return LexFixedTypeResult{YYCURSOR, fixed_leaf_counts, {0}, ALIGN, 0, 0, ALIGN};    \
-        } else {                                                                                \
-            return LexTypeResult{YYCURSOR, fixed_leaf_counts, {0}, {0}, ALIGN, 0, 0, 0, ALIGN}; \
-        }                                                                                       \
+    #define SIMPLE_TYPE(TYPE, ALIGN, fixed_leaf_counts)                                                 \
+    {                                                                                                   \
+        auto type = buffer.get_next<Type>();                                                            \
+        type->type = FIELD_TYPE::TYPE;                                                                  \
+        if constexpr (expect_fixed) {                                                                   \
+            return LexFixedTypeResult{YYCURSOR, fixed_leaf_counts, {0}, ALIGN, 0, 0, ALIGN};            \
+        } else {                                                                                        \
+            return LexTypeResult{YYCURSOR, fixed_leaf_counts, {0}, {0}, ALIGN, ALIGN, 0, 0, 0, ALIGN};  \
+        }                                                                                               \
     }
     
     /*!local:re2c
@@ -510,21 +556,21 @@ std::conditional_t<expect_fixed, LexFixedTypeResult, LexTypeResult> lex_type (ch
         if constexpr (!expect_fixed) {
             LeafCounts fixed_leaf_counts;
             LeafCounts var_leafs_count;
-            uint64_t byte_size;
+            uint64_t min_byte_size, max_byte_size;
             uint16_t size_leafs_count;
             SIZE alignment;
 
             YYCURSOR = lex_range_argument(
                 YYCURSOR,
-                [&buffer, &fixed_leaf_counts, &var_leafs_count, &byte_size, &size_leafs_count, &alignment](uint32_t length) {
+                [&buffer, &fixed_leaf_counts, &var_leafs_count, &min_byte_size, &max_byte_size, &size_leafs_count, &alignment](uint32_t length) {
                     fixed_leaf_counts = {1, 0, 0, 0};
                     var_leafs_count = {0};
-                    byte_size = length;
+                    min_byte_size = max_byte_size = length;
                     size_leafs_count = 0;
                     alignment = SIZE_1;
                     FixedStringType::create(buffer, length);
                 },
-                [&buffer, &fixed_leaf_counts, &var_leafs_count, &size_leafs_count, &alignment](Range range) {
+                [&buffer, &fixed_leaf_counts, &var_leafs_count, &min_byte_size, &max_byte_size, &size_leafs_count, &alignment](Range range) {
                     auto [min, max] = range;
                     uint32_t delta = max - min;
                     SIZE size_size;
@@ -532,6 +578,7 @@ std::conditional_t<expect_fixed, LexFixedTypeResult, LexTypeResult> lex_type (ch
                     if (delta <= UINT8_MAX) {
                         fixed_leaf_counts = {1, 0, 0, 0};
                         stored_size_size = SIZE_1;
+                        min_byte_size = max_byte_size = 1;
                         if (max <= UINT8_MAX) {
                             size_size = SIZE_1;
                         } else if (max <= UINT16_MAX) {
@@ -542,6 +589,7 @@ std::conditional_t<expect_fixed, LexFixedTypeResult, LexTypeResult> lex_type (ch
                     } else if (delta <= UINT16_MAX) {
                         fixed_leaf_counts = {0, 1, 0, 0};
                         stored_size_size = SIZE_2;
+                        min_byte_size = max_byte_size = 2;
                         if (max <= UINT16_MAX) {
                             size_size = SIZE_2;
                         } else {
@@ -550,15 +598,18 @@ std::conditional_t<expect_fixed, LexFixedTypeResult, LexTypeResult> lex_type (ch
                     } else /* if (delta <= UINT32_MAX) */ {
                         fixed_leaf_counts = {0, 0, 1, 0};
                         stored_size_size = SIZE_4;
+                        min_byte_size = max_byte_size = 4;
                         size_size = SIZE_4;
                     }
+                    min_byte_size += min;
+                    max_byte_size += max;
                     var_leafs_count = {1, 0, 0, 0};
                     size_leafs_count = 1;
                     alignment = stored_size_size;
-                    StringType::create(buffer, range.min, stored_size_size, size_size);
+                    StringType::create(buffer, min, stored_size_size, size_size);
                 }
             );
-            return LexTypeResult{YYCURSOR, fixed_leaf_counts, var_leafs_count, {0}, byte_size, 0, 0, size_leafs_count, alignment};
+            return LexTypeResult{YYCURSOR, fixed_leaf_counts, var_leafs_count, {0}, min_byte_size, max_byte_size, 0, 0, size_leafs_count, alignment};
         } else {
             uint64_t byte_size;
             YYCURSOR = lex_range_argument(
@@ -593,24 +644,24 @@ std::conditional_t<expect_fixed, LexFixedTypeResult, LexTypeResult> lex_type (ch
         if constexpr (!expect_fixed) {
             LeafCounts fixed_leaf_counts;
             LeafCounts var_leafs_count;
-            uint64_t byte_size;
+            uint64_t min_byte_size, max_byte_size;
             uint16_t size_leafs_count;
             SIZE alignment;
 
             YYCURSOR = lex_range_argument(
                 YYCURSOR, 
-                [&buffer, &extended, &base, &fixed_leaf_counts, &var_leafs_count, &byte_size, &size_leafs_count, &alignment, &result](uint32_t length) {
+                [&buffer, &extended, &base, &fixed_leaf_counts, &var_leafs_count, &min_byte_size, &max_byte_size, &size_leafs_count, &alignment, &result](uint32_t length) {
                     base->type = ARRAY_FIXED;
                     extended->length = length;
                     extended->stored_size_size = SIZE_0;
                     extended->size_size = SIZE_0;
                     fixed_leaf_counts = result.fixed_leaf_counts;
                     var_leafs_count = {0};
-                    byte_size = length * result.byte_size;
+                    min_byte_size = max_byte_size = length * result.byte_size;
                     size_leafs_count = 0;
                     alignment = result.alignment;
                 },
-                [&buffer, &extended, &base, &fixed_leaf_counts, &var_leafs_count, &size_leafs_count, &alignment, &result](Range range) {
+                [&buffer, &extended, &base, &fixed_leaf_counts, &var_leafs_count, &min_byte_size, &max_byte_size, &size_leafs_count, &alignment, &result](Range range) {
                     base->type = ARRAY;
                     auto [min, max] = range;
                     uint32_t delta = max - min;
@@ -620,6 +671,7 @@ std::conditional_t<expect_fixed, LexFixedTypeResult, LexTypeResult> lex_type (ch
                         fixed_leaf_counts = {1, 0, 0, 0};
                         stored_size_size = SIZE_1;
                         alignment = result.alignment;
+                        min_byte_size = max_byte_size = 1;
                         if (max <= UINT8_MAX) {
                             size_size = SIZE_1;
                         } else if (max <= UINT16_MAX) {
@@ -631,6 +683,7 @@ std::conditional_t<expect_fixed, LexFixedTypeResult, LexTypeResult> lex_type (ch
                         fixed_leaf_counts = {0, 1, 0, 0};
                         stored_size_size = SIZE_2;
                         alignment = std::max(result.alignment, SIZE_2);
+                        min_byte_size = max_byte_size = 2;
                         if (max <= UINT16_MAX) {
                             size_size = SIZE_2;
                         } else {
@@ -641,7 +694,10 @@ std::conditional_t<expect_fixed, LexFixedTypeResult, LexTypeResult> lex_type (ch
                         stored_size_size = SIZE_4;
                         size_size = SIZE_4;
                         alignment = std::max(result.alignment, SIZE_4);
+                        min_byte_size = max_byte_size = 4;
                     }
+                    min_byte_size += result.byte_size * min;
+                    max_byte_size += result.byte_size * max;
                     var_leafs_count = result.fixed_leaf_counts;
                     size_leafs_count = 1;
                     extended->length = min;
@@ -649,7 +705,7 @@ std::conditional_t<expect_fixed, LexFixedTypeResult, LexTypeResult> lex_type (ch
                     extended->size_size = size_size;
                 }
             );
-            return LexTypeResult{YYCURSOR, fixed_leaf_counts, var_leafs_count, result.variant_field_counts, byte_size, result.level_variant_fields, result.total_variant_leafs, size_leafs_count, alignment};
+            return LexTypeResult{YYCURSOR, fixed_leaf_counts, var_leafs_count, result.variant_field_counts, min_byte_size, max_byte_size, result.level_variant_fields, result.total_variant_leafs, size_leafs_count, alignment};
         } else {
             uint64_t byte_size;
             YYCURSOR = lex_range_argument(
@@ -682,7 +738,7 @@ std::conditional_t<expect_fixed, LexFixedTypeResult, LexTypeResult> lex_type (ch
 
         return lex_variant_types<false, expect_fixed>(
             YYCURSOR,
-            0,
+            UINT64_MAX,
             0,
             buffer,
             type_meta_buffer,
@@ -722,7 +778,8 @@ std::conditional_t<expect_fixed, LexFixedTypeResult, LexTypeResult> lex_type (ch
                     struct_definition->fixed_leaf_counts,
                     struct_definition->var_leafs_count,
                     struct_definition->variant_field_counts,
-                    struct_definition->byte_size,
+                    struct_definition->min_byte_size,
+                    struct_definition->max_byte_size,
                     struct_definition->level_variant_fields,
                     struct_definition->total_variant_leafs,
                     struct_definition->size_leafs_count,
@@ -736,7 +793,7 @@ std::conditional_t<expect_fixed, LexFixedTypeResult, LexTypeResult> lex_type (ch
                     YYCURSOR,
                     struct_definition->fixed_leaf_counts,
                     struct_definition->variant_field_counts,
-                    struct_definition->byte_size,
+                    struct_definition->max_byte_size,
                     struct_definition->level_variant_fields,
                     struct_definition->total_variant_leafs,
                     struct_definition->max_alignment
@@ -769,7 +826,8 @@ INLINE char* lex_struct_or_union_fields (
     LeafCounts fixed_leaf_counts,
     LeafCounts var_leafs_count,
     LeafCounts variant_field_counts,
-    uint64_t byte_size,
+    uint64_t min_byte_size,
+    uint64_t max_byte_size,
     uint16_t size_leafs_count,
     uint16_t level_variant_fields,
     uint16_t total_variant_leafs,
@@ -794,7 +852,8 @@ INLINE char* lex_struct_or_union_fields (
             definition_data->fixed_leaf_counts = fixed_leaf_counts;
             definition_data->var_leafs_count = var_leafs_count;
             definition_data->variant_field_counts = variant_field_counts;
-            definition_data->byte_size = byte_size;
+            definition_data->min_byte_size = min_byte_size;
+            definition_data->max_byte_size = max_byte_size;
             definition_data->size_leafs_count = size_leafs_count;
             definition_data->level_variant_fields = level_variant_fields;
             definition_data->total_variant_leafs = total_variant_leafs;
@@ -848,7 +907,8 @@ INLINE char* lex_struct_or_union_fields (
                 result.fixed_leaf_counts,
                 result.var_leafs_count,
                 result.variant_field_counts,
-                result.byte_size,
+                result.min_byte_size,
+                result.max_byte_size,
                 result.size_leafs_count,
                 result.level_variant_fields,
                 result.total_variant_leafs,
@@ -859,7 +919,8 @@ INLINE char* lex_struct_or_union_fields (
             field_count++;
             fixed_leaf_counts += result.fixed_leaf_counts;
             var_leafs_count += result.var_leafs_count;
-            byte_size += result.byte_size;
+            min_byte_size += result.min_byte_size;
+            max_byte_size += result.max_byte_size;
             size_leafs_count += result.size_leafs_count;
             total_variant_leafs += result.total_variant_leafs;
             level_variant_fields += result.level_variant_fields;
@@ -879,7 +940,7 @@ INLINE char* lex_struct_or_union(
 ) {
     YYCURSOR = lex_same_line_symbol<'{', "expected '{'">(YYCURSOR);
 
-    return lex_struct_or_union_fields<true>(YYCURSOR, definition_data_idx, identifier_map, buffer, {0}, {0}, {0}, 0, 0, 0, 0, 0, SIZE_1);
+    return lex_struct_or_union_fields<true>(YYCURSOR, definition_data_idx, identifier_map, buffer, {0}, {0}, {0}, 0, 0, 0, 0, 0, 0, SIZE_1);
 }
 
 INLINE auto set_member_value (char* start, uint64_t value, bool is_negative) {
