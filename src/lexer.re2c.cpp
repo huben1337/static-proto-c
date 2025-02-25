@@ -12,7 +12,13 @@ namespace lexer {
 
 template <Integral T>
 INLINE constexpr T next_multiple (T value, SIZE base) {
-    T mask = static_cast<T>(base) - 1;
+    T mask = (static_cast<T>(1) << static_cast<uint8_t>(base)) - 1;
+    return (value + mask) & ~mask;
+}
+
+template <Integral T>
+INLINE constexpr T next_multiple (T value, T base) {
+    T mask = base - 1;
     return (value + mask) & ~mask;
 }
 
@@ -282,24 +288,7 @@ INLINE std::conditional_t<expect_fixed, LexFixedTypeResult, LexTypeResult> add_v
         }
     }
 
-    LeafCounts variant_field_counts;
-    switch (max_alignment)
-    {
-        case SIZE_1:
-            variant_field_counts = {1, 0, 0, 0};
-            break;
-        case SIZE_2:
-            variant_field_counts = {0, 1, 0, 0};
-            break;
-        case SIZE_4:
-            variant_field_counts = {0, 0, 1, 0};
-            break;
-        case SIZE_8:
-            variant_field_counts = {0, 0, 0, 1};
-            break;
-        default:
-            INTERNAL_ERROR("INVALID max_alignment\n");
-    }
+    LeafCounts variant_field_counts = {max_alignment};
 
     auto variant_type = buffer.get_aligned(created_variant_type.extended);
     variant_type->variant_count = variant_count;
@@ -308,6 +297,7 @@ INLINE std::conditional_t<expect_fixed, LexFixedTypeResult, LexTypeResult> add_v
 
     LeafCounts fixed_leaf_counts;
     inner_max_byte_size = next_multiple(inner_max_byte_size, max_alignment);
+    
     uint64_t max_byte_size = inner_max_byte_size;
     uint64_t min_byte_size = inner_min_byte_size;
     if (variant_count <= UINT8_MAX) {
@@ -328,42 +318,42 @@ INLINE std::conditional_t<expect_fixed, LexFixedTypeResult, LexTypeResult> add_v
         if (delta <= UINT8_MAX) {
             fixed_leaf_counts += {1, 0, 0, 0};
             max_byte_size += 1;
-            stored_size_size = SIZE_1;
+            stored_size_size = SIZE::SIZE_1;
             if (max <= UINT8_MAX) {
-                size_size = SIZE_1;
+                size_size = SIZE::SIZE_1;
             } else if (max <= UINT16_MAX) {
-                size_size = SIZE_2;
+                size_size = SIZE::SIZE_2;
             } else if (max <= UINT32_MAX) {
-                size_size = SIZE_4;
+                size_size = SIZE::SIZE_4;
             } else {
-                size_size = SIZE_8;
+                size_size = SIZE::SIZE_8;
             }
         } else if (delta <= UINT16_MAX) {
             fixed_leaf_counts += {0, 1, 0, 0};
             max_byte_size += 2;
-            stored_size_size = SIZE_2;
+            stored_size_size = SIZE::SIZE_2;
             if (max <= UINT16_MAX) {
-                size_size = SIZE_2;
+                size_size = SIZE::SIZE_2;
             } else if (max <= UINT32_MAX) {
-                size_size = SIZE_4;
+                size_size = SIZE::SIZE_4;
             } else {
-                size_size = SIZE_8;
+                size_size = SIZE::SIZE_8;
             }
         } else if (delta <= UINT32_MAX) {
             fixed_leaf_counts += {0, 0, 1, 0};
             max_byte_size += 4;
-            stored_size_size = SIZE_4;
-            size_size = SIZE_4;
+            stored_size_size = SIZE::SIZE_4;
+            size_size = SIZE::SIZE_4;
             if (max <= UINT32_MAX) {
-                size_size = SIZE_4;
+                size_size = SIZE::SIZE_4;
             } else {
-                size_size = SIZE_8;
+                size_size = SIZE::SIZE_8;
             }
         } else {
             fixed_leaf_counts += {0, 0, 0, 1};
             max_byte_size += 8;
-            stored_size_size = SIZE_8;
-            size_size = SIZE_8;
+            stored_size_size = SIZE::SIZE_8;
+            size_size = SIZE::SIZE_8;
         }
         variant_type->min_byte_size = inner_min_byte_size;
         variant_type->stored_size_size = stored_size_size;
@@ -502,39 +492,37 @@ INLINE std::conditional_t<expect_fixed, LexFixedTypeResult, LexTypeResult> lex_v
 template <bool expect_fixed>
 std::conditional_t<expect_fixed, LexFixedTypeResult, LexTypeResult> lex_type (char* YYCURSOR, Buffer &buffer, IdentifierMap &identifier_map) {
     const char* identifier_start = YYCURSOR;
-    #define LEAF_COUNTS_TYPE_8  {1, 0, 0, 0}
-    #define LEAF_COUNTS_TYPE_16 {0, 1, 0, 0}
-    #define LEAF_COUNTS_TYPE_32 {0, 0, 1, 0}
-    #define LEAF_COUNTS_TYPE_64 {0, 0, 0, 1}
-    #define SIMPLE_TYPE(TYPE, ALIGN, fixed_leaf_counts)                                                 \
-    {                                                                                                   \
-        auto type = buffer.get_next<Type>();                                                            \
-        type->type = FIELD_TYPE::TYPE;                                                                  \
-        if constexpr (expect_fixed) {                                                                   \
-            return LexFixedTypeResult{YYCURSOR, fixed_leaf_counts, {0}, ALIGN, 0, 0, ALIGN};            \
-        } else {                                                                                        \
-            return LexTypeResult{YYCURSOR, fixed_leaf_counts, {0}, {0}, ALIGN, ALIGN, 0, 0, 0, ALIGN};  \
-        }                                                                                               \
+    #define SIMPLE_TYPE(TYPE, ALIGN)                                                                                    \
+    {                                                                                                                   \
+        auto type = buffer.get_next<Type>();                                                                            \
+        type->type = FIELD_TYPE::TYPE;                                                                                  \
+        constexpr LeafCounts fixed_leaf_counts = {ALIGN};                                                               \
+        constexpr uint64_t byte_size = byte_size_of(ALIGN);                                                             \
+        if constexpr (expect_fixed) {                                                                                   \
+            return LexFixedTypeResult{YYCURSOR, fixed_leaf_counts, {0}, byte_size, 0, 0, ALIGN};                        \
+        } else {                                                                                                        \
+            return LexTypeResult{YYCURSOR, fixed_leaf_counts, {0}, {0}, byte_size, byte_size, 0, 0, 0, ALIGN};          \
+        }                                                                                                               \
     }
     
     /*!local:re2c
         name = [a-zA-Z_][a-zA-Z0-9_]*;
                     
-        "int8"      { SIMPLE_TYPE(INT8,    SIZE_1, LEAF_COUNTS_TYPE_8 ) }
-        "int16"     { SIMPLE_TYPE(INT16,   SIZE_2, LEAF_COUNTS_TYPE_16) }
-        "int32"     { SIMPLE_TYPE(INT32,   SIZE_4, LEAF_COUNTS_TYPE_32) }
-        "int64"     { SIMPLE_TYPE(INT64,   SIZE_8, LEAF_COUNTS_TYPE_64) }
-        "uint8"     { SIMPLE_TYPE(UINT8,   SIZE_1, LEAF_COUNTS_TYPE_8 ) }
-        "uint16"    { SIMPLE_TYPE(UINT16,  SIZE_2, LEAF_COUNTS_TYPE_16) }
-        "uint32"    { SIMPLE_TYPE(UINT32,  SIZE_4, LEAF_COUNTS_TYPE_32) }
-        "uint64"    { SIMPLE_TYPE(UINT64,  SIZE_8, LEAF_COUNTS_TYPE_64) }
-        "float32"   { SIMPLE_TYPE(FLOAT32, SIZE_4, LEAF_COUNTS_TYPE_32) }
-        "float64"   { SIMPLE_TYPE(FLOAT64, SIZE_8, LEAF_COUNTS_TYPE_64) }
-        "bool"      { SIMPLE_TYPE(BOOL,    SIZE_1, LEAF_COUNTS_TYPE_8 ) }
-        "string"    { goto string;                                      }
-        "array"     { goto array;                                       }
-        "variant"   { goto variant;                                     }
-        name        { goto identifier;                                  }
+        "int8"      { SIMPLE_TYPE(INT8,    SIZE::SIZE_1 ) }
+        "int16"     { SIMPLE_TYPE(INT16,   SIZE::SIZE_2 ) }
+        "int32"     { SIMPLE_TYPE(INT32,   SIZE::SIZE_4 ) }
+        "int64"     { SIMPLE_TYPE(INT64,   SIZE::SIZE_8 ) }
+        "uint8"     { SIMPLE_TYPE(UINT8,   SIZE::SIZE_1 ) }
+        "uint16"    { SIMPLE_TYPE(UINT16,  SIZE::SIZE_2 ) }
+        "uint32"    { SIMPLE_TYPE(UINT32,  SIZE::SIZE_4 ) }
+        "uint64"    { SIMPLE_TYPE(UINT64,  SIZE::SIZE_8 ) }
+        "float32"   { SIMPLE_TYPE(FLOAT32, SIZE::SIZE_4 ) }
+        "float64"   { SIMPLE_TYPE(FLOAT64, SIZE::SIZE_8 ) }
+        "bool"      { SIMPLE_TYPE(BOOL,    SIZE::SIZE_1 ) }
+        "string"    { goto string;                        }
+        "array"     { goto array;                         }
+        "variant"   { goto variant;                       }
+        name        { goto identifier;                    }
 
         * { UNEXPECTED_INPUT("expected type"); }
     */
@@ -561,7 +549,7 @@ std::conditional_t<expect_fixed, LexFixedTypeResult, LexTypeResult> lex_type (ch
                     var_leafs_count = {0};
                     min_byte_size = max_byte_size = length;
                     size_leafs_count = 0;
-                    alignment = SIZE_1;
+                    alignment = SIZE::SIZE_1;
                     FixedStringType::create(buffer, length);
                 },
                 [&buffer, &fixed_leaf_counts, &var_leafs_count, &min_byte_size, &max_byte_size, &size_leafs_count, &alignment](Range range) {
@@ -571,29 +559,29 @@ std::conditional_t<expect_fixed, LexFixedTypeResult, LexTypeResult> lex_type (ch
                     SIZE stored_size_size;
                     if (delta <= UINT8_MAX) {
                         fixed_leaf_counts = {1, 0, 0, 0};
-                        stored_size_size = SIZE_1;
+                        stored_size_size = SIZE::SIZE_1;
                         min_byte_size = max_byte_size = 1;
                         if (max <= UINT8_MAX) {
-                            size_size = SIZE_1;
+                            size_size = SIZE::SIZE_1;
                         } else if (max <= UINT16_MAX) {
-                            size_size = SIZE_2;
+                            size_size = SIZE::SIZE_2;
                         } else {
-                            size_size = SIZE_4;
+                            size_size = SIZE::SIZE_4;
                         }
                     } else if (delta <= UINT16_MAX) {
                         fixed_leaf_counts = {0, 1, 0, 0};
-                        stored_size_size = SIZE_2;
+                        stored_size_size = SIZE::SIZE_2;
                         min_byte_size = max_byte_size = 2;
                         if (max <= UINT16_MAX) {
-                            size_size = SIZE_2;
+                            size_size = SIZE::SIZE_2;
                         } else {
-                            size_size = SIZE_4;
+                            size_size = SIZE::SIZE_4;
                         }
                     } else /* if (delta <= UINT32_MAX) */ {
                         fixed_leaf_counts = {0, 0, 1, 0};
-                        stored_size_size = SIZE_4;
+                        stored_size_size = SIZE::SIZE_4;
                         min_byte_size = max_byte_size = 4;
-                        size_size = SIZE_4;
+                        size_size = SIZE::SIZE_4;
                     }
                     min_byte_size += min;
                     max_byte_size += max;
@@ -616,7 +604,7 @@ std::conditional_t<expect_fixed, LexFixedTypeResult, LexTypeResult> lex_type (ch
                     show_syntax_error("expected fixed size string", identifier_start);
                 }
             );
-            return LexFixedTypeResult{YYCURSOR, {1, 0, 0, 0}, {0}, byte_size, 0, 0, SIZE_1};
+            return LexFixedTypeResult{YYCURSOR, {1, 0, 0, 0}, {0}, byte_size, 0, 0, SIZE::SIZE_1};
         }
     }
 
@@ -647,8 +635,8 @@ std::conditional_t<expect_fixed, LexFixedTypeResult, LexTypeResult> lex_type (ch
                 [&buffer, &extended, &base, &fixed_leaf_counts, &var_leafs_count, &min_byte_size, &max_byte_size, &size_leafs_count, &alignment, &result](uint32_t length) {
                     base->type = ARRAY_FIXED;
                     extended->length = length;
-                    extended->stored_size_size = SIZE_0;
-                    extended->size_size = SIZE_0;
+                    extended->stored_size_size = SIZE::SIZE_0;
+                    extended->size_size = SIZE::SIZE_0;
                     fixed_leaf_counts = result.fixed_leaf_counts;
                     var_leafs_count = {0};
                     min_byte_size = max_byte_size = length * result.byte_size;
@@ -663,31 +651,31 @@ std::conditional_t<expect_fixed, LexFixedTypeResult, LexTypeResult> lex_type (ch
                     SIZE stored_size_size;
                     if (delta <= UINT8_MAX) {
                         fixed_leaf_counts = {1, 0, 0, 0};
-                        stored_size_size = SIZE_1;
+                        stored_size_size = SIZE::SIZE_1;
                         alignment = result.alignment;
                         min_byte_size = max_byte_size = 1;
                         if (max <= UINT8_MAX) {
-                            size_size = SIZE_1;
+                            size_size = SIZE::SIZE_1;
                         } else if (max <= UINT16_MAX) {
-                            size_size = SIZE_2;
+                            size_size = SIZE::SIZE_2;
                         } else {
-                            size_size = SIZE_4;
+                            size_size = SIZE::SIZE_4;
                         }
                     } else if (delta <= UINT16_MAX) {
                         fixed_leaf_counts = {0, 1, 0, 0};
-                        stored_size_size = SIZE_2;
-                        alignment = std::max(result.alignment, SIZE_2);
+                        stored_size_size = SIZE::SIZE_2;
+                        alignment = std::max(result.alignment, SIZE::SIZE_2);
                         min_byte_size = max_byte_size = 2;
                         if (max <= UINT16_MAX) {
-                            size_size = SIZE_2;
+                            size_size = SIZE::SIZE_2;
                         } else {
-                            size_size = SIZE_4;
+                            size_size = SIZE::SIZE_4;
                         }
                     } else /* if (delta <= UINT32_MAX) */ {
                         fixed_leaf_counts = {0, 0, 1, 0};
-                        stored_size_size = SIZE_4;
-                        size_size = SIZE_4;
-                        alignment = std::max(result.alignment, SIZE_4);
+                        stored_size_size = SIZE::SIZE_4;
+                        size_size = SIZE::SIZE_4;
+                        alignment = std::max(result.alignment, SIZE::SIZE_4);
                         min_byte_size = max_byte_size = 4;
                     }
                     min_byte_size += result.byte_size * min;
@@ -708,8 +696,8 @@ std::conditional_t<expect_fixed, LexFixedTypeResult, LexTypeResult> lex_type (ch
                     byte_size = length * result.byte_size;
                     base->type = ARRAY_FIXED;
                     extended->length = length;
-                    extended->stored_size_size = SIZE_0;
-                    extended->size_size = SIZE_0;
+                    extended->stored_size_size = SIZE::SIZE_0;
+                    extended->size_size = SIZE::SIZE_0;
                 },
                 [identifier_start](Range) {
                     show_syntax_error("expected fixed size array", identifier_start);
@@ -743,7 +731,7 @@ std::conditional_t<expect_fixed, LexFixedTypeResult, LexTypeResult> lex_type (ch
             0,
             0,
             0,
-            SIZE_1
+            SIZE::SIZE_1
         );        
     }
 
@@ -797,12 +785,13 @@ std::conditional_t<expect_fixed, LexFixedTypeResult, LexTypeResult> lex_type (ch
         }
         case ENUM: {
             auto enum_definition = identifier->data()->as_enum();
-            LeafCounts fixed_leaf_counts = {1ULL << (enum_definition->type_size * sizeof(uint16_t))};
-            uint64_t byte_size = 1ULL << enum_definition->type_size;
+            SIZE type_size = enum_definition->type_size;
+            LeafCounts fixed_leaf_counts = {type_size};
+            uint64_t byte_size = byte_size_of(type_size);
             if constexpr (!expect_fixed) {
-                return {YYCURSOR, fixed_leaf_counts, {0}, {0}, byte_size, 0, 0, 0, static_cast<SIZE>(byte_size)};
+                return LexTypeResult{YYCURSOR, fixed_leaf_counts, {0}, {0}, byte_size, byte_size, 0, 0, 0, type_size};
             } else {
-                return {YYCURSOR, fixed_leaf_counts, {0}, byte_size, 0, 0, static_cast<SIZE>(byte_size)};
+                return LexFixedTypeResult{YYCURSOR, fixed_leaf_counts, {0}, byte_size, 0, 0, type_size};
             }
         }
         default:
@@ -934,7 +923,7 @@ INLINE char* lex_struct_or_union(
 ) {
     YYCURSOR = lex_same_line_symbol<'{', "expected '{'">(YYCURSOR);
 
-    return lex_struct_or_union_fields<true>(YYCURSOR, definition_data_idx, identifier_map, buffer, {0}, {0}, {0}, 0, 0, 0, 0, 0, 0, SIZE_1);
+    return lex_struct_or_union_fields<true>(YYCURSOR, definition_data_idx, identifier_map, buffer, {0}, {0}, {0}, 0, 0, 0, 0, 0, 0, SIZE::SIZE_1);
 }
 
 INLINE auto set_member_value (char* start, uint64_t value, bool is_negative) {
@@ -987,13 +976,13 @@ INLINE char* lex_enum_fields (
             auto definition_data = buffer.get(definition_data_idx);
             definition_data->field_count = field_count;
             if (max_value_unsigned <= UINT8_MAX) {
-                definition_data->type_size = EnumDefinition::SIZE_1;
+                definition_data->type_size = SIZE::SIZE_1;
             } else if (max_value_unsigned <= UINT16_MAX) {
-                definition_data->type_size = EnumDefinition::SIZE_2;
+                definition_data->type_size = SIZE::SIZE_2;
             } else if (max_value_unsigned <= UINT32_MAX) {
-                definition_data->type_size = EnumDefinition::SIZE_4;
+                definition_data->type_size = SIZE::SIZE_4;
             } else {
-                definition_data->type_size = EnumDefinition::SIZE_8;
+                definition_data->type_size = SIZE::SIZE_8;
             }
             return YYCURSOR;
         }

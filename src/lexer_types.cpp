@@ -38,13 +38,17 @@ enum FIELD_TYPE : uint8_t {
     IDENTIFIER
 };
 
-enum SIZE : uint8_t {
-    SIZE_0 = 0,
-    SIZE_1 = 1,
-    SIZE_2 = 2,
-    SIZE_4 = 4,
-    SIZE_8 = 8,
+enum class SIZE : uint8_t {
+    SIZE_1,
+    SIZE_2,
+    SIZE_4,
+    SIZE_8,
+    SIZE_0 = 0xff
 };
+
+constexpr INLINE uint8_t byte_size_of (SIZE size) {
+    return 1U << static_cast<uint8_t>(size);
+}
 
 struct Range {
     uint32_t min;
@@ -60,26 +64,25 @@ union LeafCounts {
         uint16_t size16;
         uint16_t size32;
         uint16_t size64;
-        INLINE uint32_t bytes () const {
+        constexpr INLINE uint32_t bytes () const {
             return size8 + size16 * 2 + size32 * 4 + size64 * 8;
         }
-        INLINE uint16_t total () const {
+        constexpr INLINE uint16_t total () const {
             return size8 + size16 + size32 + size64;
         }
     } counts;
     uint64_t as_uint64;
 
     LeafCounts () = default;
-    LeafCounts (Counts counts) : counts(counts) {}
-    LeafCounts (uint16_t size8, uint16_t size16, uint16_t size32, uint16_t size64) : counts{size8, size16, size32, size64} {}
-    LeafCounts (uint64_t as_uint64) : as_uint64(as_uint64) {}
+    constexpr INLINE LeafCounts (Counts counts) : counts(counts) {}
+    constexpr INLINE LeafCounts (uint16_t size8, uint16_t size16, uint16_t size32, uint16_t size64) : counts{size8, size16, size32, size64} {}
+    constexpr INLINE LeafCounts (uint64_t as_uint64) : as_uint64(as_uint64) {}
+    constexpr INLINE LeafCounts (SIZE size) : as_uint64(1ULL << (static_cast<uint8_t>(size) * sizeof(uint16_t) * 8)) {}
 
-    
-
-    INLINE void operator += (const LeafCounts& other) { as_uint64 += other.as_uint64; }
-    INLINE LeafCounts operator + (const LeafCounts& other) const { return {as_uint64 + other.as_uint64}; }
-    INLINE uint32_t bytes () const { return counts.bytes(); }
-    INLINE uint16_t total () const { return counts.total(); }
+    constexpr INLINE void operator += (const LeafCounts& other) { as_uint64 += other.as_uint64; }
+    constexpr INLINE LeafCounts operator + (const LeafCounts& other) const { return {as_uint64 + other.as_uint64}; }
+    constexpr INLINE uint32_t bytes () const { return counts.bytes(); }
+    constexpr INLINE uint16_t total () const { return counts.total(); }
 };
 
 struct IdentifiedDefinition {
@@ -291,12 +294,7 @@ typedef DefinitionWithFields UnionDefinition;
 
 struct EnumDefinition : IdentifiedDefinition::Data {
     uint16_t field_count;
-    enum SIZE : uint8_t {
-        SIZE_1,
-        SIZE_2,
-        SIZE_4,
-        SIZE_8
-    } type_size;
+    SIZE type_size;
 
     INLINE static auto create(Buffer &buffer) {
         return __create_extended<EnumDefinition, IdentifiedDefinition>(buffer);
