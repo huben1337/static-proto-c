@@ -10,6 +10,12 @@
 
 namespace lexer {
 
+template <Integral T>
+INLINE constexpr T next_multiple (T value, SIZE base) {
+    T mask = static_cast<T>(base) - 1;
+    return (value + mask) & ~mask;
+}
+
 /*!re2c
     re2c:define:YYMARKER = YYCURSOR;
     re2c:yyfill:enable = 0;
@@ -284,15 +290,12 @@ INLINE std::conditional_t<expect_fixed, LexFixedTypeResult, LexTypeResult> add_v
             break;
         case SIZE_2:
             variant_field_counts = {0, 1, 0, 0};
-            inner_max_byte_size += 1; // In the worst case we need to add 1 byte
             break;
         case SIZE_4:
             variant_field_counts = {0, 0, 1, 0};
-            inner_max_byte_size += 3; // In the worst case we need to add 3 bytes
             break;
         case SIZE_8:
             variant_field_counts = {0, 0, 0, 1};
-            inner_max_byte_size += 7; // In the worst case we need to add 7 bytes
             break;
         default:
             INTERNAL_ERROR("INVALID max_alignment\n");
@@ -304,6 +307,7 @@ INLINE std::conditional_t<expect_fixed, LexFixedTypeResult, LexTypeResult> add_v
     variant_type->level_variant_leafs = level_variant_leafs;
 
     LeafCounts fixed_leaf_counts;
+    inner_max_byte_size = next_multiple(inner_max_byte_size, max_alignment);
     uint64_t max_byte_size = inner_max_byte_size;
     uint64_t min_byte_size = inner_min_byte_size;
     if (variant_count <= UINT8_MAX) {
@@ -494,16 +498,6 @@ INLINE std::conditional_t<expect_fixed, LexFixedTypeResult, LexTypeResult> lex_v
     }
 }
 
-
-constexpr SIZE delta_to_size (uint32_t delta) {
-    if (delta <= UINT8_MAX) {
-        return SIZE_1;
-    } else if (delta <= UINT16_MAX) {
-        return SIZE_2;
-    } else /* if (delta <= UINT32_MAX) */ {
-        return SIZE_4;
-    }
-}
 
 template <bool expect_fixed>
 std::conditional_t<expect_fixed, LexFixedTypeResult, LexTypeResult> lex_type (char* YYCURSOR, Buffer &buffer, IdentifierMap &identifier_map) {
