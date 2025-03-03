@@ -2,6 +2,7 @@
 
 #include "base.cpp"
 #include "lexer_types.cpp"
+#include "helper_types.cpp"
 #include "lex_result.cpp"
 #include "lex_error.cpp"
 #include "lex_helpers.re2c.cpp"
@@ -9,18 +10,6 @@
 
 
 namespace lexer {
-
-template <Integral T>
-INLINE constexpr T next_multiple (T value, SIZE base) {
-    T mask = (static_cast<T>(1) << static_cast<uint8_t>(base)) - 1;
-    return (value + mask) & ~mask;
-}
-
-template <Integral T>
-INLINE constexpr T next_multiple (T value, T base) {
-    T mask = base - 1;
-    return (value + mask) & ~mask;
-}
 
 /*!re2c
     re2c:define:YYMARKER = YYCURSOR;

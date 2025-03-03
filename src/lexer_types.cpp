@@ -50,6 +50,19 @@ constexpr INLINE uint8_t byte_size_of (SIZE size) {
     return 1U << static_cast<uint8_t>(size);
 }
 
+template <Integral T>
+INLINE constexpr T next_multiple (T value, SIZE base) {
+    T mask = (static_cast<T>(1) << static_cast<uint8_t>(base)) - 1;
+    return (value + mask) & ~mask;
+}
+
+template <Integral T>
+INLINE constexpr T next_multiple (T value, T base) {
+    T mask = base - 1;
+    return (value + mask) & ~mask;
+}
+
+
 struct Range {
     uint32_t min;
     uint32_t max;
