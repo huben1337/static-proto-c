@@ -14,7 +14,7 @@
 
 
 template<char symbol>
-constexpr auto lex_symbol_error = StringLiteral("expected symbol: ") + StringLiteral<2>(symbol);
+constexpr auto lex_symbol_error = StringLiteral("expected symbol: ") + StringLiteral(symbol);
 
 
 #define CHECK_SYMBOL                                                \
