@@ -50,9 +50,11 @@ INLINE char* lex_range_argument (char* YYCURSOR, F on_fixed, G on_range) {
     }
 
     /*!local:re2c
-        white_space* ">" { return YYCURSOR; }
+        white_space* ">" { goto done; }
         * { UNEXPECTED_INPUT("expected end of argument list"); }
     */
+    done:
+    return YYCURSOR;
 }
 
 template <typename T>
@@ -257,7 +259,7 @@ INLINE std::conditional_t<expect_fixed, LexFixedTypeResult, LexTypeResult> add_v
         if constexpr (expect_fixed) {
             static_assert(!is_dynamic);
             *leafs_count_dst = *leafs_count_src;
-        } if constexpr (is_dynamic) {
+        } else if constexpr (is_dynamic) {
             *leafs_count_dst = *leafs_count_src;
         } else {
             *leafs_count_dst = {leafs_count_src->leaf_counts, leafs_count_src->variant_field_counts};
