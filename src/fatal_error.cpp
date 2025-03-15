@@ -4,4 +4,4 @@
 #include <cstdio>
 
 
-#define INTERNAL_ERROR(msg) fprintf(stderr, msg); exit(1);
+#define INTERNAL_ERROR(msg, ARGS...) fprintf(stderr, msg, ##ARGS); exit(1);
