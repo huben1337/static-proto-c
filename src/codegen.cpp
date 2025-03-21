@@ -2,34 +2,46 @@
 
 #include "base.cpp"
 #include <cstdint>
-#include <string>
+#include <string_view>
 #include <cstring>
 #include <cmath>
-#include "string_helpers.cpp"
+#include <type_traits>
 #include "string_literal.cpp"
 #include "memory.cpp"
 
 namespace codegen {
 
-template <typename... T>
-constexpr INLINE auto make_tuple(T&&... args) {
-    return std::tuple<T...>{std::forward<T>(args)...};
-}
-
 template <StringLiteral seperator, typename ...T>
 struct _CodeParts {
-    _CodeParts (T&&... args) : values(std::tuple<T...>{std::forward<T>(args)...}) {}
+    constexpr _CodeParts (T&&... args, ...) : values(std::forward<T>(args)...) {}
     std::tuple<T...> values;
 };
 
 template <typename... T>
-using StringParts = _CodeParts<"", T...>;
+struct StringParts : _CodeParts<"", T...> {
+    using _CodeParts<"", T...>::_CodeParts;
+};
+template <typename... T>
+StringParts (T&&...) -> StringParts<T...>;
 
 template <typename... T>
-using Attributes = _CodeParts<" ", T...>;
+struct Attributes : _CodeParts<" ", T...> {
+    using _CodeParts<" ", T...>::_CodeParts;
+};
+template <typename... T>
+Attributes (T&&...) -> Attributes<T...>;
+
 
 template <typename... T>
-using Args = _CodeParts<", ", T...>;
+struct Args : _CodeParts<", ", T...> {
+    using _CodeParts<", ", T...>::_CodeParts;
+};
+template <typename... T>
+Args (T&&...) -> Args<T...>;
+
+int x = 0;
+auto a = _CodeParts<"">("as_", 1, x);
+auto b = StringParts("as_", 1, x);
 
 INLINE char* make_indent (uint16_t indent_size, char* dst) {
     char* indent_end = dst + indent_size;
@@ -341,6 +353,7 @@ struct __Struct : CodeData {
         _line(std::string_view{buffer.get(name.start), buffer.get(name.end)}, " (", args, ") : ", initializers, " {}");
         return EmptyCtor<Derived>({{buffer, indent}});
     }
+
     template <typename T, typename U>
     INLINE auto method (T&& type, U&& name) {
         _line(type, " ", name, " () {");
