@@ -1,16 +1,14 @@
 #pragma once
 
-#include <cstdint>
 #include <array>
 #include <utility>
-#include "base.cpp"
 
 template <typename T, size_t N>
-constexpr std::array<T, N> to_array(T (&str)[N]) {
-    constexpr auto _to_array = []<size_t... Indices>(T (&str)[N], std::index_sequence<Indices...>)->std::array<T, N> {
-        return {str[Indices]...};
+constexpr std::array<T, N> to_array(T (&data)[N]) {
+    constexpr auto _to_array = []<size_t... Indices>(T (&data)[N], std::index_sequence<Indices...>)->std::array<T, N> {
+        return {data[Indices]...};
     };
-    return _to_array(str, std::make_index_sequence<N>{});
+    return _to_array(data, std::make_index_sequence<N>{});
 }
 
 template <typename T, size_t N>
