@@ -1,6 +1,7 @@
 #pragma once
 #include <cstdint>
 #include <limits>
+#include <memory>
 #include <type_traits>
 #include "base.cpp"
 #include "helper_types.cpp"
@@ -45,36 +46,48 @@ struct Memory {
     struct Index {
         U value;
 
-        INLINE Index add (U offset) {
+        INLINE Index add (U offset) const {
             return Index{value + offset};
         }
 
-        INLINE Index sub (U offset) {
+        INLINE Index sub (U offset) const {
             return Index{value - offset};
         }
     };
 
+    template <typename T>
+    struct View {
+        Index<T> start_idx;
+        Index<T> end_idx;
+        INLINE T* begin (Memory mem) {
+            return mem.get(start_idx);
+        }
+        INLINE T* end (Memory mem) {
+            return mem.get(end_idx);
+        }
+    };
 
-    INLINE uint8_t* c_memory () {
+
+    INLINE uint8_t* c_memory () const {
         return memory;
     }
 
-    INLINE constexpr U current_position () {
+    INLINE constexpr U current_position () const {
         return position;
     }
 
     template <typename T>
-    INLINE constexpr Index<T> position_idx () {
+    INLINE constexpr Index<T> position_idx () const {
         return {position};
     }
 
     template <typename T>
-    INLINE T* get (Index<T> index) {
+    INLINE T* get (Index<T> index) const {
         return reinterpret_cast<T*>(memory + index.value);
     }
 
     template <typename T>
-    INLINE T* get_aligned (Index<T> index) {
+    INLINE T* get_aligned (Index<T> index) const {
         return std::assume_aligned<alignof(T), T>(reinterpret_cast<T*>(memory + index.value));
     }
 
@@ -149,3 +162,5 @@ struct Memory {
 };
 
 typedef Memory<uint32_t> Buffer;
+
+typedef Buffer::View<char> BufferStringView;
