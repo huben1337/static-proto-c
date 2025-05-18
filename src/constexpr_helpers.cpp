@@ -1,6 +1,7 @@
 #pragma once
 
 #include <array>
+#include <cstddef>
 #include <utility>
 
 template <typename T, size_t N>
@@ -53,17 +54,38 @@ constexpr std::array<T, N + M> concat(std::array<T, N> arr1, std::array<T, M> ar
     return _concat(arr1, arr2, std::make_index_sequence<N>{}, std::make_index_sequence<M>{});
 }
 
-template <typename F, typename T, T Value>
+template <typename F, auto Value>
 concept CallableWithValueTemplate = requires(F func) {
     func.template operator()<Value>();
 };
+
+template <typename F, auto Value, typename... Args>
+concept CallableWithValueTemplateAndArgs = requires(F func, Args... args) {
+    func.template operator()<Value>(args...);
+};
+
 template <typename T, T... Values, typename F>
-requires (CallableWithValueTemplate<F, T, Values> && ...)
+requires (CallableWithValueTemplate<F, Values> && ...)
 constexpr void for_(F&& func) {
     (func.template operator()<Values>(), ...);
 }
 template <typename T, T... Values, typename F>
-requires (CallableWithValueTemplate<F, T, Values> && ...)
+requires (CallableWithValueTemplate<F, Values> && ...)
 constexpr void for_(F&& func, const std::integer_sequence<T, Values...>) {
     (func.template operator()<Values>(), ...);
 }
+
+template<std::size_t N, std::size_t... Seq>
+constexpr std::index_sequence<N + Seq ...> add(std::index_sequence<Seq...>) { return {}; }
+
+template<std::size_t Min, std::size_t Max>
+using make_index_range = decltype(add<Min>(std::make_index_sequence<Max-Min>()));
+
+template <size_t base, size_t value>
+constexpr size_t uint_log = value < base ? 0 : 1 + uint_log<base, value / base>;
+
+template <size_t value>
+constexpr size_t uint_log10 = uint_log<10, value>;
+
+template <size_t value>
+constexpr size_t uint_log2 = uint_log<2, value>;

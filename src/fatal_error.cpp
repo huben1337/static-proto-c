@@ -1,7 +1,7 @@
 #pragma once
 
+#include <corecrt.h>
+#include <cstddef>
 #include <cstdlib>
-#include <cstdio>
 
-
-#define INTERNAL_ERROR(msg, ARGS...) fprintf(stderr, msg, ##ARGS); exit(1);
+#define INTERNAL_ERROR(MSG, MORE...) logger::error<MSG>(MORE); exit(1);

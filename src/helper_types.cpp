@@ -1,4 +1,6 @@
 #pragma once
+
+#include <concepts>
 #include <type_traits>
 
 template<typename T>
@@ -22,6 +24,20 @@ concept SignedIntegral = is_signed_integral_v<T>;
 template <typename T>
 constexpr std::size_t sizeof_v = std::is_empty_v<T> ? 0 : sizeof(T);
 
-template <typename T>
-constexpr T __c_cast__ (auto value) { return (T)value; }
+class Empty {};
+
+namespace estd {
+
+template <class __Fn, class __Ret, class... __Args>
+concept invocable_r = requires (__Fn&& __fn, __Args&&... __args) {
+    { __fn(std::forward<__Args>(__args)...) } -> std::same_as<__Ret>;
+};
+}
+
+namespace std {
+    using ::estd::invocable_r;
+}
+
+template <typename T, typename U>
+constexpr T __c_cast__ (U&& value) { return (T)std::forward<U>(value); }
 #define c_cast __c_cast__

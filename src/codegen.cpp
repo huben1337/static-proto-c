@@ -1,20 +1,25 @@
 #pragma once
 
 #include "base.cpp"
+#include <concepts>
+#include <cstddef>
 #include <cstdint>
 #include <string_view>
 #include <cstring>
-#include <cmath>
+#include <tuple>
 #include <type_traits>
+#include <utility>
+#include "helper_types.cpp"
 #include "string_literal.cpp"
 #include "memory.cpp"
+#include "fast_math.cpp"
 
 namespace codegen {
 
 template <StringLiteral seperator, typename ...T>
 struct _CodeParts {
     constexpr _CodeParts (T&&... args, ...) : values(std::forward<T>(args)...) {}
-    std::tuple<T...> values;
+    const std::tuple<const T...> values;
 };
 
 template <typename... T>
@@ -39,9 +44,9 @@ struct Args : _CodeParts<", ", T...> {
 template <typename... T>
 Args (T&&...) -> Args<T...>;
 
-int x = 0;
-auto a = _CodeParts<"">("as_", 1, x);
-auto b = StringParts("as_", 1, x);
+// int x = 0;
+// auto a = _CodeParts<"">("as_", 1, x);
+// auto b = StringParts("as_", 1, x);
 
 INLINE char* make_indent (uint16_t indent_size, char* dst) {
     char* indent_end = dst + indent_size;
@@ -51,77 +56,179 @@ INLINE char* make_indent (uint16_t indent_size, char* dst) {
     return dst;
 }
 
+struct GeneratorBase {
+    virtual size_t get_size() const = 0;
+};
+
+template <typename GeneratorT>
+concept GeneratorBaseType = requires (GeneratorT generator) {
+    { generator.get_size() } -> std::same_as<size_t>;
+};
+
+
+
+struct Generator : GeneratorBase {
+    virtual char* write(char*) const = 0;
+};
+
+template <typename GeneratorT>
+concept GeneratorType = GeneratorBaseType<GeneratorT> && requires(GeneratorT generator, char* dst) {
+    { generator.write(dst) } -> std::same_as<char*>;
+};
+
+template <GeneratorType T>
+INLINE char* write_string(char* dst, T&& generator) {
+    return generator.write(dst);
+}
+template <GeneratorType T>
+INLINE char* _write_string(char* dst, T&& generator, const Buffer&) {
+    return write_string(dst, std::forward<T>(generator));
+}
+
+
+
+struct OverAllocatedGenerator : GeneratorBase {
+    struct WriteResult {
+        char* dst;
+        Buffer::index_t over_allocation;
+    };
+    virtual WriteResult write (char*) const = 0;
+};
+
+template <typename GeneratorT>
+concept OverAllocatedGeneratorType = GeneratorBaseType<GeneratorT> && requires(GeneratorT generator, char* dst) {
+    { generator.write(dst) } -> std::same_as<OverAllocatedGenerator::WriteResult>;
+};
+
+template <OverAllocatedGeneratorType T>
+INLINE char* _write_string (char* dst, T&& generator, Buffer& buffer) {
+    OverAllocatedGenerator::WriteResult result = generator.write(dst);
+    buffer.go_back(result.over_allocation);
+    return result.dst;
+}
+
+
+
+struct UnderAllocatedGenerator : GeneratorBase {
+    struct Allocator {
+        Allocator (Buffer& buffer) : buffer(buffer) {}
+        private:
+        Buffer& buffer;
+        public:
+        void allocate (size_t size) const {
+            buffer.next_multi_byte<char>(size);
+        } 
+    };
+    virtual char* write (char*, const Allocator&&) const = 0;
+};
+
+template <typename GeneratorT>
+concept UnderAllocatedGeneratorType = GeneratorBaseType<GeneratorT> && requires(GeneratorT generator, char* dst, const UnderAllocatedGenerator::Allocator&& allocator) {
+    { generator.write(dst, allocator) } -> std::same_as<char*>;
+};
+
+template <UnderAllocatedGeneratorType T>
+INLINE char* _write_string (char* dst, T&& generator, Buffer& buffer) {
+    return generator.write(dst, UnderAllocatedGenerator::Allocator(buffer));
+}
+
+
+
+template <GeneratorBaseType T>
+INLINE size_t get_str_size (T&& generator) {
+    return generator.get_size();
+}
+
+
+
 template <size_t N, size_t... Indices>
 INLINE char* _write_c_sl (char* dst, const char (&value)[N], std::index_sequence<Indices...>) {
     ((dst[Indices] = value[Indices]), ...);
     return dst;
 }
 template <size_t N>
-INLINE char* write_string(char* dst, const char (&value)[N]) {
+INLINE char* write_string (char* dst, const char (&value)[N]) {
     _write_c_sl(dst, value, std::make_index_sequence<N>{});
     return dst + N - 1;
 }
+template<size_t N>
+INLINE char* _write_string (char* dst, const char (&value)[N], const Buffer&) {
+    return write_string(dst, value);
+}
+
 template <size_t N>
 INLINE size_t get_str_size (const char (&)[N]) {
     return N - 1;
 }
 
+
 template <size_t N, size_t... Indices>
-INLINE char* _write_sl(char* dst, StringLiteral<N> value, std::index_sequence<Indices...>) {
+INLINE char* _write_sl (char* dst, const StringLiteral<N>& value, std::index_sequence<Indices...>) {
     ((dst[Indices] = value.value[Indices]), ...);
     return dst;
 }
 template <size_t N>
-INLINE char* write_string(char* dst, StringLiteral<N> value) {
+INLINE char* write_string (char* dst, const StringLiteral<N>& value) {
     _write_sl(dst, value, std::make_index_sequence<N>{});
     return dst + N - 1;
 }
 template <size_t N>
-INLINE size_t get_str_size (StringLiteral<N>) {
+INLINE char* _write_string (char* dst, const StringLiteral<N>& value, const Buffer&) {
+    return write_string(dst, value);
+}
+
+template <size_t N>
+INLINE size_t get_str_size (const StringLiteral<N>&) {
     return N - 1;
 }
 
-INLINE char* write_string (char* dst, std::string_view value) {
-    size_t size = value.size();
-    std::memcpy(dst, value.data(), size);
-    return dst + size;
+
+INLINE char* write_string (char* dst, const std::string_view& value) {
+    std::memcpy(dst, value.data(), value.size());
+    return dst + value.size();
 }
-constexpr INLINE size_t get_str_size (std::string_view str) {
+INLINE char* _write_string (char* dst, const std::string_view& value, const Buffer&) {
+    return write_string(dst, value);
+}
+
+INLINE constexpr size_t get_str_size (const std::string_view& str) {
     return str.size();
 }
 
-constexpr INLINE size_t get_str_size (Buffer::Index<char>*) {
-    return 0;
-}
 
-
-INLINE char* write_string (char* dst, size_t value) {
+INLINE char* write_string (char* dst, uint64_t value) {
     if (value == 0) {
         *dst = '0';
         return dst + 1;
     } else {
-        uint8_t length = std::log10(value) + 1;
-        uint8_t i = length - 1;
-        dst[i--] = '0' + (value % 10);
+        const uint8_t i = fast_math::log10_unsafe(value);
+        char* const end = dst + i + 1;
+        dst += i;
+        *(dst--) = '0' + (value % 10);
         value /= 10;
         while (value > 0) {
-            dst[i--] = '0' + (value % 10);
+            *(dst--) = '0' + (value % 10);
             value /= 10;
         }
-        return dst + length;
+        return end;
     }
 }
-INLINE size_t get_str_size (size_t value) {
+INLINE char* _write_string (char* dst, uint64_t value, const Buffer&) {
+    return write_string(dst, value);
+}
+
+INLINE size_t get_str_size (uint64_t value) {
     if (value == 0) {
         return 1;
     } else {
-        return std::log10(value) + 1;
+        return fast_math::log10_unsafe(value) + 1;
     }
 }
 
+
 template <StringLiteral seperator, typename ...T, size_t... Indices>
-INLINE char* _write_str_tuple (char* dst, _CodeParts<seperator, T...> value, std::index_sequence<Indices...>) {
-    ((dst = write_string(write_string(dst, std::get<Indices>(value.values)), seperator)), ...);
+INLINE char* _write_code_parts_with_seperator (char* dst, _CodeParts<seperator, T...> value, std::index_sequence<Indices...>) {
+    ((dst = write_string(write_string(dst, std::forward<std::tuple_element_t<Indices, decltype(value.values)>>(std::get<Indices>(value.values))), seperator)), ...);
     return dst;
 };
 template <StringLiteral seperator, typename ...T>
@@ -129,12 +236,17 @@ INLINE char* write_string(char* dst, _CodeParts<seperator, T...> value) {
     if constexpr (sizeof...(T) == 0) {
         return dst;
     } else {
-        dst =  _write_str_tuple(dst, value, std::make_index_sequence<sizeof...(T) - 1>{});
+        dst = _write_code_parts_with_seperator(dst, value, std::make_index_sequence<sizeof...(T) - 1>{});
         return write_string(dst, std::get<sizeof...(T) - 1>(value.values));
     }
 }
+template <StringLiteral seperator, typename ...T>
+INLINE char* _write_string(char* dst, _CodeParts<seperator, T...> value, const Buffer&) {
+    return write_string(dst, value);
+}
+
 template <StringLiteral seperator, typename ...T, size_t... Indices>
-INLINE size_t _get_str_tuple_size (_CodeParts<seperator, T...> value, std::index_sequence<Indices...>) {
+INLINE size_t _get_code_parts_size (_CodeParts<seperator, T...> value, std::index_sequence<Indices...>) {
     if constexpr (sizeof...(T) == 0) {
         return 0;
     } else {
@@ -144,23 +256,19 @@ INLINE size_t _get_str_tuple_size (_CodeParts<seperator, T...> value, std::index
 
 template <StringLiteral seperator, typename ...T>
 INLINE size_t get_str_size (_CodeParts<seperator, T...> value) {
-    return _get_str_tuple_size(value, std::make_index_sequence<sizeof...(T)>{}) + (sizeof...(T) - 1) * seperator.size();
-}
-
-template <typename T>
-INLINE char* write_string_entry(char* dst, T&& value, char* dst_start, Buffer::Index<char> dst_idx) {
-    if constexpr (std::is_same_v<std::remove_cvref_t<T>, Buffer::Index<char>*>) {
-        uint32_t delta = dst - dst_start;
-        *value = dst_idx.add(delta);
-        return dst;
-    } else {
-        return write_string(dst, std::forward<T>(value));
-    }
+    return _get_code_parts_size(value, std::make_index_sequence<sizeof...(T)>{}) + (sizeof...(T) - 1) * seperator.size();
 }
 
 
 struct CodeData {
-    CodeData (Buffer buffer, uint8_t indent) : buffer(buffer), indent(indent) {}
+    CodeData (Buffer&& buffer, uint8_t indent) : buffer(std::move(buffer)), indent(indent) {}
+    CodeData (CodeData&& other) : buffer(std::move(other.buffer)), indent(other.indent) {}
+
+    INLINE constexpr void operator = (CodeData&& other) {
+        buffer = std::move(other.buffer);
+        indent = other.indent;
+    }
+
     protected:
     Buffer buffer;
     uint8_t indent;
@@ -174,7 +282,7 @@ struct CodeData {
         char* dst_start = dst;
         dst = make_indent(indent_size, dst);
         ((
-            dst = write_string_entry(dst, strs, dst_start, dst_idx)
+            dst = _write_string(dst, std::forward<T>(strs), buffer)
         ), ...);
     }
     template <typename ...T>
@@ -183,44 +291,20 @@ struct CodeData {
     }
 };
 
-template <StringLiteral delimiter, typename ...T, size_t ...Indices>
-INLINE char* _write_str_tuple (char* dst, std::tuple<T...> strs, std::index_sequence<Indices...>) {
-    ((
-        dst = write_string(write_string(dst, std::get<Indices>(strs)), delimiter)
-    ), ...);
-    return dst;
-}
-template <StringLiteral delimiter, typename ...T>
-INLINE char* write_str_tuple (char* dst, std::tuple<T...> strs) {
-    if constexpr (sizeof...(T) == 0) {
-        return dst;
-    } else {
-        dst = _write_str_tuple<delimiter>(dst, strs, std::make_index_sequence<sizeof...(T) - 1>{});
-        dst = write_string(dst, std::get<sizeof...(T) - 1>(strs));
-        return dst;
-    }
-}
-
-template <typename ...O, size_t ...Indcies>
-INLINE size_t get_str_tuple_size (std::tuple<O...> strs, std::index_sequence<Indcies...>) {
-    if constexpr (sizeof...(O) == 0) {
-        return 0;
-    } else {
-        return (... + get_str_size(std::get<Indcies>(strs)) );
-    }
-};
-
 struct ClosedCodeBlock {
     private:
     Buffer _buffer;
     public:
-    ClosedCodeBlock (Buffer buffer) : _buffer(buffer) {}
+    ClosedCodeBlock (Buffer&& buffer) : _buffer(buffer) {}
     INLINE const char* c_str () {
         *_buffer.get_next<char>() = 0;
         return reinterpret_cast<const char*>(_buffer.c_memory());
     }
     INLINE const Buffer::index_t size () { return _buffer.current_position(); }
-    INLINE Buffer buffer () { return _buffer; }    
+    INLINE Buffer& buffer () { return _buffer; }
+    INLINE void dispose () {
+        _buffer.dispose();
+    }
 };
 
 template <typename Last, typename Derived>
@@ -236,15 +320,15 @@ struct __CodeBlock : CodeData {
     template <typename ...T>
     INLINE Derived line (T&&... strs) {
         _line(strs...);
-        return c_cast<Derived>(__CodeBlock<Last, Derived>({buffer, indent}));
+        return c_cast<Derived>(__CodeBlock<Last, Derived>({std::move(buffer), indent}));
     }
 
     INLINE Last end () {
         if constexpr (std::is_same_v<Last, ClosedCodeBlock>) {
-            return ClosedCodeBlock(buffer);
+            return ClosedCodeBlock(std::move(buffer));
         } else {
             _end();
-            return c_cast<Last>(__CodeBlock<typename Last::__Last, typename Last::__Derived>({buffer, indent}));
+            return c_cast<Last>(__CodeBlock<typename Last::__Last, typename Last::__Derived>({std::move(buffer), indent}));
         }
     }
 
@@ -271,7 +355,7 @@ template <typename Last, typename Derived>
 INLINE auto __CodeBlock<Last, Derived>::_if (std::string_view condition) {
     _line("if (", condition, ") {");
     indent++;
-    return If<Derived>({{buffer, indent}});
+    return If<Derived>({{std::move(buffer), indent}});
 };
 
 
@@ -286,19 +370,19 @@ struct Switch : CodeData {
     INLINE auto _case(std::string_view value) {
         _line("case ", value, ": {");
         indent++;
-        return Case<Last>({{buffer, indent}});
+        return Case<Last>({{std::move(buffer), indent}});
     };
 
     INLINE auto _default () {
         _line("default: {");
         indent++;
-        return Case<Last>({{buffer, indent}});
+        return Case<Last>({{std::move(buffer), indent}});
     }
 
     INLINE auto end () {
         indent--;
         _line("}");
-        return c_cast<Last>(__CodeBlock<typename Last::__Last, typename Last::__Derived>({buffer, indent}));
+        return c_cast<Last>(__CodeBlock<typename Last::__Last, typename Last::__Derived>({std::move(buffer), indent}));
     }
 };
 template <typename Last>
@@ -310,7 +394,7 @@ template <typename Last, typename Derived>
 INLINE auto __CodeBlock<Last, Derived>::_switch (std::string_view key) {
     _line("switch (", key, ") {");
     indent++;
-    return Switch<Derived>({buffer, indent});
+    return Switch<Derived>({std::move(buffer), indent});
 };
 
 template <typename Last>
@@ -336,29 +420,29 @@ struct __Struct : CodeData {
 
     INLINE auto _private () {
         _line("private:");
-        return c_cast<Derived>(__Struct< Last, Derived>({buffer, indent}));
+        return c_cast<Derived>(__Struct< Last, Derived>({std::move(buffer), indent}));
     }
     INLINE auto _public () {
         _line("public:");
-        return c_cast<Derived>(__Struct<Last, Derived>({buffer, indent}));
+        return c_cast<Derived>(__Struct<Last, Derived>({std::move(buffer), indent}));
     }
     INLINE auto _protected () {
         _line("protected:");
-        return c_cast<Derived>(__Struct<Last, Derived>({buffer, indent}));
+        return c_cast<Derived>(__Struct<Last, Derived>({std::move(buffer), indent}));
     }
 
 
     template <typename T, typename U>
     INLINE auto ctor (T&& args, U&& initializers) {
         _line(std::string_view{buffer.get(name.start), buffer.get(name.end)}, " (", args, ") : ", initializers, " {}");
-        return EmptyCtor<Derived>({{buffer, indent}});
+        return EmptyCtor<Derived>({{std::move(buffer), indent}});
     }
 
     template <typename T, typename U>
     INLINE auto method (T&& type, U&& name) {
         _line(type, " ", name, " () {");
         indent++;
-        return Method<Derived>({{buffer, indent}});
+        return Method<Derived>({{std::move(buffer), indent}});
     }
 
     template <typename T, typename U, typename ...V>
@@ -367,7 +451,7 @@ struct __Struct : CodeData {
         uint16_t indent_size = indent * 4;
         _line(type, " ", name, " (", args, ") {");
         indent++;
-        return Method<Derived>({{buffer, indent}});
+        return Method<Derived>({{std::move(buffer), indent}});
     }
 
     template <typename ...T, typename U, typename V>
@@ -375,7 +459,7 @@ struct __Struct : CodeData {
     INLINE auto method (Attributes<T...> attributes, U&& type, V&& name) {
         _line(attributes, " ", type, " ", name, " () {");
         indent++;
-        return Method<Derived>({{buffer, indent}});
+        return Method<Derived>({{std::move(buffer), indent}});
     }
 
     template <typename ...T, typename U, typename V, typename ...W>
@@ -383,13 +467,13 @@ struct __Struct : CodeData {
     INLINE auto method (Attributes<T...> attributes, U&& type, V&& name, Args<W...> args) {
         _line(attributes, " ", type, " ", name, " (", args, ") {");
         indent++;
-        return Method<Derived>({{buffer, indent}});
+        return Method<Derived>({{std::move(buffer), indent}});
     }
 
     template <typename T, typename U>
     INLINE Derived field (T&& type, U&& name) {
         _line(type, " ", name, ";");
-        return c_cast<Derived>(__Struct<Last, Derived>({buffer, indent}));
+        return c_cast<Derived>(__Struct<Last, Derived>({std::move(buffer), indent}));
     } 
 
     template <typename ...T>
@@ -398,12 +482,12 @@ struct __Struct : CodeData {
 template <typename Last>
 INLINE auto Method<Last>::end ()  {
     this->_end();
-    return c_cast<Last>(__Struct<typename Last::__Last, typename Last::__Derived>({this->buffer, this->indent}));
+    return c_cast<Last>(__Struct<typename Last::__Last, typename Last::__Derived>({std::move(this->buffer), this->indent}));
 }
 
 template <typename Last>
 INLINE auto EmptyCtor<Last>::end ()  {
-    return c_cast<Last>(__Struct<typename Last::__Last, typename Last::__Derived>({this->buffer, this->indent}));
+    return c_cast<Last>(__Struct<typename Last::__Last, typename Last::__Derived>({std::move(this->buffer), this->indent}));
 }
 
 template <typename Last>
@@ -411,7 +495,7 @@ struct Struct : __Struct<Last, Struct<Last>> {
     INLINE auto end () {
         this->indent--;
         this->_line("};");
-        return c_cast<Last>(__CodeBlock<typename Last::__Last, typename Last::__Derived>({this->buffer, this->indent}));
+        return c_cast<Last>(__CodeBlock<typename Last::__Last, typename Last::__Derived>({std::move(this->buffer), this->indent}));
     }
 };
 template <typename Last, typename Derived>
@@ -421,7 +505,7 @@ INLINE auto __CodeBlock<Last, Derived>::_struct (T&&... strs) {
     _line("struct ", strs..., " {");
     Buffer::Index<char> name_end_idx = buffer.position_idx<char>().sub(3);
     indent++;
-    return Struct<Derived>({{buffer, indent}, {name_start_idx, name_end_idx}});
+    return Struct<Derived>({{std::move(buffer), indent}, {name_start_idx, name_end_idx}});
 };
 template <typename Last>
 struct NestedStruct : __Struct<Last, NestedStruct<Last>> {
@@ -439,7 +523,7 @@ struct NestedStruct : __Struct<Last, NestedStruct<Last>> {
 
     private:
     INLINE auto _end () {
-        return c_cast<Last>(__Struct<typename Last::__Last, typename Last::__Derived>({this->buffer, this->indent}));
+        return c_cast<Last>(__Struct<typename Last::__Last, typename Last::__Derived>({std::move(this->buffer), this->indent}));
     }
 };
 template <typename Last, typename Derived>
@@ -449,7 +533,7 @@ INLINE auto __Struct<Last, Derived>::_struct (T&&... strs) {
     _line("struct ", strs..., " {");
     Buffer::Index<char> name_end_idx = buffer.position_idx<char>().sub(3);
     indent++;
-    return NestedStruct<Derived>({{buffer, indent}, {name_start_idx, name_end_idx}});
+    return NestedStruct<Derived>({{std::move(buffer), indent}, {name_start_idx, name_end_idx}});
 }
 
 struct Empty {};
@@ -460,7 +544,7 @@ typedef NestedStruct<Empty> UnknownNestedStruct;
 
 template <size_t N>
 INLINE auto create_code (uint8_t (&memory)[N]) {
-    return CodeBlock<ClosedCodeBlock>({{Buffer(memory), 0}});
+    return CodeBlock<ClosedCodeBlock>({{{memory}, 0}});
 }
 
 }

@@ -1,16 +1,19 @@
 #pragma once
 #include <cstdint>
+#include <cstring>
+#include <concepts>
 #include <limits>
 #include <memory>
-#include <type_traits>
 #include "base.cpp"
 #include "helper_types.cpp"
 #include "fatal_error.cpp"
+#include "logger.cpp"
 
-template <typename U, U max = std::numeric_limits<U>::max()>
-requires std::is_integral_v<U> && std::is_unsigned_v<U>
+template <std::unsigned_integral U>
 struct Memory {
     private:
+    constexpr static U max_position = std::numeric_limits<U>::max();
+    constexpr static uint8_t grow_factor = 2;
     U capacity;
     U position = 0;
     uint8_t* memory;
@@ -25,7 +28,7 @@ struct Memory {
     }
 
     template <typename T, U N>
-    requires (sizeof(T) * N <= max)
+    requires (sizeof(T) * N <= max_position)
     INLINE Memory (T (&memory)[N]) : capacity(sizeof(T) * N), memory(reinterpret_cast<uint8_t*>(memory)), in_heap(false) {}
 
     INLINE Memory (uint8_t* memory, U capacity) : capacity(capacity), memory(memory), in_heap(false) {}
@@ -36,15 +39,18 @@ struct Memory {
         position = 0;
     }
 
-    INLINE ~Memory () {
+    INLINE void dispose () {
         if (in_heap) {
             std::free(memory);
+            in_heap = false; // Prevent double free
         }
     }
 
     template <typename T>
     struct Index {
         U value;
+
+        //constexpr Index (U value) : value(value) {}
 
         INLINE Index add (U offset) const {
             return Index{value + offset};
@@ -53,10 +59,18 @@ struct Memory {
         INLINE Index sub (U offset) const {
             return Index{value - offset};
         }
+
+        INLINE operator Index<const T>() const {
+            return Index<const T>{std::move(value)};
+        }
     };
 
     template <typename T>
-    struct View {
+    struct Span {
+        Span () {}
+        Span (Index<T> start_idx, Index<T> end_idx) : start_idx(start_idx), end_idx(end_idx) {}
+        Span (Index<T> start_idx, U length) : start_idx(start_idx), end_idx(start_idx.add(length)) {}
+
         Index<T> start_idx;
         Index<T> end_idx;
         INLINE T* begin (Memory mem) {
@@ -64,6 +78,30 @@ struct Memory {
         }
         INLINE T* end (Memory mem) {
             return mem.get(end_idx);
+        }
+
+        INLINE bool empty () {
+            return start_idx.value == end_idx.value;
+        }
+    };
+
+    template <typename T>
+    struct View {
+        View () {}
+        View (Index<T> start_idx, U length) : start_idx(start_idx), length(length) {}
+        View (Index<T> start_idx, Index<T> end_idx) : start_idx(start_idx), length((end_idx.value - start_idx.value) / sizeof(T)) {}
+        Index<T> start_idx;
+        U length;
+
+        INLINE T* begin (Memory mem) const {
+            return mem.get(start_idx);
+        }
+        INLINE T* end (Memory mem) const {
+            return mem.get(start_idx.add(length));
+        }
+
+        INLINE bool empty () const {
+            return length == 0;
         }
     };
 
@@ -74,6 +112,26 @@ struct Memory {
 
     INLINE constexpr U current_position () const {
         return position;
+    }
+
+    INLINE constexpr U current_capacity () const {
+        return capacity;
+    }
+
+    INLINE constexpr void go_back (U amount) {
+        position -= amount;
+    }
+
+    INLINE constexpr void go_to (U position) {
+        if (position > this->position) {
+            logger::error("[Memory::go_to] cant go forward\n");
+            exit(1);
+        }
+        this->position = position;
+    }
+
+    INLINE constexpr void go_to_unsafe (U position) {
+        this->position = position;
     }
 
     template <typename T>
@@ -101,7 +159,6 @@ struct Memory {
         return get_aligned(next_idx<T>());
     }
 
-
     template <typename T>
     INLINE Index<T> next_idx () {
         if constexpr (sizeof_v<T> == 0) {
@@ -112,51 +169,69 @@ struct Memory {
             return next_multi_byte<T>(sizeof_v<T>);
         }
     }
+
+    template <typename T>
+    INLINE T* get_next_single_byte () {
+        return get(next_single_byte<T>());
+    }
+
+    template <typename T>
+    INLINE T* get_next_single_byte_aligned () {
+        return get_aligned(next_single_byte<T>());
+    }
     
     template <typename T>
-    requires (sizeof_v<T> == 1)
     INLINE Index<T> next_single_byte () {
         if (position == capacity) {
-            if (capacity >= (max / 2)) {
-                INTERNAL_ERROR("memory overflow\n");
-            }
-            grow(capacity * 2);
+            grow();
         }
         return Index<T>{position++};
     }
 
-    template <typename T, UnsignedIntegral Size>
-    INLINE Index<T> next_multi_byte (Size size) {
+    template <typename T, std::unsigned_integral SizeT>
+    INLINE T* get_next_multi_byte (SizeT size) {
+        return get(next_multi_byte<T>(size));
+    }
+
+    template <typename T, std::unsigned_integral SizeT>
+    INLINE T* get_next_multi_byte_aligned (SizeT size) {
+        return get_aligned(next_multi_byte<T>(size));
+    }
+
+    template <typename T, std::unsigned_integral SizeT>
+    INLINE Index<T> next_multi_byte (SizeT size) {
         U next = position;
         position += size;
         if (position < next) {
-            INTERNAL_ERROR("[Memory] position wrapped\n");
+            logger::error("[Memory::next_multi_byte] position overflow\n");
+            exit(1);
         }
         if (position >= capacity) {
-            if (position >= (max / 2)) {
-                INTERNAL_ERROR("memory overflow\n");
-            }
-            grow(position * 2);
+            grow();
         }
         return Index<T>{next};
     }
 
     private:
-    INLINE void grow (U size) {
+    INLINE void grow () {
+        U new_capacity;;
+        if (position >= (max_position / grow_factor)) {
+            logger::warn("[Memory::grow] capped growth\n");
+            new_capacity = max_position;
+        } else {
+            new_capacity = position * grow_factor;
+        }
         if (in_heap) {
-            memory = (uint8_t*) std::realloc(memory, size);
+            memory = reinterpret_cast<uint8_t*>(std::realloc(memory, new_capacity));
             // printf("reallocated memory in heap: to %d\n", capacity);
         } else {
-            auto new_memory = (uint8_t*) std::malloc(size);
-            memcpy(new_memory, memory, capacity);
-            memory = new_memory;
+            uint8_t* heap_memory = reinterpret_cast<uint8_t*>(std::malloc(new_capacity));
+            std::memcpy(heap_memory, memory, capacity);
+            memory = heap_memory;
             in_heap = true;
             // printf("reallocated memory from stack: to %d\n", capacity);
         }
-        capacity = size;
-        if (!memory) {
-            INTERNAL_ERROR("memory allocation failed\n");
-        }
+        capacity = new_capacity;
     }
 
 };
