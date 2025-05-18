@@ -1,0 +1,8 @@
+struct A1 { a: string<10..100>; b: string<10..100>; }
+struct B1 { a: array<uint64, 100..200>; b: variant<A1, string<20..50>>; c: string<10..300>; }
+
+struct A2 { a: uint64; b: uint32; }
+struct B2 { a: uint64; b: uint32; }
+struct C2 { a: variant<A2, B2>; b: variant<A2, B2>; }
+
+target B1;

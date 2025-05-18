@@ -1,4 +1,8 @@
-struct A1 { a: int64; b: string<12>; }
-struct A0 { a: int64; b: A1; }
-
-target A0;
+struct A3 { a: int64; b: int16; }
+struct A2 { a: int32; b: variant<A3>; }
+struct A1 { a: variant<int16, A2> [[max_wasted=30,shared_id=0]]; b: variant<int64, int32>; c: array<array<array<int64, 20>, 20>, 10>; d: array<int32, 200>; }
+struct B0 { a: int8; b: variant<variant<A3>>; }
+struct B1 { a: array<B0, 10>; b: string<12..55>; }
+struct B2 { b: variant<variant<string<100>>>; c: variant<variant<int8>>; }
+struct B3 { a: array<variant<int16, int8>, 10>; b: int8; }
+target B3;
