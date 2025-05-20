@@ -518,7 +518,8 @@ namespace _logger_internal_namespace {
             std::is_signed_v<T>,
             std::conditional_t<sizeof(T) == sizeof(int64_t), int64_t, int32_t>,
             std::conditional_t<sizeof(T) == sizeof(uint64_t), uint64_t, uint32_t>
-            >;
+        >;
+        
         template<bool is_first, bool is_last, fast_math::uint64or32_c T>
         static INLINE std::conditional_t<is_last, void, char*> write_uint (char* dst, T value) {
             if (value == 0) {
