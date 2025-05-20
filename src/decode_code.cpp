@@ -701,7 +701,7 @@ INLINE CodeT gen_field_access_method_no_array (
 }
 
 template <typename TypeT, bool is_fixed, bool in_array, typename ArgsT, typename BaseNameT>
-struct TypeVisitor : lexer::ITypeVisitor<TypeT, codegen::__UnknownStruct> {
+struct TypeVisitor : lexer::TypeVisitorBase<TypeT, codegen::__UnknownStruct> {
     INLINE constexpr TypeVisitor (
         const lexer::Type* const& field,
         Buffer& buffer,
@@ -713,7 +713,7 @@ struct TypeVisitor : lexer::ITypeVisitor<TypeT, codegen::__UnknownStruct> {
         const ArgsT& additional_args,
         const ArrayLengths& array_lengths
     ) :
-    lexer::ITypeVisitor<TypeT, codegen::__UnknownStruct>(field),
+    lexer::TypeVisitorBase<TypeT, codegen::__UnknownStruct>(field),
     buffer(buffer),
     code(std::move(code)),
     base_name(base_name),
@@ -1058,7 +1058,7 @@ struct TypeVisitor : lexer::ITypeVisitor<TypeT, codegen::__UnknownStruct> {
             //     gen_variant_leaf_args = GenFixedVariantLeafArgs<false>{{i, variant_depth}};
             // }
             
-            lexer::ITypeVisitorResult<lexer::Type, codegen::__UnknownStruct> result = TypeVisitor<
+            lexer::TypeVisitorResult<lexer::Type, codegen::__UnknownStruct> result = TypeVisitor<
                 lexer::Type,
                 is_fixed,
                 in_array,
@@ -1201,7 +1201,7 @@ struct TypeVisitor : lexer::ITypeVisitor<TypeT, codegen::__UnknownStruct> {
                 //     gen_variant_leaf_args = GenFixedVariantLeafArgs<false>{{i, variant_depth}};
                 // }
                 uint16_t current_size_leaf_idx = 0;
-                lexer::ITypeVisitorResult<TypeT, codegen::__UnknownStruct> result = TypeVisitor<
+                lexer::TypeVisitorResult<TypeT, codegen::__UnknownStruct> result = TypeVisitor<
                     TypeT,
                     true,
                     in_array,
@@ -1300,7 +1300,7 @@ struct TypeVisitor : lexer::ITypeVisitor<TypeT, codegen::__UnknownStruct> {
                 struct_depth = 0;
             }
 
-            lexer::ITypeVisitorResult<lexer::StructField, codegen::__UnknownStruct> result = TypeVisitor<
+            lexer::TypeVisitorResult<lexer::StructField, codegen::__UnknownStruct> result = TypeVisitor<
                 lexer::StructField,
                 is_fixed,
                 in_array,

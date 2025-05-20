@@ -588,34 +588,34 @@ U* skip_type (const Type* type) {
 }
 
 template <typename TypeT, typename ValueT>
-struct ITypeVisitorResult;
+struct TypeVisitorResult;
 
 template <typename TypeT>
-struct ITypeVisitorResult<TypeT, void> {
+struct TypeVisitorResult<TypeT, void> {
     using ConstTypeT = const std::remove_const_t<TypeT>;
-    constexpr ITypeVisitorResult (ConstTypeT*&& next_type) : next_type(std::forward<ConstTypeT*>(next_type)) {}
+    constexpr TypeVisitorResult (ConstTypeT*&& next_type) : next_type(std::forward<ConstTypeT*>(next_type)) {}
     ConstTypeT* next_type;
 };
 
 template <typename TypeT, typename ValueT>
-struct ITypeVisitorResult {
+struct TypeVisitorResult {
     using ConstTypeT = const std::remove_const_t<TypeT>;
-    constexpr ITypeVisitorResult (ConstTypeT*&& next_type, ValueT&& value) : next_type(std::forward<ConstTypeT*>(next_type)), value(std::forward<ValueT>(value)) {}
+    constexpr TypeVisitorResult (ConstTypeT*&& next_type, ValueT&& value) : next_type(std::forward<ConstTypeT*>(next_type)), value(std::forward<ValueT>(value)) {}
     ConstTypeT* next_type;
     ValueT value;
 };
 
 template <typename TypeT, typename ValueT = void>
-struct ITypeVisitor {
+struct TypeVisitorBase {
     private:
     const Type* const& type;
 
     public:
     static constexpr bool no_value = std::is_same_v<ValueT, void>;
     using ConstTypeT = const std::remove_const_t<TypeT>;
-    using ResultT = ITypeVisitorResult<TypeT, ValueT>;
+    using ResultT = TypeVisitorResult<TypeT, ValueT>;
 
-    INLINE constexpr ITypeVisitor (const Type* const& type) : type(type) {}
+    INLINE constexpr TypeVisitorBase (const Type* const& type) : type(type) {}
     
     INLINE ResultT visit () const {
         switch (type->type) {

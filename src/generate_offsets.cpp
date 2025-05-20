@@ -507,7 +507,7 @@ INLINE void set_var_offsets (
 // }
 
 template <typename TypeT, bool is_fixed, bool in_array, bool in_variant>
-struct TypeVisitor : lexer::ITypeVisitor<TypeT> {
+struct TypeVisitor : lexer::TypeVisitorBase<TypeT> {
 
     INLINE constexpr TypeVisitor (
         const lexer::Type* const& type,
@@ -519,7 +519,7 @@ struct TypeVisitor : lexer::ITypeVisitor<TypeT> {
         uint16_t& current_fixed_idx_base,
         uint16_t& current_var_idx_base
     ) :
-    lexer::ITypeVisitor<TypeT>(type),
+    lexer::TypeVisitorBase<TypeT>(type),
     var_offsets(var_offsets),
     leafs(leafs),
     outer_array_length(outer_array_length),
