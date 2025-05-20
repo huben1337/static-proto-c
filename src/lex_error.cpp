@@ -7,13 +7,13 @@
 #include "string_literal.cpp"
 #include "logger.cpp"
 
-#define UNEXPECTED_INPUT(msg) show_syntax_error(msg, YYCURSOR); exit(1);
+#define UNEXPECTED_INPUT(msg) show_syntax_error(msg, YYCURSOR);
 
 static const char *input_start;// = nullptr;
 constexpr auto input_file_path_default = "<unkown>"_sl;
 static std::array<char, PATH_MAX> input_file_path{};// = std::to_array((input_file_path_default + StringLiteral<PATH_MAX - input_file_path_default.size()>::of<0>()).value);
 
-void show_syntax_error (const char *msg, const char *error, char *error_end = 0) {
+[[noreturn]] static void show_syntax_error (const char *msg, const char *error, char *error_end = 0) {
     if (!input_start) {
         logger::error("[show_syntax_error] called before input_start set");
     }

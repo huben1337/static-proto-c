@@ -3,12 +3,10 @@
 #include <concepts>
 #include <cstddef>
 #include <cstdint>
-#include <functional>
 #include <type_traits>
 #include <unordered_map>
 #include <utility>
 #include "base.cpp"
-#include "constexpr_helpers.cpp"
 #include "string_helpers.cpp"
 #include "memory.cpp"
 #include "memory_helpers.cpp"
@@ -96,13 +94,13 @@ consteval uint64_t get_type_size () {
     return byte_size_of(get_type_alignment<field_type>());
 }
 
-template <Integral T>
+template <std::integral T>
 INLINE constexpr T next_multiple (T value, SIZE base) {
     T mask = (static_cast<T>(1) << static_cast<uint8_t>(base)) - 1;
     return (value + mask) & ~mask;
 }
 
-template <Integral T>
+template <std::integral T>
 INLINE constexpr T next_multiple (T value, T base) {
     T mask = base - 1;
     return (value + mask) & ~mask;

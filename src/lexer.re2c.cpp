@@ -2,11 +2,11 @@
 
 #include "base.cpp"
 #include "lexer_types.cpp"
-#include "helper_types.cpp"
 #include "lex_result.cpp"
 #include "lex_error.cpp"
 #include "lex_helpers.re2c.cpp"
 #include "parse_int.re2c.cpp"
+#include <concepts>
 #include <cstdint>
 #include "logger.cpp"
 
@@ -1263,7 +1263,7 @@ INLINE char* lex_enum (
     return lex_enum_fields<false>(YYCURSOR, definition_data_idx, field_count, value, max_value_unsigned, is_negative, identifier_map, buffer);
 }
 
-template <UnsignedIntegral T>
+template <std::unsigned_integral T>
 INLINE StringSection<T> to_identifier_string_section (std::pair<char*, char*> str) {
     auto [start, end] = str;
     size_t length = end - start;

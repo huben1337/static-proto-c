@@ -3,7 +3,7 @@
 #include "base.cpp"
 #include "helper_types.cpp"
 
-template <UnsignedIntegral T>
+template <std::unsigned_integral T>
 struct StringSection {
     const char* offset;
     T length;
@@ -23,7 +23,7 @@ INLINE std::string extract_string (const char *offset, size_t length) {
 }
 
 
-template <UnsignedIntegral T>
+template <std::unsigned_integral T>
 INLINE std::string extract_string (StringSection<T> string_section) {
     auto [offset, length] = string_section;
     return std::string(offset, length);

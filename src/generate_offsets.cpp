@@ -337,7 +337,7 @@ struct Leafs {
     }
 };
 
-template <lexer::SIZE size, Integral T>
+template <lexer::SIZE size, std::integral T>
 INLINE constexpr T next_multiple (T value) {
     constexpr T mask = (static_cast<T>(1) << static_cast<uint8_t>(size)) - 1;
     T result =  (value + mask) & ~mask;
@@ -348,7 +348,7 @@ concept CallableWith = requires(F func, Args... args) {
     { func(args...) } -> std::same_as<Ret>;
 };
 
-template <Integral T>
+template <std::integral T>
 struct Range {
     T start;
     T end;
