@@ -384,7 +384,7 @@ namespace _logger_internal_namespace {
                     constexpr char char_buffer[1] = {C};
                     _handled_write_stdout(char_buffer, 1);
                 } else {
-                    *buffer_dst = C;
+                    *(buffer_dst++) = C;
                     handled_write_buffer_stdout(buffer_dst - buffer);
                     buffer_dst = buffer;
                 }
