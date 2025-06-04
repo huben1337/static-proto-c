@@ -4,16 +4,27 @@
 #include <cstdint>
 #include <cstdio>
 #include <cstdlib>
+#include <minwindef.h>
 #include <string_view>
+#include <synchapi.h>
 #include <tuple>
 #include <type_traits>
 #include <utility>
 #include <io.h>
+#include "io.cpp"
+
+#if defined(__MINGW64__) || defined(__MINGW32__)
+
+#include <windows.h>
+
+#endif
+
 #include "base.cpp"
 #include "string_literal.cpp"
 #include "fast_math.cpp"
 
 #include <boost/preprocessor/stringize.hpp>
+#include <winnt.h>
 
 #define BSSERT(EXPR, MSG, MORE...)                                                                                                          \
 {                                                                                                                                           \
@@ -180,15 +191,52 @@ namespace escape_sequences {
     }
 }
 
+#define ASYNC_STDOUT
+
 namespace _logger_internal_namespace {
-    alignas(4096) static char buffer[4096];
-    static constexpr char* buffer_end = buffer + sizeof(buffer);
+    static constexpr size_t buffer_size = 1 << 20;
+    static constexpr size_t circular_buffer_count = 2; // Two is the minimum to enable async writes. More than two is uselss since we will wait for the previous write to finish anyways
+    alignas(4096) static char _buffer[buffer_size * circular_buffer_count];
+
+    static size_t buffer_offset = 0;
+
+    static char* buffer = _buffer;
+    static char* buffer_end = buffer + buffer_size;
+    static char* buffer_dst = buffer;
+    
+
+    #ifdef _WINDOWS_
+
+    #ifdef ASYNC_STDOUT
+    #define FILE_FLAGS_AND_ATTRIBUTES FILE_FLAG_OVERLAPPED | FILE_FLAG_NO_BUFFERING
+    #else
+    #define FILE_FLAGS_AND_ATTRIBUTES 0
+    #endif
+
+    static const io::windows::FileHandle<
+        io::windows::CreateFileParamsWithName<
+            "CONOUT$",
+            GENERIC_WRITE,
+            FILE_SHARE_WRITE,
+            OPEN_EXISTING,
+            FILE_FLAGS_AND_ATTRIBUTES
+        >
+    > stdout_handle {NULL, NULL};
+
+    static io::windows::AsyncFileWriter stdout_writer {stdout_handle};
+
+
+    #undef FILE_FLAGS_AND_ATTRIBUTES
+
+        
+    #endif
+
 
     class logger {
+        private:
         logger () = delete;
         ~logger () = delete;
 
-        private:
     
         template <StringLiteral name, StringLiteral color_code>
         static constexpr auto LOG_LEVEL = "\033["_sl + color_code + "m["_sl + name + "]\033[0m "_sl;
@@ -197,320 +245,157 @@ namespace _logger_internal_namespace {
         static constexpr auto info_prefix = LOG_LEVEL<"INFO", escape_sequences::colors::bright::foreground::green>;
         static constexpr auto error_prefix = LOG_LEVEL<"ERROR", escape_sequences::colors::bright::foreground::red>;
         static constexpr auto warn_prefix = LOG_LEVEL<"WARN", escape_sequences::colors::bright::foreground::magenta>;
-    
-        static INLINE void handled_write_stdout (const char* src, size_t size) {
-            int result = ::write(STDOUT_FILENO, src, size);
-            if (result < 0) {
-                constexpr auto error_msg = error_prefix + "[logger::handled_write_stdout] Failed to write to stdout."_sl;
+
+        
+        static INLINE void handled_write_buffer_stdout (size_t size) {
+            _handled_write_stdout(buffer, size);
+            buffer_offset = (buffer_offset + buffer_size) % (buffer_size * circular_buffer_count);
+            buffer = _buffer + buffer_offset;
+            buffer_end = buffer + buffer_size;
+        }
+
+        static INLINE void _handled_write_stdout (const char* src, size_t size) {
+            #ifdef _WINDOWS_
+            stdout_writer.write_handled(src, size);
+
+            #else
+            int write_result = ::write(STDOUT_FILENO, src, size);
+            if (write_result == -1) [[unlikely]] {
+                static constexpr auto error_msg = "\n"_sl + error_prefix + "[logger::_handled_write_stdout] Failed to write to stdout."_sl;
                 ::write(STDOUT_FILENO, error_msg.value, error_msg.size());
                 exit(1);
             }
+            #endif
         }
-    
-        /* INLINE char* copy_128 (const char* begin, const char* end, size_t length, char* dst) {
-        uint8_t src_addr_trailing_zeros = __builtin_ctz(dst - buffer);
-        #pragma clang switch vectorize(enable)
-        switch (src_addr_trailing_zeros) {
-            default: {
-                #pragma clang loop vectorize(enable)
-                while (begin < end - sizeof(__uint128_t)) {
-                    reinterpret_cast<__uint128_t*>(dst++)[0] = reinterpret_cast<const __uint128_t*>(begin++)[0];
-                }
-            }
-            case 3: {
-                #pragma clang loop vectorize(enable)
-                while (begin <= end - sizeof(__uint128_t)) {
-                    reinterpret_cast<__uint128_t*>(dst++)[0] = static_cast<__uint128_t>(reinterpret_cast<const uint64_t*>(begin)[0]) | static_cast<__uint128_t>(reinterpret_cast<const uint64_t*>(begin + 1)[0]) << 64;
-                    begin += 2;
-                }
-            }
-            case 2: {
-                #pragma clang loop vectorize(enable)
-                while (begin <= end - sizeof(__uint128_t)) {
-                    reinterpret_cast<__uint128_t*>(dst++)[0] = 
-                    static_cast<__uint128_t>(reinterpret_cast<const uint32_t*>(begin)[0])
-                    | static_cast<__uint128_t>(reinterpret_cast<const uint32_t*>(begin + 1)[0]) << 32
-                    | static_cast<__uint128_t>(reinterpret_cast<const uint32_t*>(begin + 2)[0]) << 64
-                    | static_cast<__uint128_t>(reinterpret_cast<const uint32_t*>(begin + 3)[0]) << 96;
-                    begin += 4;
-                }
-            }
-            case 1: {
-                #pragma clang loop vectorize(enable)
-                while (begin <= end - sizeof(__uint128_t)) {
-                    reinterpret_cast<__uint128_t*>(dst++)[0] = 
-                    static_cast<__uint128_t>(reinterpret_cast<const uint16_t*>(begin)[0])
-                    | static_cast<__uint128_t>(reinterpret_cast<const uint16_t*>(begin + 1)[0]) << 16
-                    | static_cast<__uint128_t>(reinterpret_cast<const uint16_t*>(begin + 2)[0]) << 32
-                    | static_cast<__uint128_t>(reinterpret_cast<const uint16_t*>(begin + 3)[0]) << 48
-                    | static_cast<__uint128_t>(reinterpret_cast<const uint16_t*>(begin + 4)[0]) << 64
-                    | static_cast<__uint128_t>(reinterpret_cast<const uint16_t*>(begin + 5)[0]) << 80
-                    | static_cast<__uint128_t>(reinterpret_cast<const uint16_t*>(begin + 6)[0]) << 96
-                    | static_cast<__uint128_t>(reinterpret_cast<const uint16_t*>(begin + 7)[0]) << 112;
-                    begin += 8;
-                }
-                size_t remaining = end - begin;
-                memcpy(dst, begin, remaining);
-                return dst + remaining;
-            }
-            case 0: {
-                #pragma clang loop vectorize(enable)
-                while (begin <= end - sizeof(__uint128_t)) {
-                    reinterpret_cast<__uint128_t*>(dst++)[0] = 
-                    static_cast<__uint128_t>(reinterpret_cast<const uint8_t*>(begin)[0])
-                    | static_cast<__uint128_t>(reinterpret_cast<const uint8_t*>(begin + 1)[0]) << 8
-                    | static_cast<__uint128_t>(reinterpret_cast<const uint8_t*>(begin + 2)[0]) << 16
-                    | static_cast<__uint128_t>(reinterpret_cast<const uint8_t*>(begin + 3)[0]) << 24
-                    | static_cast<__uint128_t>(reinterpret_cast<const uint8_t*>(begin + 4)[0]) << 32
-                    | static_cast<__uint128_t>(reinterpret_cast<const uint8_t*>(begin + 5)[0]) << 40
-                    | static_cast<__uint128_t>(reinterpret_cast<const uint8_t*>(begin + 6)[0]) << 48
-                    | static_cast<__uint128_t>(reinterpret_cast<const uint8_t*>(begin + 7)[0]) << 56
-                    | static_cast<__uint128_t>(reinterpret_cast<const uint8_t*>(begin + 8)[0]) << 64
-                    | static_cast<__uint128_t>(reinterpret_cast<const uint8_t*>(begin + 9)[0]) << 72
-                    | static_cast<__uint128_t>(reinterpret_cast<const uint8_t*>(begin + 10)[0]) << 80
-                    | static_cast<__uint128_t>(reinterpret_cast<const uint8_t*>(begin + 11)[0]) << 88
-                    | static_cast<__uint128_t>(reinterpret_cast<const uint8_t*>(begin + 12)[0]) << 96
-                    | static_cast<__uint128_t>(reinterpret_cast<const uint8_t*>(begin + 13)[0]) << 104
-                    | static_cast<__uint128_t>(reinterpret_cast<const uint8_t*>(begin + 14)[0]) << 112
-                    | static_cast<__uint128_t>(reinterpret_cast<const uint8_t*>(begin + 15)[0]) << 120;
-                    begin += 16;
-                }
-                size_t remaining = end - begin;
-            }
-        }
-    }
-    
-    INLINE char* copy_64 (const char* begin, const char* end, size_t length, char* dst) {
-        uint8_t src_addr_trailing_zeros = __builtin_ctz(dst - buffer);
-        switch (src_addr_trailing_zeros) {
-            default: {
-                #pragma clang loop vectorize(enable)
-                while (begin <= end - sizeof(uint64_t)) {
-                    reinterpret_cast<uint64_t*>(dst++)[0] = reinterpret_cast<const uint64_t*>(begin++)[0];
-                }
-            }
-            case 2: {
-                #pragma clang loop vectorize(enable)
-                while (begin <= end - sizeof(uint64_t)) {
-                    reinterpret_cast<uint64_t*>(dst++)[0] =
-                    static_cast<uint64_t>(reinterpret_cast<const uint32_t*>(begin)[0])
-                    | static_cast<uint64_t>(reinterpret_cast<const uint32_t*>(begin + 1)[0]) << 32;
-                    begin += 2;
-                }
-            }
-            case 1: {
-                #pragma clang loop vectorize(enable)
-                while (begin <= end - sizeof(uint64_t)) {
-                    reinterpret_cast<uint64_t*>(dst++)[0] =
-                    static_cast<uint64_t>(reinterpret_cast<const uint16_t*>(begin)[0])
-                    | static_cast<uint64_t>(reinterpret_cast<const uint16_t*>(begin + 1)[0]) << 16
-                    | static_cast<uint64_t>(reinterpret_cast<const uint16_t*>(begin + 2)[0]) << 32
-                    | static_cast<uint64_t>(reinterpret_cast<const uint16_t*>(begin + 3)[0]) << 48;
-                    begin += 4;
-                }
-            }
-            case 0: {
-                #pragma clang loop vectorize(enable)
-                while (begin <= end - sizeof(uint64_t)) {
-                    reinterpret_cast<uint64_t*>(dst++)[0] =
-                    static_cast<uint64_t>(reinterpret_cast<const uint8_t*>(begin)[0])
-                    | static_cast<uint64_t>(reinterpret_cast<const uint8_t*>(begin + 1)[0]) << 8
-                    | static_cast<uint64_t>(reinterpret_cast<const uint8_t*>(begin + 2)[0]) << 16
-                    | static_cast<uint64_t>(reinterpret_cast<const uint8_t*>(begin + 3)[0]) << 24
-                    | static_cast<uint64_t>(reinterpret_cast<const uint8_t*>(begin + 4)[0]) << 32
-                    | static_cast<uint64_t>(reinterpret_cast<const uint8_t*>(begin + 5)[0]) << 40
-                    | static_cast<uint64_t>(reinterpret_cast<const uint8_t*>(begin + 6)[0]) << 48
-                    | static_cast<uint64_t>(reinterpret_cast<const uint8_t*>(begin + 7)[0]) << 56;
-                    begin += 8;
-                }
-            }
-        }
-    }
-    
-    INLINE char* copy_32 (const char* begin, const char* end, size_t length, char* dst) {
-        uint8_t src_addr_trailing_zeros = __builtin_ctz(dst - buffer);
-        switch (src_addr_trailing_zeros) {
-            default: {
-                #pragma clang loop vectorize(enable)
-                while (begin <= end - sizeof(uint32_t)) {
-                    reinterpret_cast<uint32_t*>(dst++)[0] = reinterpret_cast<const uint32_t*>(begin++)[0];
-                }
-                case 1: {
-                    #pragma clang loop vectorize(enable)
-                    while (begin <= end - sizeof(uint32_t)) {
-                        reinterpret_cast<uint32_t*>(dst++)[0] =
-                        static_cast<uint32_t>(reinterpret_cast<const uint16_t*>(begin)[0])
-                        | static_cast<uint32_t>(reinterpret_cast<const uint16_t*>(begin + 1)[0]) << 16;
-                        begin += 2;
-                    }
-                }
-                case 0: {
-                    #pragma clang loop vectorize(enable)
-                    while (begin <= end - sizeof(uint32_t)) {
-                        reinterpret_cast<uint32_t*>(dst++)[0] =
-                        static_cast<uint32_t>(reinterpret_cast<const uint8_t*>(begin)[0])
-                        | static_cast<uint32_t>(reinterpret_cast<const uint8_t*>(begin + 1)[0]) << 8
-                        | static_cast<uint32_t>(reinterpret_cast<const uint8_t*>(begin + 2)[0]) << 16
-                        | static_cast<uint32_t>(reinterpret_cast<const uint8_t*>(begin + 3)[0]) << 24;
-                        begin += 4;
-                    }
-                }
-            }
-        }
-    }
-    
-    INLINE char* copy_16 (const char* begin, const char* end, size_t length, char* dst) {
-        uint8_t src_addr_trailing_zeros = __builtin_ctz(dst - buffer);
-        switch (src_addr_trailing_zeros) {
-            default: {
-                #pragma clang loop vectorize(enable)
-                while (begin <= end - sizeof(uint16_t)) {
-                    reinterpret_cast<uint16_t*>(dst++)[0] = reinterpret_cast<const uint16_t*>(begin++)[0];
-                }
-            }
-            case 0: {
-                #pragma clang loop vectorize(enable)
-                while (begin <= end - sizeof(uint16_t)) {
-                    reinterpret_cast<uint16_t*>(dst++)[0] =
-                    static_cast<uint16_t>(reinterpret_cast<const uint8_t*>(begin)[0])
-                    | static_cast<uint16_t>(reinterpret_cast<const uint8_t*>(begin + 1)[0]) << 8;
-                    begin += 2;
-                }
-            }
-        }
-    }
-    
-    INLINE char* bmem_copy (const char* begin, const char* end, size_t length, char* dst) {
-        uint8_t src_addr_trailing_zeros = __builtin_ctz(dst - buffer);
-        uint8_t dst_addr_trailing_zeros = __builtin_ctz(buffer_end - dst);
-        uint8_t min_trailing_zeros = std::min(src_addr_trailing_zeros, dst_addr_trailing_zeros);
-        switch (dst_addr_trailing_zeros) {
-            default: {
-                // 128
-                
-            }
-            case 3: {
-                // 64
-                
-            }
-            case 2: {
-                // 32
-                
-            }
-            case 1: {
-                // 16
-            }
-            case 0: {
-                // 8
-            }
-        }
-        } */
-    
+
         template<bool is_first, bool is_last>
-        static INLINE std::conditional_t<is_last, void, char*> write (const char* begin, const char* end, size_t length, char* dst) {
-            size_t free_space = buffer_end - dst;
-            if (free_space >= length) {
+        static INLINE void write (const char* begin, size_t length) {
+            if constexpr (is_first) {
                 if constexpr (is_last) {
-                    if constexpr (is_first) {
-                        handled_write_stdout(begin, length);
+                    _handled_write_stdout(begin, length);
+                } else {
+                    if (length >= buffer_size) {
+                        _handled_write_stdout(begin, length);
                     } else {
-                        memcpy(dst, begin, length);
-                        handled_write_stdout(buffer, dst + length - buffer);
+                        memcpy(buffer, begin, length);
+                        buffer_dst += length;
+                    }
+                }
+            } else /* if constexpr (!is_first) */ {
+                size_t free_space = buffer_end - buffer_dst;
+                if (free_space >= length) {
+                    if constexpr (is_last) {
+                        memcpy(buffer_dst, begin, length);
+                        handled_write_buffer_stdout(buffer_dst + length - buffer);
+                        buffer_dst = buffer;
+                    } else /* if constexpr (!is_last) */ {
+                        memcpy(buffer_dst, begin, length);
+                        buffer_dst += length;
                     }
                 } else {
-                    memcpy(dst, begin, length);
-                    return dst + length;
-                }
-            } else {
-                memcpy(dst, begin, free_space);
-                handled_write_stdout(buffer, sizeof(buffer));
-                begin += free_space;
-                while (begin < end - sizeof(buffer)) {
-                    memcpy(buffer, begin, sizeof(buffer));
-                    handled_write_stdout(buffer, sizeof(buffer));
-                    begin += sizeof(buffer);
-                }
-                if (begin < end - 1) {
-                    size_t remaining = end - begin;
-                    if constexpr (is_last) {
-                        handled_write_stdout(begin, remaining);
+                    const char* end = begin + length;
+                    memcpy(buffer_dst, begin, free_space);
+                    handled_write_buffer_stdout(buffer_size);
+                    begin += free_space;
+                    while (begin < end - buffer_size) {
+                        memcpy(buffer, begin, buffer_size);
+                        handled_write_buffer_stdout(buffer_size);
+                        begin += buffer_size;
+                    }
+                    if (begin < end - 1) {
+                        size_t remaining = end - begin;
+                        if constexpr (is_last) {
+                            _handled_write_stdout(begin, remaining);
+                            buffer_dst = buffer;
+                        } else {
+                            memcpy(buffer, begin, remaining);
+                            buffer_dst = buffer + remaining;
+                        }               
                     } else {
-                        memcpy(buffer, begin, remaining);
-                        return buffer + remaining;
-                    }               
-                } else {
-                    if constexpr (!is_last) {
-                        return buffer + 0;
+                        buffer_dst = buffer;
                     }
                 }
             }
         }
     
         template<bool is_first, bool is_last>
-        static INLINE std::conditional_t<is_last, void, char*> write (char* dst, const std::string_view& msg) {
-            return write<is_first, is_last>(msg.begin(), msg.end(), msg.size(), dst);
+        static INLINE void write (const std::string_view& msg) {
+            return write<is_first, is_last>(msg.begin(), msg.size());
         }
         template<bool is_first, bool is_last>
-        static INLINE std::conditional_t<is_last, void, char*> write (char* dst, const std::string_view&& msg) {
-            return write<is_first, is_last>(msg.begin(), msg.end(), msg.size(), dst);
+        static INLINE void write (const std::string_view&& msg) {
+            return write<is_first, is_last>(msg.begin(), msg.size());
         }
         template <bool is_first, bool is_last, size_t N>
-        static INLINE std::conditional_t<is_last, void, char*> write (char* dst, const char (&value)[N]) {
-            return write<is_first, is_last>(value, value + N - 1, N - 1, dst);
+        static INLINE void write (const char (&value)[N]) {
+            return write<is_first, is_last>(value, N - 1);
         }
         template <bool is_first, bool is_last, size_t N>
-        static INLINE std::conditional_t<is_last, void, char*> write (char* dst, const char (&&value)[N]) {
-            return write<is_first, is_last>(value, value + N - 1, N - 1, dst);
+        static INLINE void write (const char (&&value)[N]) {
+            return write<is_first, is_last>(value, N - 1);
         }
         template <bool is_first, bool is_last, size_t N>
-        static INLINE std::conditional_t<is_last, void, char*> write (char* dst, const StringLiteral<N>&& value) {
-            return write<is_first, is_last>(value.value, value.value + N - 1, N - 1, dst);
+        static INLINE void write (const StringLiteral<N>&& value) {
+            return write<is_first, is_last>(value.value, N - 1);
         }
         template<bool is_first, bool is_last, bool is_negative, fast_math::uint64or32_c T>
-        static INLINE std::conditional_t<is_last, void, char*> write_nonzero (char* dst, T value) {
-            const uint8_t i = fast_math::log10_unsafe(value);
+        static INLINE void write_nonzero (T value) {
+            const uint8_t log10_of_value = fast_math::log10_unsafe(value);
             constexpr size_t sign_size = is_negative ? 1 : 0;
-            if (is_negative) {
-                *(dst++) = '-';
+            if constexpr (is_negative) {
+                *(buffer_dst++) = '-';
             }
-            char* const end = dst + i + 1;
-            if constexpr (!is_first || sizeof(buffer) <= (uint_log10<std::numeric_limits<uint64_t>::max()> + sign_size)) {
+            const size_t length = log10_of_value + 1;
+            char* end; // End is only initialized if !is_first
+            if constexpr (!is_first || buffer_size <= (uint_log10<std::numeric_limits<uint64_t>::max()> + sign_size)) {
+                end = buffer_dst + length;
                 if (end >= buffer_end) {
-                    handled_write_stdout(buffer, dst - buffer);
-                    dst = buffer;
+                    handled_write_buffer_stdout(buffer_dst - buffer);
+                    buffer_dst = buffer;
+                    end = buffer_dst + length;
                 }
             }
-            dst += i;
-            *(dst--) = '0' + (value % 10);
+            buffer_dst += log10_of_value;
+            *(buffer_dst--) = '0' + (value % 10);
             value /= 10;
             while (value > 0) {
-                *(dst--) = '0' + (value % 10);
+                *(buffer_dst--) = '0' + (value % 10);
                 value /= 10;
             }
             if constexpr (is_last) {
-                handled_write_stdout(buffer, end - buffer);
+                if constexpr (is_first) {
+                    handled_write_buffer_stdout(length);
+                } else /* if constexpr (!is_first) */ {
+                    handled_write_buffer_stdout(end - buffer);
+                }
+                buffer_dst = buffer;
             } else {
-                return end;
+                if constexpr (is_first) {
+                    buffer_dst = buffer + length;
+                } else {
+                    buffer_dst = end;
+                }
             }
         }
         template<bool is_first, bool is_last, char C>
-        static INLINE std::conditional_t<is_last, void, char*> write_char (char* dst) {
-            *(dst++) = C;
+        static INLINE void write_char () {
             if constexpr (is_last) {
                 if constexpr (is_first) {
-                    handled_write_stdout(buffer, 1);
+                    constexpr char char_buffer[1] = {C};
+                    _handled_write_stdout(char_buffer, 1);
                 } else {
-                    handled_write_stdout(buffer, dst - buffer);
+                    *buffer_dst = C;
+                    handled_write_buffer_stdout(buffer_dst - buffer);
+                    buffer_dst = buffer;
                 }
-            } else {
-                if constexpr (is_first && sizeof(buffer) > 1) {
-                    return dst;
+            } else /* if constexpr (!is_last) */ {
+                *(buffer_dst++) = C;
+                if constexpr (!is_first || buffer_size <= 1) {
+                    if (buffer_dst == buffer_end) {
+                        handled_write_buffer_stdout(buffer_size);
+                        buffer_dst = buffer;
+                    }
                 }
-                if (dst == buffer_end) {
-                    handled_write_stdout(buffer, sizeof(buffer));
-                    return 0;
-                }
-                return dst;
             }
         }
         template <std::integral T>
@@ -521,133 +406,157 @@ namespace _logger_internal_namespace {
         >;
         
         template<bool is_first, bool is_last, fast_math::uint64or32_c T>
-        static INLINE std::conditional_t<is_last, void, char*> write_uint (char* dst, T value) {
+        static INLINE void write_uint (T value) {
             if (value == 0) {
-                return write_char<is_first, is_last, '0'>(dst);
+                write_char<is_first, is_last, '0'>();
             } else {
-                return write_nonzero<is_first, is_last, false>(dst, value);
+                write_nonzero<is_first, is_last, false>(value);
             }
         }
         template <bool is_first, bool is_last>
-        static INLINE std::conditional_t<is_last, void, char*> write (char* dst, uint64_t value) {
-            return write_uint<is_first, is_last>(dst, value);
+        static INLINE void write (uint64_t value) {
+            write_uint<is_first, is_last>(value);
         }
         template <bool is_first, bool is_last>
-        static INLINE std::conditional_t<is_last, void, char*> write (char* dst, unsigned long value) {
-            return write_uint<is_first, is_last>(dst, static_cast<fitting_u_int64_32<unsigned long>>(value));
+        static INLINE void write (unsigned long value) {
+            write_uint<is_first, is_last>(static_cast<fitting_u_int64_32<unsigned long>>(value));
         }
         template <bool is_first, bool is_last>
-        static INLINE std::conditional_t<is_last, void, char*> write (char* dst, uint32_t value) {
-            return write_uint<is_first, is_last>(dst, value);
+        static INLINE void write (uint32_t value) {
+            write_uint<is_first, is_last>(value);
         }
         template <bool is_first, bool is_last>
-        static INLINE std::conditional_t<is_last, void, char*> write (char* dst, uint16_t value) {
-            return write_uint<is_first, is_last>(dst, static_cast<uint32_t>(value));
+        static INLINE void write (uint16_t value) {
+            write_uint<is_first, is_last>(static_cast<uint32_t>(value));
         }
         template <bool is_first, bool is_last>
-        static INLINE std::conditional_t<is_last, void, char*> write (char* dst, uint8_t value) {
-            return write_uint<is_first, is_last>(dst, static_cast<uint32_t>(value));
+        static INLINE void write (uint8_t value) {
+            write_uint<is_first, is_last>(static_cast<uint32_t>(value));
         }
         template<bool is_first, bool is_last, fast_math::int64or32_c T>
-        static INLINE std::conditional_t<is_last, void, char*> write_int (char* dst, T value) {
+        static INLINE void write_int (T value) {
             if (value == 0) {
-                return write_char<is_first, is_last, '0'>(dst);
+                write_char<is_first, is_last, '0'>();
             } else if (value < 0) {
-                return write_nonzero<false, is_last, true>(dst, static_cast<std::make_unsigned_t<T>>(-value));
+                write_nonzero<false, is_last, true>(static_cast<std::make_unsigned_t<T>>(-value));
             } else {
-                return write_nonzero<is_first, is_last, false>(dst, static_cast<std::make_unsigned_t<T>>(value));
+                write_nonzero<is_first, is_last, false>(static_cast<std::make_unsigned_t<T>>(value));
             }
         }
         template <bool is_first, bool is_last>
-        static INLINE std::conditional_t<is_last, void, char*> write (char* dst, int64_t value) {
-            return write_int<is_first, is_last>(dst, value);
+        static INLINE void write (int64_t value) {
+            write_int<is_first, is_last>(value);
         }
         template <bool is_first, bool is_last>
-        static INLINE std::conditional_t<is_last, void, char*> write (char* dst, long value) {
-            return write_int<is_first, is_last>(dst, static_cast<fitting_u_int64_32<long>>(value));
+        static INLINE void write (long value) {
+            write_int<is_first, is_last>(static_cast<fitting_u_int64_32<long>>(value));
         }
         template <bool is_first, bool is_last>
-        static INLINE std::conditional_t<is_last, void, char*> write (char* dst, int32_t value) {
-            return write_int<is_first, is_last>(dst, value);
+        static INLINE void write (int32_t value) {
+            write_int<is_first, is_last>(value);
         }
         template <bool is_first, bool is_last>
-        static INLINE std::conditional_t<is_last, void, char*> write (char* dst, int16_t value) {
-            return write_int<is_first, is_last>(dst, static_cast<int32_t>(value));
+        static INLINE void write (int16_t value) {
+            write_int<is_first, is_last>(static_cast<int32_t>(value));
         }
         template <bool is_first, bool is_last>
-        static INLINE std::conditional_t<is_last, void, char*> write (char* dst, int8_t value) {
-            return write_int<is_first, is_last>(dst, static_cast<int32_t>(value));
+        static INLINE void write (int8_t value) {
+            write_int<is_first, is_last>(static_cast<int32_t>(value));
         }
     
         template <typename... T, size_t... Indecies>
         requires (sizeof...(T) > 0)
-        static INLINE char* write_tuple (char* dst, std::tuple<T...> values, std::index_sequence<Indecies...>) {
-            ((
-                dst = write<false, false>(dst, std::forward<std::tuple_element_t<Indecies, std::tuple<T...>>>(std::get<Indecies>(values)))
-            ), ...);
-            return dst;
+        static INLINE void write_tuple (std::tuple<T...> values, std::index_sequence<Indecies...>) {
+            (write<false, false>(std::forward<std::tuple_element_t<Indecies, std::tuple<T...>>>(std::get<Indecies>(values))), ...);
         }
     
-        template <StringLiteral value>
+        template <StringLiteral value, bool has_buffered, bool buffered>
+        static INLINE void _write_value () {
+            write<!has_buffered, !buffered>(buffer, value + "\n"_sl);
+        }
+
+        template <StringLiteral value, bool buffered>
         static INLINE void write_values () {
-            write<true, true>(buffer, value + "\n"_sl);
+            if (buffer_dst == buffer) {
+                _write_value<value, false, buffered>();
+            } else {
+                _write_value<value, true, buffered>();
+            }
         }
     
-        template <StringLiteral prefix, typename... T>
+        template <StringLiteral prefix, bool has_buffered, bool buffered, typename... T>
+        requires (sizeof...(T) > 0)
+        static INLINE void _write_values (T&&... values) {
+            write<!has_buffered, false>(std::move(prefix));
+            (write<false, false>(std::forward<T>(values)), ...);
+            write_char<false, !buffered, '\n'>();
+        }
+
+        template <StringLiteral prefix, bool buffered, typename... T>
         requires (sizeof...(T) > 0)
         static INLINE void write_values (T&&... values) {
-            char* dst = write<true, false>(buffer, std::move(prefix));
-            dst = write_tuple(dst, std::forward_as_tuple<T...>(std::forward<T>(values)...), std::make_index_sequence<sizeof...(T)>{});
-            write<false, true>(dst, "\n"_sl);
+            if (buffer_dst == buffer) {
+                _write_values<prefix, false, buffered>(std::forward<T>(values)...);
+            } else {
+                _write_values<prefix, true, buffered>(std::forward<T>(values)...);
+            }
         }
         
         public:
 
-        template <StringLiteral first_value, typename... T>
+        template <bool buffered = false, StringLiteral first_value, typename... T>
         static INLINE void log (T&&... values) {
-            write_values<first_value>(std::forward<T>(values)...);
+            write_values<first_value, buffered>(std::forward<T>(values)...);
         }
-        template <typename... T>
+        template <bool buffered = false, typename... T>
         static INLINE void log (T&&... values) {
-            write_values<"">(std::forward<T>(values)...);
+            write_values<"", buffered>(std::forward<T>(values)...);
         }
     
-        template <StringLiteral first_value, typename... T>
+        template <bool buffered = false, StringLiteral first_value, typename... T>
         static INLINE void info (T&&... values) {
-            write_values<info_prefix + first_value>(std::forward<T>(values)...);
+            write_values<info_prefix + first_value, buffered>(std::forward<T>(values)...);
         }
-        template <typename... T>
+        template <bool buffered = false, typename... T>
         static INLINE void info (T&&... values) {
-            write_values<info_prefix>(std::forward<T>(values)...);
+            write_values<info_prefix, buffered>(std::forward<T>(values)...);
         }
     
-        template <StringLiteral first_value, typename... T>
+        template <bool buffered = false, StringLiteral first_value, typename... T>
         static INLINE void debug (T&&... values) {
-            write_values<debug_prefix + first_value>(std::forward<T>(values)...);
+            write_values<debug_prefix + first_value, buffered>(std::forward<T>(values)...);
         }
-        template <typename... T>
+        template <bool buffered = false, typename... T>
         static INLINE void debug (T&&... values) {
-            // write_values<debug_prefix>(std::forward<T>(values)...);
+            write_values<debug_prefix, buffered>(std::forward<T>(values)...);
         }
     
-        template <StringLiteral first_value, typename... T>
+        template <bool buffered = false, StringLiteral first_value, typename... T>
         static INLINE void warn (T&&... values) {
-            write_values<warn_prefix + first_value>(std::forward<T>(values)...);
+            write_values<warn_prefix + first_value, buffered>(std::forward<T>(values)...);
         }
-        template <typename... T>
+        template <bool buffered = false, typename... T>
         static INLINE void warn (T&&... values) {
-            write_values<warn_prefix>(std::forward<T>(values)...);
+            write_values<warn_prefix, buffered>(std::forward<T>(values)...);
         }
         
-        template <StringLiteral first_value, typename... T>
+        template <bool buffered = false, StringLiteral first_value, typename... T>
         static INLINE void error (T&&... values) {
-            write_values<error_prefix + first_value>(std::forward<T>(values)...);
+            write_values<error_prefix + first_value, buffered>(std::forward<T>(values)...);
         }
-        template <typename... T>
+        template <bool buffered = false, typename... T>
         static INLINE void error (T&&... values) {
-            write_values<error_prefix>(std::forward<T>(values)...);
+            write_values<error_prefix, buffered>(std::forward<T>(values)...);
+        }
+
+        static void flush () {
+            if (buffer_dst == buffer) return;
+            handled_write_buffer_stdout(buffer_dst - buffer);
+            buffer_dst = buffer;
         }
     };
 };
 
 using logger = _logger_internal_namespace::logger;
+
+#undef ASYNC_STDOUT
