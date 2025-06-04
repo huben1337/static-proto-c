@@ -7,64 +7,101 @@
     },
     "configurePresets": [
         {
-            "name": "gcc",
-            "generator": "Ninja",
-            "binaryDir": "./.build/${presetName}",
+            "name": "debug-base",
+            "hidden": true,
             "cacheVariables": {
-                "CMAKE_C_COMPILER": "gcc",
-                "CMAKE_CXX_COMPILER": "g++",
                 "CMAKE_BUILD_TYPE": "Debug"
             }
         },
         {
-            "name": "clang",
-            "generator": "Ninja",
-            "binaryDir": "./.build/${presetName}",
-            "cacheVariables": {
-                "CMAKE_C_COMPILER": "clang.exe",
-                "CMAKE_CXX_COMPILER": "clang++.exe",
-                "CMAKE_BUILD_TYPE": "Debug"
-            }
-        },
-        {
-            "name": "mingw-gcc",
-            "generator": "MinGW Makefiles",
-            "binaryDir": "./.build/${presetName}",
+            "name": "mingw-gcc-base",
+            "hidden": true,
             "cacheVariables": {
                 "CMAKE_C_COMPILER": "C:\\msys64\\ucrt64\\bin\\gcc.exe",
-                "CMAKE_CXX_COMPILER": "C:\\msys64\\ucrt64\\bin\\g++.exe",
-                "CMAKE_MAKE_PROGRAM": "C:\\msys64\\ucrt64\\bin\\mingw32-make.exe",
+                "CMAKE_CXX_COMPILER": "C:\\msys64\\ucrt64\\bin\\g++.exe"
+            },
+            "environment": {
+                "NINJA_PATH": "C:\\msys64\\ucrt64\\bin\\ninja.exe",
+                "MAKE_PATH": "C:\\msys64\\ucrt64\\bin\\mingw32-make.exe"
+            }
+        },
+        {
+            "name": "mingw-clang-base",
+            "hidden": true,
+            "cacheVariables": {
+                "CMAKE_C_COMPILER": "C:\\msys64\\clang64\\bin\\clang.exe",
+                "CMAKE_CXX_COMPILER": "C:\\msys64\\clang64\\bin\\clang++.exe"
+            },
+            "environment": {
+                "NINJA_PATH": "ninja.exe",
+                "MAKE_PATH": "C:\\msys64\\clang64\\bin\\mingw32-make.exe"
+            }
+        },
+        {
+            "name": "ninja-base",
+            "hidden": true,
+            "generator": "Ninja",
+            "cacheVariables": {
+                "CMAKE_MAKE_PROGRAM": "$env{NINJA_PATH}"
+            }
+        },
+        {
+            "name": "mingw-make-base",
+            "hidden": true,
+            "generator": "MinGW Makefiles",
+            "cacheVariables": {
+                "CMAKE_MAKE_PROGRAM": "$env{MAKE_PATH}"
+            }
+        },
+        {
+            "name": "mingw-ninja-gcc",
+            "inherits": ["mingw-gcc-base", "ninja-base"],
+            "binaryDir": "./.build/${presetName}",
+            "cacheVariables": {
                 "CMAKE_BUILD_TYPE": "Debug"
             }
         },
         {
-            "name": "mingw-clang",
-            "generator": "MinGW Makefiles",
+            "name": "mingw-ninja-clang",
+            "inherits": ["mingw-clang-base", "ninja-base"],
             "binaryDir": "./.build/${presetName}",
             "cacheVariables": {
-                "CMAKE_C_COMPILER": "C:\\msys64\\clang64\\bin\\clang.exe",
-                "CMAKE_CXX_COMPILER": "C:\\msys64\\clang64\\bin\\clang++.exe",
-                "CMAKE_MAKE_PROGRAM": "C:\\msys64\\clang64\\bin\\mingw32-make.exe",
+                "CMAKE_BUILD_TYPE": "Debug"
+            }
+        },
+        {
+            "name": "mingw-make-gcc",
+            "inherits": ["mingw-gcc-base", "mingw-make-base"],
+            "binaryDir": "./.build/${presetName}",
+            "cacheVariables": {
+                "CMAKE_BUILD_TYPE": "Debug"
+            }
+        },
+        {
+            "name": "mingw-make-clang",
+            "inherits": ["mingw-clang-base", "mingw-make-base"],
+            "binaryDir": "./.build/${presetName}",
+            "cacheVariables": {
                 "CMAKE_BUILD_TYPE": "Debug"
             }
         }
     ],
     "buildPresets": [
         {
-            "name": "gcc",
-            "configurePreset": "gcc"
+            "name": "mingw-ninja-gcc",
+            "configurePreset": "mingw-ninja-gcc"
         },
         {
-            "name": "clang",
-            "configurePreset": "clang"
+            "name": "mingw-ninja-clang",
+            "configurePreset": "mingw-ninja-clang"
         },
         {
-            "name": "mingw-gcc",
-            "configurePreset": "mingw-gcc"
+            "name": "mingw-make-gcc",
+            "configurePreset": "mingw-make-gcc"
         },
         {
-            "name": "mingw-clang",
-            "configurePreset": "mingw-clang"
+            "name": "mingw-make-clang",
+            "configurePreset": "mingw-make-clang"
         }
     ]
 }
