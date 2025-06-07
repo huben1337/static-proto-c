@@ -12,8 +12,8 @@
 template <std::unsigned_integral U>
 struct Memory {
     private:
-    constexpr static U max_position = std::numeric_limits<U>::max();
-    constexpr static uint8_t grow_factor = 2;
+    static constexpr U max_position = std::numeric_limits<U>::max();
+    static constexpr uint8_t grow_factor = 2;
     U capacity;
     U position = 0;
     uint8_t* memory;
@@ -44,6 +44,13 @@ struct Memory {
             std::free(memory);
             in_heap = false; // Prevent double free
         }
+        capacity = 0;
+        position = 0;
+        memory = nullptr;
+    }
+
+    INLINE ~Memory () {
+        dispose();
     }
 
     template <typename T>
@@ -80,6 +87,10 @@ struct Memory {
             return mem.get(end_idx);
         }
 
+        INLINE U size () {
+            return end_idx.value - start_idx.value;
+        }
+
         INLINE bool empty () {
             return start_idx.value == end_idx.value;
         }
@@ -98,6 +109,10 @@ struct Memory {
         }
         INLINE T* end (Memory mem) const {
             return mem.get(start_idx.add(length));
+        }
+
+        INLINE U size () const {
+            return length;
         }
 
         INLINE bool empty () const {
