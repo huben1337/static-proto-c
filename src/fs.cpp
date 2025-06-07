@@ -13,14 +13,14 @@
 namespace fs {
 
 #ifdef __MINGW32__
-INLINE void realpath (const std::string_view& path, std::array<char, PATH_MAX>& resolved_path) noexcept(false) {
+INLINE void realpath (const std::string_view& path, std::array<char, PATH_MAX>& resolved_path) {
     const char* res = _fullpath(resolved_path.data(), path.data(), PATH_MAX);
     if (!res) {
         throw std::runtime_error(std::format("could not get real path for {}, ERRNO: {}", path, errno));
     }
 }
 
-INLINE std::array<char, PATH_MAX> realpath (const std::string_view& path) noexcept(false) {
+INLINE std::array<char, PATH_MAX> realpath (const std::string_view& path) {
     std::array<char, PATH_MAX> resolved_path;
     const char* res = _fullpath(resolved_path.data(), path.data(), PATH_MAX);
     if (!res) {
@@ -45,7 +45,7 @@ struct OpenWithStatsResult {
     struct stat stat;
 };
 
-INLINE struct stat get_stat (const std::string_view& path, int fd) noexcept(false) {
+INLINE struct stat get_stat (const std::string_view& path, int fd) {
     struct stat stat;
     if (fstat(fd, &stat) != 0) {
         throw std::runtime_error(std::format("could not get file status for {}, ERRNO: {}", path, errno));
@@ -53,7 +53,7 @@ INLINE struct stat get_stat (const std::string_view& path, int fd) noexcept(fals
     return stat;
 }
 
-INLINE void fail_negative_fd (const std::string_view& path, int fd) noexcept(false)  {
+INLINE void fail_negative_fd (const std::string_view& path, int fd)  {
     if (fd < 0) {
         throw std::runtime_error(std::format("could not open file {}, ERRNO: {}\n", path, errno));
     }
@@ -61,13 +61,13 @@ INLINE void fail_negative_fd (const std::string_view& path, int fd) noexcept(fal
 
 
 template <int flags>
-inline OpenWithStatsResult open_with_stat (const std::string_view& path, uint16_t create_flags) noexcept(false) {
+inline OpenWithStatsResult open_with_stat (const std::string_view& path, uint16_t create_flags){
     int fd = open(path.data(), flags, create_flags);
     fail_negative_fd(path, fd);
     return {fd, get_stat(path, fd)};
 };
 template <int flags>
-inline OpenWithStatsResult open_with_stat (const std::string_view& path) noexcept(false) {
+inline OpenWithStatsResult open_with_stat (const std::string_view& path) {
     if constexpr (flags & O_CREAT) {
         static_warn("File will be created but creating flags are not set");
     }
@@ -76,7 +76,7 @@ inline OpenWithStatsResult open_with_stat (const std::string_view& path) noexcep
     return {fd, get_stat(path, fd)};
 };
 
-INLINE OpenWithStatsResult open_with_stat (const std::string_view& path, int flags) noexcept(false) {
+INLINE OpenWithStatsResult open_with_stat (const std::string_view& path, int flags) {
     if (flags & O_CREAT) {
         logger::warn("File will be created but creating flags are not set!");
     }
@@ -84,7 +84,7 @@ INLINE OpenWithStatsResult open_with_stat (const std::string_view& path, int fla
     fail_negative_fd(path, fd);
     return {fd, get_stat(path, fd)};
 };
-INLINE OpenWithStatsResult open_with_stat (const std::string_view& path, int flags, uint16_t create_flags) noexcept(false) {
+INLINE OpenWithStatsResult open_with_stat (const std::string_view& path, int flags, uint16_t create_flags) {
     int fd = open(path.data(), flags, create_flags);
     fail_negative_fd(path, fd);
     return {fd, get_stat(path, fd)};
@@ -93,7 +93,7 @@ INLINE OpenWithStatsResult open_with_stat (const std::string_view& path, int fla
 
 
 
-inline void throw_not_regular (const std::string_view& path, const struct stat& stat) noexcept(false) {
+inline void throw_not_regular (const std::string_view& path, const struct stat& stat) {
     if (!S_ISREG(stat.st_mode)) {
         throw std::runtime_error(std::format("file {} is not a regular file", path));
     }

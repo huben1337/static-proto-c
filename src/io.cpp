@@ -25,7 +25,7 @@ namespace io {
 namespace windows {
 
 template <bool use_exceptions>
-void throw_error (std::string message) noexcept(false) requires(use_exceptions) {
+void throw_error (std::string message) requires(use_exceptions) {
     throw std::runtime_error(message);
 }
 
