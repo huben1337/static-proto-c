@@ -30,6 +30,16 @@ INLINE std::array<char, PATH_MAX> realpath (const std::string_view& path) noexce
 }
 #endif
 
+#ifdef O_NONBLOCK
+void set_nonblocking (int fd) {
+    int flags = fcntl(fd, F_GETFL, 0)
+    if (flags == -1) {
+        throw std::runtime_error(std::format("fcntl could not get file flags, ERRNO: {}", errno));
+    }
+    return fcntl(fd, F_SETFL, flags | O_NONBLOCK);
+}
+#endif
+
 struct OpenWithStatsResult {
     int fd;
     struct stat stat;
