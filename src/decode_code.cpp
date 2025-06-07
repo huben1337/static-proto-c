@@ -1355,7 +1355,7 @@ struct TypeVisitor : lexer::TypeVisitorBase<TypeT, codegen::__UnknownStruct> {
 // current_size_leaf_idx only is needed for var size leafs
 
 
-static INLINE void handled_write (int fd, const char* buf, size_t size) {
+INLINE void handled_write (int fd, const char* buf, size_t size) {
     int result = write(fd, buf, size);
     if (result < 0) {
         INTERNAL_ERROR("[handled_write] write failed, ERRNO: ", errno);
