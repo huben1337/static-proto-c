@@ -35,21 +35,6 @@ template <bool use_exceptions>
     exit(1);
 }
 
-template <typename T>
-struct is_string_literal_t : std::false_type {};
-template <size_t N>
-struct is_string_literal_t<StringLiteral<N>> : std::true_type {};
-
-template <typename T>
-constexpr bool is_string_literal_v = is_string_literal_t<T>::value;
-
-struct no_file_name_t {};
-
-constexpr no_file_name_t no_file_name {};
-
-template <typename T>
-concept is_string_literal = is_string_literal_v<T>;
-
 class optional_template_parameter_t {};
 
 constexpr optional_template_parameter_t optional_template_parameter {};

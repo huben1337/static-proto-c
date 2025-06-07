@@ -10,8 +10,8 @@
 #define UNEXPECTED_INPUT(msg) show_syntax_error(msg, YYCURSOR);
 
 static const char *input_start;// = nullptr;
-constexpr auto input_file_path_default = "<unkown>"_sl;
-static std::array<char, PATH_MAX> input_file_path{};// = std::to_array((input_file_path_default + StringLiteral<PATH_MAX - input_file_path_default.size()>::of<0>()).value);
+constexpr auto input_file_path_default = "<unknown>"_sl;
+static std::array<char, PATH_MAX> input_file_path = (input_file_path_default + string_lieral_of<'\0', PATH_MAX - input_file_path_default.size()>()).to_array();
 
 [[noreturn]] static void show_syntax_error (const char *msg, const char *error, char *error_end = 0) {
     if (!input_start) {
