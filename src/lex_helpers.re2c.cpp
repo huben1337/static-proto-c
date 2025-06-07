@@ -2,6 +2,7 @@
 
 #include "string_literal.cpp"
 #include "lex_error.cpp"
+#include <utility>
 
 /*!re2c
     re2c:define:YYMARKER = YYCURSOR;
@@ -79,6 +80,7 @@ __forceinline char *skip_white_space (char *YYCURSOR) {
     /*!local:re2c
         white_space* { return YYCURSOR; }
     */
+    std::unreachable();
 }
 
 /**
@@ -97,6 +99,7 @@ __forceinline char *skip_any_white_space (char *YYCURSOR) {
     /*!local:re2c
         any_white_space* { return YYCURSOR; }
     */
+    std::unreachable();
 }
 
 __forceinline char *lex_white_space (char *YYCURSOR) {
@@ -104,6 +107,7 @@ __forceinline char *lex_white_space (char *YYCURSOR) {
         white_space+ { return YYCURSOR; }
         * { UNEXPECTED_INPUT("expected white space"); }
     */
+    std::unreachable();
 }
 
 __forceinline char *lex_any_white_space (char *YYCURSOR) {
@@ -111,4 +115,5 @@ __forceinline char *lex_any_white_space (char *YYCURSOR) {
         any_white_space+ { return YYCURSOR; }
         * { UNEXPECTED_INPUT("expected any white space"); }
     */
+    std::unreachable();
 }
