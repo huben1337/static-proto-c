@@ -27,7 +27,7 @@ INLINE char* lex_range_argument (char* YYCURSOR, F on_fixed, G on_range) {
     YYCURSOR = skip_white_space(YYCURSOR);
     
     auto firstArgPos = YYCURSOR;
-    auto parsed_0 = parse_int<uint32_t>(YYCURSOR);
+    auto parsed_0 = parse_uint<uint32_t>(YYCURSOR);
     YYCURSOR = parsed_0.cursor;
     auto min = parsed_0.value;
 
@@ -41,7 +41,7 @@ INLINE char* lex_range_argument (char* YYCURSOR, F on_fixed, G on_range) {
         
         YYCURSOR = skip_white_space(YYCURSOR + 1);
 
-        auto parsed_1 = parse_int<uint32_t>(YYCURSOR);
+        auto parsed_1 = parse_uint<uint32_t>(YYCURSOR);
         YYCURSOR = parsed_1.cursor;
         auto max = parsed_1.value;
         if (max <= min) show_syntax_error("invalid range", firstArgPos, YYCURSOR - 1);
@@ -63,7 +63,7 @@ requires (std::is_integral_v<T>)
 INLINE LexResult<T> lex_attribute_value (char* YYCURSOR) {
     YYCURSOR = lex_same_line_symbol<'=', "Expected value assignment for attribute">(YYCURSOR);
     YYCURSOR = skip_white_space(YYCURSOR);
-    return parse_int<uint64_t>(YYCURSOR);
+    return parse_uint<uint64_t>(YYCURSOR);
 }
 
 struct VariantAttributes {
@@ -1173,7 +1173,7 @@ INLINE char* lex_enum_fields (
             is_negative = *YYCURSOR == '-';
             if constexpr (is_signed) {
                 if (is_negative) {
-                    auto parsed = parse_int<uint64_t, std::numeric_limits<int64_t>::max()>(YYCURSOR + 1);
+                    auto parsed = parse_uint<uint64_t, std::numeric_limits<int64_t>::max()>(YYCURSOR + 1);
                     value = parsed.value;
                     YYCURSOR = parsed.cursor;
                     max_value_unsigned = std::max(max_value_unsigned, value * 2 - 1);
@@ -1184,7 +1184,7 @@ INLINE char* lex_enum_fields (
                         * { UNEXPECTED_INPUT("expected ',' or end of enum definition"); }
                     */
                 } else {
-                    auto parsed = parse_int<uint64_t, std::numeric_limits<int64_t>::max()>(YYCURSOR);
+                    auto parsed = parse_uint<uint64_t, std::numeric_limits<int64_t>::max()>(YYCURSOR);
                     value = parsed.value;
                     YYCURSOR = parsed.cursor;
                     max_value_unsigned = std::max(max_value_unsigned, value * 2 + 1);
@@ -1197,7 +1197,7 @@ INLINE char* lex_enum_fields (
                 }
             } else {
                 if (is_negative) {
-                    auto parsed = parse_int<uint64_t, std::numeric_limits<int64_t>::max()>(YYCURSOR + 1);
+                    auto parsed = parse_uint<uint64_t, std::numeric_limits<int64_t>::max()>(YYCURSOR + 1);
                     value = parsed.value;
                     YYCURSOR = parsed.cursor;
                     max_value_unsigned = std::max(max_value_unsigned, value * 2 - 1);
@@ -1213,7 +1213,7 @@ INLINE char* lex_enum_fields (
                         return lex_enum_fields<true>(YYCURSOR, definition_data_idx, field_count, value, max_value_unsigned, is_negative, identifier_map, buffer);
                     }
                 } else {
-                    auto parsed = parse_int<uint64_t>(YYCURSOR);
+                    auto parsed = parse_uint<uint64_t>(YYCURSOR);
                     value = parsed.value;
                     YYCURSOR = parsed.cursor;
                     max_value_unsigned = std::max(max_value_unsigned, value);
