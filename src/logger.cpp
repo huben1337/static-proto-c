@@ -472,7 +472,7 @@ namespace _logger_internal_namespace {
     
         template <StringLiteral value, bool has_buffered, bool buffered>
         static INLINE void _write_value () {
-            write<!has_buffered, !buffered>(buffer, value + "\n"_sl);
+            write<!has_buffered, !buffered>(value + "\n"_sl);
         }
 
         template <StringLiteral value, bool buffered>
@@ -524,11 +524,11 @@ namespace _logger_internal_namespace {
     
         template <bool buffered = false, StringLiteral first_value, typename... T>
         static INLINE void debug (T&&... values) {
-            write_values<debug_prefix + first_value, buffered>(std::forward<T>(values)...);
+            //write_values<debug_prefix + first_value, buffered>(std::forward<T>(values)...);
         }
         template <bool buffered = false, typename... T>
         static INLINE void debug (T&&... values) {
-            write_values<debug_prefix, buffered>(std::forward<T>(values)...);
+            //write_values<debug_prefix, buffered>(std::forward<T>(values)...);
         }
     
         template <bool buffered = false, StringLiteral first_value, typename... T>
