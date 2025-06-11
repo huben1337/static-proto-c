@@ -484,33 +484,52 @@ namespace _logger_internal_namespace {
             }
         }
     
-        template <StringLiteral prefix, bool has_buffered, bool buffered, typename... T>
-        requires (sizeof...(T) > 0)
+        template <StringLiteral prefix, bool has_buffered, bool buffered, bool no_newline, typename... T>
+        requires (sizeof...(T) > 0 && no_newline == false)
         static INLINE void _write_values (T&&... values) {
             write<!has_buffered, false>(std::move(prefix));
             (write<false, false>(std::forward<T>(values)), ...);
             write_char<false, !buffered, '\n'>();
         }
 
-        template <StringLiteral prefix, bool buffered, typename... T>
+        
+
+        template <bool buffered, typename FirstT, typename ...RestT>
+        static INLINE void _write_rest_values (FirstT&& first, RestT&&... rest) {
+            if constexpr (sizeof...(RestT) > 0) {
+                write<false, false>(std::forward<FirstT>(first));
+                _write_rest_values<buffered>(std::forward<RestT>(rest)...);
+            } else {
+                write<false, !buffered>(std::forward<FirstT>(first));
+            }
+        }
+
+        template <StringLiteral prefix, bool has_buffered, bool buffered, bool no_newline, typename... T>
+        requires (sizeof...(T) > 0 && no_newline == true)
+        static INLINE void _write_values (T&&... values) {
+            write<!has_buffered, false>(std::move(prefix));
+            _write_rest_values<buffered>(std::forward<T>(values)...);
+        }
+
+        template <StringLiteral prefix, bool buffered, bool no_newline = false, typename... T>
         requires (sizeof...(T) > 0)
         static INLINE void write_values (T&&... values) {
             if (buffer_dst == buffer) {
-                _write_values<prefix, false, buffered>(std::forward<T>(values)...);
+                _write_values<prefix, false, buffered, no_newline>(std::forward<T>(values)...);
             } else {
-                _write_values<prefix, true, buffered>(std::forward<T>(values)...);
+                _write_values<prefix, true, buffered, no_newline>(std::forward<T>(values)...);
             }
         }
         
         public:
 
-        template <bool buffered = false, StringLiteral first_value, typename... T>
+        template <bool no_newline = false, bool buffered = false, StringLiteral first_value, typename... T>
         static INLINE void log (T&&... values) {
-            write_values<first_value, buffered>(std::forward<T>(values)...);
+            write_values<first_value, buffered, no_newline>(std::forward<T>(values)...);
         }
-        template <bool buffered = false, typename... T>
+        template <bool no_newline = false, bool buffered = false,  typename... T>
         static INLINE void log (T&&... values) {
-            write_values<"", buffered>(std::forward<T>(values)...);
+            write_values<"", buffered, no_newline>(std::forward<T>(values)...);
         }
     
         template <bool buffered = false, StringLiteral first_value, typename... T>
