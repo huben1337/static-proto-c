@@ -4,9 +4,9 @@
 #include <cstddef>
 #include <cstdint>
 #include <type_traits>
-#include <unordered_map>
 #include <string_view>
 #include <utility>
+#include <ankerl/unordered_dense.h>
 #include "base.cpp"
 #include "memory.cpp"
 #include "memory_helpers.cpp"
@@ -428,7 +428,7 @@ INLINE constexpr auto IdentifiedDefinition::Data::as_union () const {
     return static_cast<const UnionDefinition*>(this);
 }
 
-typedef std::unordered_map<std::string, IdentifedDefinitionIndex> IdentifierMap;
+typedef ankerl::unordered_dense::map<std::string_view, IdentifedDefinitionIndex> IdentifierMap;
 
 
 template <typename T, typename U = const std::remove_const_t<T>>

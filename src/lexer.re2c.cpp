@@ -1,6 +1,7 @@
 #pragma once
 
 #include "base.cpp"
+#include "fatal_error.cpp"
 #include "lexer_types.cpp"
 #include "lex_result.cpp"
 #include "lex_error.cpp"
@@ -178,12 +179,10 @@ INLINE LexResult<std::string_view>  lex_identifier_name (char* YYCURSOR) {
     return { YYCURSOR, {start, end} };   
 }
 
-INLINE void add_identifier (std::string_view name, IdentifierMap &identifier_map, IdentifedDefinitionIndex definition_idx) {
-
-    auto inserted = identifier_map.insert({std::string{name}, definition_idx}).second;
-
-    if (!inserted) {
-        show_syntax_error("identifier already defined", name.data());
+INLINE void add_identifier (IdentifierMap &identifier_map, std::string_view name, IdentifedDefinitionIndex definition_idx) {
+    bool did_emplace = identifier_map.emplace(std::pair{name, definition_idx}).second;
+    if (!did_emplace) {
+        show_syntax_error("identifier already defined", name.begin(), name.end());
     }
 }
 
@@ -665,8 +664,8 @@ std::conditional_t<expect_fixed, LexFixedTypeResult, LexTypeResult> lex_type (ch
                     byte_size = length;
                     FixedStringType::create(buffer, length);
                 },
-                [identifier_start](Range) {
-                    show_syntax_error("expected fixed size string", identifier_start);
+                [identifier_start, &YYCURSOR](Range) {
+                    show_syntax_error("expected fixed size string", identifier_start, YYCURSOR - 1);
                 }
             );
             return LexFixedTypeResult{
@@ -786,8 +785,8 @@ std::conditional_t<expect_fixed, LexFixedTypeResult, LexTypeResult> lex_type (ch
                     extended->stored_size_size = SIZE::SIZE_0;
                     extended->size_size = get_size_size(length);
                 },
-                [identifier_start](Range) {
-                    show_syntax_error("expected fixed size array", identifier_start);
+                [identifier_start, YYCURSOR](Range) {
+                    show_syntax_error("expected fixed size array", identifier_start, YYCURSOR - 1);
                 }
             );
             return LexFixedTypeResult{
@@ -836,13 +835,10 @@ std::conditional_t<expect_fixed, LexFixedTypeResult, LexTypeResult> lex_type (ch
 
     identifier: {
         auto identifer_end = YYCURSOR;
-        auto end_backup = *identifer_end;
-        *identifer_end = 0;
 
-        auto identifier_idx_iter = identifier_map.find(identifier_start);
-        *identifer_end = end_backup;
+        auto identifier_idx_iter = identifier_map.find(std::string_view{identifier_start, identifer_end});
         if (identifier_idx_iter == identifier_map.end()) {
-            show_syntax_error("identifier not defined", identifier_start - 1);
+            show_syntax_error("identifier not defined", identifier_start, identifer_end - 1);
         }
         auto identifier_index = identifier_idx_iter->second;
         IdentifiedType::create(buffer, identifier_index);
@@ -870,7 +866,7 @@ std::conditional_t<expect_fixed, LexFixedTypeResult, LexTypeResult> lex_type (ch
                 };
             } else {
                 if (struct_definition->var_leafs_count.as_uint64 != 0) {
-                    show_syntax_error("fixed size struct expected", identifier_start);
+                    show_syntax_error("fixed size struct expected", identifier_start, YYCURSOR - 1);
                 }
                 return LexFixedTypeResult{
                     YYCURSOR,
@@ -986,7 +982,7 @@ INLINE char* lex_struct_or_union_fields (
         const StructField::Data* field = buffer.get(definition_data_idx)->first_field()->data();
         for (uint16_t i = 0; i < field_count; i++) {
             if (string_view_equal(field->name, start, length)) {
-                show_syntax_error("field already defined", start);
+                show_syntax_error("field already defined", start, length);
             }
             field = skip_type<StructField>(field->type())->data();
         }
@@ -1073,15 +1069,17 @@ INLINE char* lex_struct_or_union(
 }
 
 INLINE auto set_member_value (char* start, uint64_t value, bool is_negative) {
-    if (value == std::numeric_limits<uint64_t>::max()) {
-        show_syntax_error("enum member value too large", start);
-    }
     if (is_negative) {
         if (value == 1) {
             is_negative = false;
-        }
+        } /*else if (value == 0) {
+            INTERNAL_ERROR("[set_member_value] value would underflow");
+        }*/ // this state should never happen since we dont call set_member_value with "-0"
         value--;
     } else {
+        if (value == std::numeric_limits<uint64_t>::max()) {
+            INTERNAL_ERROR("[set_member_value] value would overflow");
+        }
         value++;
     }
     return std::pair(value, is_negative);
@@ -1102,7 +1100,8 @@ INLINE char* lex_enum_fields (
     uint64_t value,
     uint64_t max_value_unsigned,
     bool is_negative,
-    IdentifierMap &identifier_map,
+    ankerl::unordered_dense::set<std::string_view>&& member_names,
+    IdentifierMap& identifier_map,
     Buffer &buffer
 ) {
     while (1) {
@@ -1141,14 +1140,18 @@ INLINE char* lex_enum_fields (
         name_end:
         char* end = YYCURSOR;
         size_t length = end - start;
-        {
-            auto field = buffer.get(definition_data_idx)->first_field();
-            for (uint32_t i = 0; i < field_count; i++) {
-                if (string_view_equal(field->name, start, length)) {
-                    show_syntax_error("field already defined", start);
-                }
-                field = field->next();
+        {   
+            bool did_emplace = member_names.emplace(std::string_view{start, length}).second;
+            if (!did_emplace) {
+                show_syntax_error("field already defined", start, length);
             }
+            //auto field = buffer.get(definition_data_idx)->first_field();
+            //for (uint32_t i = 0; i < field_count; i++) {
+            //    if (string_view_equal(field->name, start, length)) {
+            //        show_syntax_error("field already defined", start, length);
+            //    }
+            //    field = field->next();
+            //}
         }
         /*!local:re2c
             white_space* "," { goto default_value; }
@@ -1204,7 +1207,7 @@ INLINE char* lex_enum_fields (
                     enum_member_signed: {
                         field_count++;
                         add_member(buffer, start, end, value, is_negative);
-                        return lex_enum_fields<true>(YYCURSOR, definition_data_idx, field_count, value, max_value_unsigned, is_negative, identifier_map, buffer);
+                        return lex_enum_fields<true>(YYCURSOR, definition_data_idx, field_count, value, max_value_unsigned, is_negative, std::move(member_names), identifier_map, buffer);
                     }
                 } else {
                     auto parsed = parse_uint<uint64_t>(YYCURSOR);
@@ -1246,20 +1249,13 @@ INLINE char* lex_enum (
     Buffer &buffer
 ) {
     YYCURSOR = lex_same_line_symbol<'{', "expected '{'">(YYCURSOR);
-
-    uint16_t field_count = 0;
-
-    uint64_t value = 1;
-    bool is_negative = true;
-
-    uint64_t max_value_unsigned = 0;
-
-    return lex_enum_fields<false>(YYCURSOR, definition_data_idx, field_count, value, max_value_unsigned, is_negative, identifier_map, buffer);
+    
+    return lex_enum_fields<false>(YYCURSOR, definition_data_idx, 0, 1, 0, true, {}, identifier_map, buffer);
 }
 
 
 template <bool target_defined>
-INLINE std::conditional_t<target_defined, void, const StructDefinition*> lex (char* YYCURSOR, IdentifierMap &identifier_map, Buffer &buffer) {
+INLINE const StructDefinition* lex (char* YYCURSOR, IdentifierMap &identifier_map, Buffer &buffer, std::conditional_t<target_defined, const StructDefinition*, Empty> target) {
     loop: {
     /*!local:re2c
     
@@ -1288,7 +1284,10 @@ INLINE std::conditional_t<target_defined, void, const StructDefinition*> lex (ch
         buffer.get(definition_idx)->keyword = KEYWORDS::STRUCT;
         buffer.get(definition_data_idx)->name = name_result.value;
         YYCURSOR = lex_struct_or_union(YYCURSOR, definition_data_idx, identifier_map, buffer);
-        add_identifier(name_result.value, identifier_map, definition_idx);
+        add_identifier(identifier_map, name_result.value, definition_idx);
+        if constexpr (target_defined) {
+            logger::warn("no possible path from target to struct ", name_result.value, " can be created.");
+        }
         goto loop;
     }
     enum_keyword: {
@@ -1298,7 +1297,10 @@ INLINE std::conditional_t<target_defined, void, const StructDefinition*> lex (ch
         buffer.get(definition_idx)->keyword = KEYWORDS::ENUM;
         buffer.get(definition_data_idx)->name = name_result.value;
         YYCURSOR = lex_enum(YYCURSOR, definition_data_idx, identifier_map, buffer);
-        add_identifier(name_result.value, identifier_map, definition_idx);
+        add_identifier(identifier_map, name_result.value, definition_idx);
+        if constexpr (target_defined) {
+            logger::warn("no possible path from target to enum ", name_result.value, " can be created.");
+        }
         goto loop;
     }
     union_keyword: {
@@ -1308,7 +1310,10 @@ INLINE std::conditional_t<target_defined, void, const StructDefinition*> lex (ch
         buffer.get(definition_idx)->keyword = KEYWORDS::UNION;
         buffer.get(definition_data_idx)->name = name_result.value;
         YYCURSOR = lex_struct_or_union(YYCURSOR, definition_data_idx, identifier_map, buffer);
-        add_identifier(name_result.value, identifier_map, definition_idx);
+        add_identifier(identifier_map, name_result.value, definition_idx);
+        if constexpr (target_defined) {
+            logger::warn("no possible path from target to union ", name_result.value, " can be created.");
+        }
         goto loop;
     }
     target_keyword: {
@@ -1328,14 +1333,15 @@ INLINE std::conditional_t<target_defined, void, const StructDefinition*> lex (ch
             if (identified_definition->keyword != KEYWORDS::STRUCT) {
                 INTERNAL_ERROR("target must be a struct");
             }
-            lex<true>(YYCURSOR, identifier_map, buffer);
-            return buffer.get(identifier_idx)->data()->as_struct();
+            return lex<true>(YYCURSOR, identifier_map, buffer, identified_definition->data()->as_struct());
         }
     }
 
     eof: {
-        if constexpr (!target_defined) {
-            INTERNAL_ERROR("no target defined");
+        if constexpr (target_defined) {
+            return target;
+        } else {
+            INTERNAL_ERROR("target not defined");
         }
     }
 }
