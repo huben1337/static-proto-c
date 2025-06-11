@@ -16,7 +16,6 @@
 #include "fatal_error.cpp"
 #include "lexer_types.cpp"
 #include "memory.cpp"
-#include "string_helpers.cpp"
 #include "string_literal.cpp"
 #include "code_gen_stuff.cpp"
 #include "fatal_error.cpp"
@@ -1283,7 +1282,7 @@ struct TypeVisitor : lexer::TypeVisitorBase<TypeT, codegen::__UnknownStruct> {
 
         ArrayCtorStrs array_ctor_strs = make_array_ctor_strs(array_depth);
 
-        auto unique_name = get_unique_name(additional_args, [&struct_type]() { return std::string_view{struct_type->name.offset, struct_type->name.length}; });
+        auto unique_name = get_unique_name(additional_args, [&struct_type]() { return struct_type->name; });
         
         auto&& struct_code = code
         ._struct(unique_name)
@@ -1292,7 +1291,6 @@ struct TypeVisitor : lexer::TypeVisitorBase<TypeT, codegen::__UnknownStruct> {
         auto field = struct_type->first_field();
         for (uint16_t i = 0; i < struct_type->field_count; i++) {
             auto field_data = field->data();
-            auto name = std::string_view{field_data->name.offset, field_data->name.length};
             uint16_t struct_depth;
             if constexpr (std::is_same_v<ArgsT, GenStructLeafArgs>) {
                 struct_depth = additional_args.depth + 1;
@@ -1314,7 +1312,7 @@ struct TypeVisitor : lexer::TypeVisitorBase<TypeT, codegen::__UnknownStruct> {
                 offsets_accessor,
                 level_size_leafs,
                 current_size_leaf_idx,
-                GenStructLeafArgs{name, struct_depth},
+                GenStructLeafArgs{field_data->name, struct_depth},
                 array_lengths
             }.visit();
         
@@ -1456,7 +1454,7 @@ void generate (
     logger::debug("level_size_leafs: ", level_size_leafs_count);
     logger::debug("total_variant_count: ", total_variant_count);
 
-    std::string_view struct_name = std::string_view{target_struct->name.offset, target_struct->name.length};
+    std::string_view struct_name = target_struct->name;
     logger::debug("fixed_offsets length: ", total_fixed_leafs + total_variant_fixed_leafs);
     uint64_t fixed_offsets[total_fixed_leafs + total_variant_fixed_leafs];
     logger::debug("var_offsets length: ", total_var_leafs + total_variant_var_leafs);
@@ -1470,7 +1468,7 @@ void generate (
 
     Buffer var_offset_buffer = {4096};
 
-    for (size_t i = 0; i < 10'000'000; ++i) {
+    /*for (size_t i = 0; i < 10'000'000; ++i) {
         volatile auto generate_offsets_info = generate_offsets::generate(
             target_struct,
             buffer,
@@ -1485,7 +1483,7 @@ void generate (
             level_size_leafs_count
         );
         var_offset_buffer.clear();
-    }
+    } */
     auto generate_offsets_info = generate_offsets::generate(
         target_struct,
         buffer,
@@ -1523,7 +1521,7 @@ void generate (
     auto field = target_struct->first_field();
     for (uint16_t i = 0; i < target_struct->field_count; i++) {
         auto field_data = field->data();
-        auto name = std::string_view{field_data->name.offset, field_data->name.length};
+        auto name = field_data->name;
         // auto result = gen_leaf<true, false>(
         //     field_data->type(),
         //     buffer,

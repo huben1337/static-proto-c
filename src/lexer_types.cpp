@@ -5,9 +5,9 @@
 #include <cstdint>
 #include <type_traits>
 #include <unordered_map>
+#include <string_view>
 #include <utility>
 #include "base.cpp"
-#include "string_helpers.cpp"
 #include "memory.cpp"
 #include "memory_helpers.cpp"
 
@@ -181,7 +181,7 @@ struct IdentifiedDefinition {
     KEYWORDS keyword;
 
     struct Data {
-        StringSection<uint16_t> name;
+        std::string_view name;
 
         INLINE constexpr auto as_struct () const;
         INLINE constexpr auto as_enum () const;
@@ -337,7 +337,7 @@ INLINE const auto Type::as_dynamic_variant () const {
 struct StructField {
     
     struct Data {
-        StringSection<uint16_t> name;
+        std::string_view name;
 
         INLINE const Type* type () const {
             return reinterpret_cast<const Type*>(this + 1);
@@ -351,7 +351,7 @@ struct StructField {
 
 struct EnumField {
     uint64_t value = 0;
-    StringSection<uint16_t> name;
+    std::string_view name;
     
     bool is_negative = false;
 

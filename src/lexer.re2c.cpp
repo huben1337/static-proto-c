@@ -6,8 +6,9 @@
 #include "lex_error.cpp"
 #include "lex_helpers.re2c.cpp"
 #include "parse_int.re2c.cpp"
-#include <concepts>
+#include "string_helpers.cpp"
 #include <cstdint>
+#include <string_view>
 #include "logger.cpp"
 
 namespace lexer {
@@ -136,7 +137,7 @@ INLINE LexResult<VariantAttributes> lex_variant_attributes (char* YYCURSOR) {
     }
 }
 
-INLINE LexResult<std::pair<char*, char*>>  lex_identifier_name (char* YYCURSOR) {
+INLINE LexResult<std::string_view>  lex_identifier_name (char* YYCURSOR) {
     char* YYMARKER;
     /*!local:re2c
         re2c:define:YYMARKER = YYMARKER;
@@ -177,16 +178,12 @@ INLINE LexResult<std::pair<char*, char*>>  lex_identifier_name (char* YYCURSOR) 
     return { YYCURSOR, {start, end} };   
 }
 
-INLINE void add_identifier (std::pair<char*, char*> name, IdentifierMap &identifier_map, IdentifedDefinitionIndex definition_idx) {
-    auto [start, end] = name;
+INLINE void add_identifier (std::string_view name, IdentifierMap &identifier_map, IdentifedDefinitionIndex definition_idx) {
 
-    char end_backup = *end;
-    *end = 0;
-    auto inserted = identifier_map.insert({start, definition_idx}).second;
-    *end = end_backup;
+    auto inserted = identifier_map.insert({std::string{name}, definition_idx}).second;
 
     if (!inserted) {
-        show_syntax_error("identifier already defined", start);
+        show_syntax_error("identifier already defined", name.data());
     }
 }
 
@@ -985,13 +982,10 @@ INLINE char* lex_struct_or_union_fields (
     name_end:
     char* end = YYCURSOR;
     size_t length = end - start;
-    if (length > std::numeric_limits<uint16_t>::max()) {
-        UNEXPECTED_INPUT("field name too long");
-    }
     if constexpr (!is_first_field) {
         const StructField::Data* field = buffer.get(definition_data_idx)->first_field()->data();
-        for (uint32_t i = 0; i < field_count; i++) {
-            if (string_section_eq(field->name.offset, field->name.length, start, length)) {
+        for (uint16_t i = 0; i < field_count; i++) {
+            if (string_view_equal(field->name, start, length)) {
                 show_syntax_error("field already defined", start);
             }
             field = skip_type<StructField>(field->type())->data();
@@ -1004,7 +998,7 @@ INLINE char* lex_struct_or_union_fields (
 
     struct_field: {
         StructField::Data* field = DefinitionWithFields::reserve_field(buffer);
-        field->name = {start, static_cast<uint16_t>(length)};
+        field->name = {start, length};
         
         YYCURSOR = skip_white_space(YYCURSOR);
         auto result = lex_type<false>(YYCURSOR, buffer, identifier_map);
@@ -1150,7 +1144,7 @@ INLINE char* lex_enum_fields (
         {
             auto field = buffer.get(definition_data_idx)->first_field();
             for (uint32_t i = 0; i < field_count; i++) {
-                if (string_section_eq(field->name.offset, field->name.length, start, length)) {
+                if (string_view_equal(field->name, start, length)) {
                     show_syntax_error("field already defined", start);
                 }
                 field = field->next();
@@ -1263,15 +1257,6 @@ INLINE char* lex_enum (
     return lex_enum_fields<false>(YYCURSOR, definition_data_idx, field_count, value, max_value_unsigned, is_negative, identifier_map, buffer);
 }
 
-template <std::unsigned_integral T>
-INLINE StringSection<T> to_identifier_string_section (std::pair<char*, char*> str) {
-    auto [start, end] = str;
-    size_t length = end - start;
-    if (length > std::numeric_limits<T>::max()) {
-        show_syntax_error("identifier name too long", start);
-    }
-    return {start, static_cast<T>(length)};
-}
 
 template <bool target_defined>
 INLINE std::conditional_t<target_defined, void, const StructDefinition*> lex (char* YYCURSOR, IdentifierMap &identifier_map, Buffer &buffer) {
@@ -1301,7 +1286,7 @@ INLINE std::conditional_t<target_defined, void, const StructDefinition*> lex (ch
         YYCURSOR = name_result.cursor;
         auto [definition_data_idx, definition_idx] = StructDefinition::create(buffer);
         buffer.get(definition_idx)->keyword = KEYWORDS::STRUCT;
-        buffer.get(definition_data_idx)->name = to_identifier_string_section<uint16_t>(name_result.value);
+        buffer.get(definition_data_idx)->name = name_result.value;
         YYCURSOR = lex_struct_or_union(YYCURSOR, definition_data_idx, identifier_map, buffer);
         add_identifier(name_result.value, identifier_map, definition_idx);
         goto loop;
@@ -1311,7 +1296,7 @@ INLINE std::conditional_t<target_defined, void, const StructDefinition*> lex (ch
         YYCURSOR = name_result.cursor;
         auto [definition_data_idx, definition_idx] = EnumDefinition::create(buffer);
         buffer.get(definition_idx)->keyword = KEYWORDS::ENUM;
-        buffer.get(definition_data_idx)->name = to_identifier_string_section<uint16_t>(name_result.value);
+        buffer.get(definition_data_idx)->name = name_result.value;
         YYCURSOR = lex_enum(YYCURSOR, definition_data_idx, identifier_map, buffer);
         add_identifier(name_result.value, identifier_map, definition_idx);
         goto loop;
@@ -1321,7 +1306,7 @@ INLINE std::conditional_t<target_defined, void, const StructDefinition*> lex (ch
         YYCURSOR = name_result.cursor;
         auto [definition_data_idx, definition_idx] = UnionDefinition::create(buffer);
         buffer.get(definition_idx)->keyword = KEYWORDS::UNION;
-        buffer.get(definition_data_idx)->name = to_identifier_string_section<uint16_t>(name_result.value);
+        buffer.get(definition_data_idx)->name = name_result.value;
         YYCURSOR = lex_struct_or_union(YYCURSOR, definition_data_idx, identifier_map, buffer);
         add_identifier(name_result.value, identifier_map, definition_idx);
         goto loop;
