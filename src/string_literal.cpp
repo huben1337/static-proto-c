@@ -1,5 +1,6 @@
 #pragma once
 #include <cstddef>
+#include <string_view>
 #include <utility>
 
 #include "constexpr_helpers.cpp"
@@ -26,12 +27,16 @@ struct StringLiteral {
     consteval size_t size () const { return N - 1; }
     static constexpr size_t _size = N - 1;
 
+    consteval const char *data() const {
+        return value;
+    }
+
     consteval const char *c_str() const {
         return value;
     }
 
-    consteval const char *data() const {
-        return value;
+    consteval const std::string_view sv () const {
+        return {value, N - 1};
     }
 
     consteval char operator [] (size_t index) const {
