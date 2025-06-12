@@ -8,16 +8,38 @@
 #include "lex_helpers.re2c.cpp"
 #include "parse_int.re2c.cpp"
 #include "string_helpers.cpp"
+#include <concepts>
 #include <cstdint>
 #include <string_view>
+#include <type_traits>
 #include "logger.cpp"
 
 namespace lexer {
 
 /*!re2c
-    re2c:define:YYMARKER = YYCURSOR;
     re2c:yyfill:enable = 0;
     re2c:define:YYCTYPE = char;
+
+    re2c:api = generic;
+    re2c:api:style = free-form;
+
+    re2c:define:YYBACKUP     = "// YYBACKUP";
+    re2c:define:YYBACKUPCTX  = "YYBACKUPCTX";
+    re2c:define:YYLESSTHAN   = "YYLESSTHAN";
+    re2c:define:YYMTAGN      = "YYMTAGN";
+    re2c:define:YYMTAGP      = "YYMTAGP";
+    re2c:define:YYPEEK       = "*YYCURSOR";
+    re2c:define:YYRESTORE    = "// YYRESTORE";
+    re2c:define:YYRESTORECTX = "YYRESTORECTX";
+    re2c:define:YYRESTORETAG = "YYRESTORETAG";
+    re2c:define:YYSKIP       = "++YYCURSOR;";
+    re2c:define:YYSHIFT      = "YYSHIFT";
+    re2c:define:YYCOPYMTAG   = "YYCOPYMTAG";
+    re2c:define:YYCOPYSTAG   = "@@{lhs} = @@{rhs};";
+    re2c:define:YYSHIFTMTAG  = "YYSHIFTMTAG";
+    re2c:define:YYSHIFTSTAG  = "YYSHIFTSTAG";
+    re2c:define:YYSTAGN      = "YYSTAGN";
+    re2c:define:YYSTAGP      = "@@{tag} = YYCURSOR;";
 
     any_white_space = [ \t\r\n];
     white_space = [ \t];
@@ -27,83 +49,100 @@ template <typename F, typename G>
 INLINE char* lex_range_argument (char* YYCURSOR, F on_fixed, G on_range) {
 
     YYCURSOR = skip_white_space(YYCURSOR);
-    
-    auto firstArgPos = YYCURSOR;
+    char* const range_start = YYCURSOR;
     auto parsed_0 = parse_uint<uint32_t>(YYCURSOR);
     YYCURSOR = parsed_0.cursor;
     auto min = parsed_0.value;
 
-    YYCURSOR = skip_white_space(YYCURSOR);
+    char* const after_min_cursor = YYCURSOR;
 
-    if (*YYCURSOR == '.') {
-        YYCURSOR++;
-        if (*YYCURSOR != '.') {
+    /*!local:re2c
+        white_space* "." { goto maybe_range; }
+        white_space* { goto fixed; }
+    */
+
+    maybe_range: {
+        if (*YYCURSOR == '.') {
+            YYCURSOR++;
+            goto range;
+        } else {
             UNEXPECTED_INPUT("expected '..' to mark range");
         }
-        
-        YYCURSOR = skip_white_space(YYCURSOR + 1);
+    }
 
+    range: {
+        YYCURSOR = skip_white_space(YYCURSOR);
         auto parsed_1 = parse_uint<uint32_t>(YYCURSOR);
         YYCURSOR = parsed_1.cursor;
         auto max = parsed_1.value;
-        if (max <= min) show_syntax_error("invalid range", firstArgPos, YYCURSOR - 1);
+        if (max <= min) show_syntax_error("invalid range", range_start, YYCURSOR - 1);
         on_range(Range{min, max});
-    } else {
-        on_fixed(min);
+        goto lex_argument_list_end;
     }
 
+    fixed: {
+        on_fixed(min);
+        YYCURSOR = after_min_cursor;
+    }
+
+    lex_argument_list_end:
     /*!local:re2c
-        white_space* ">" { goto done; }
-        * { UNEXPECTED_INPUT("expected end of argument list"); }
+        white_space* ">"    { goto done; }
+        white_space*        { UNEXPECTED_INPUT("expected end of argument list"); }
     */
     done:
     return YYCURSOR;
 }
 
-template <typename T>
-requires (std::is_integral_v<T>)
+template <std::unsigned_integral T>
 INLINE LexResult<T> lex_attribute_value (char* YYCURSOR) {
     YYCURSOR = lex_same_line_symbol<'=', "Expected value assignment for attribute">(YYCURSOR);
     YYCURSOR = skip_white_space(YYCURSOR);
-    return parse_uint<uint64_t>(YYCURSOR);
+    return parse_uint<T>(YYCURSOR);
 }
 
 struct VariantAttributes {
     uint64_t max_wasted_bytes;
-    uint64_t shared_id;
+    bool has_shared_id;
+    uint32_t shared_id;
 };
 
 INLINE LexResult<VariantAttributes> lex_variant_attributes (char* YYCURSOR) {
-    uint64_t max_wasted_bytes = 32;
-    uint64_t shared_id;
-    bool has_shared_id = false;
-    bool has_max_wasted_bytes = false;
+    static constexpr uint64_t max_wasted_bytes_default = 32;
 
-    char* YYMARKER = YYCURSOR;
+
     /*!local:re2c
-        white_space* "[" { goto maybe_lex_attributes; }
-        * { YYCURSOR = YYMARKER; goto lex_attributes_done; }
+        white_space* "["    { goto maybe_lex_attributes; }
+        white_space*        { goto no_attributes; }
     */
 
+    no_attributes: {
+        return {YYCURSOR, {max_wasted_bytes_default, false}};
+    }
+
     maybe_lex_attributes: {
+        uint64_t max_wasted_bytes = max_wasted_bytes_default;
+        bool has_max_wasted_bytes = false;
+        uint32_t shared_id;
+        bool has_shared_id = false;
+
         /*!local:re2c
-            "[" {}
-            * { show_syntax_error("unexpected character", YYCURSOR - 1); }
+            "[" { goto lex_attributes; }
+            * { show_syntax_error("expected second '[' to open attribute list", YYCURSOR - 1); }
         */
-        YYCURSOR = skip_white_space(YYCURSOR);
         
         lex_attributes: {
             /*!local:re2c
-                "max_wasted" { goto lex_max_wasted_bytes; }
-                "shared_id" { goto lex_shared_id; }
-                * { show_syntax_error("unexpected attribute", YYCURSOR - 1); }
+                white_space* "max_wasted"   { goto lex_max_wasted_bytes; }
+                white_space* "shared_id"    { goto lex_shared_id; }
+                white_space*                { show_syntax_error("expected attribute", YYCURSOR - 1); }
             */
             lex_max_wasted_bytes: {
                 if (has_max_wasted_bytes) {
                     show_syntax_error("conflicting attributes", YYCURSOR - 1);
                 }
                 has_max_wasted_bytes = true;
-                auto parsed = lex_attribute_value<uint64_t>(YYCURSOR);
+                auto parsed = lex_attribute_value<uint32_t>(YYCURSOR);
                 max_wasted_bytes = parsed.value;
                 YYCURSOR = parsed.cursor;
                 goto attribute_end;
@@ -113,7 +152,7 @@ INLINE LexResult<VariantAttributes> lex_variant_attributes (char* YYCURSOR) {
                     show_syntax_error("conflicting attributes", YYCURSOR - 1);
                 }
                 has_shared_id = true;
-                auto parsed = lex_attribute_value<uint64_t>(YYCURSOR);
+                auto parsed = lex_attribute_value<uint32_t>(YYCURSOR);
                 shared_id = parsed.value;
                 YYCURSOR = parsed.cursor;
                 goto attribute_end;
@@ -122,7 +161,7 @@ INLINE LexResult<VariantAttributes> lex_variant_attributes (char* YYCURSOR) {
                 /*!local:re2c
                     white_space* "]" { goto close_attributes; }
                     white_space* "," { goto lex_attributes; }
-                    * { show_syntax_error("expected end of attributes or next ", YYCURSOR); }
+                    white_space* { show_syntax_error("expected end of attributes or next ", YYCURSOR); }
                 */
             }
         }
@@ -132,20 +171,23 @@ INLINE LexResult<VariantAttributes> lex_variant_attributes (char* YYCURSOR) {
             "]" { goto lex_attributes_done; }
             * { show_syntax_error("expected closing of attributes", YYCURSOR); }
         */
+        lex_attributes_done:
+        return {YYCURSOR, {max_wasted_bytes, has_shared_id, shared_id}};
     }
-    lex_attributes_done: {
-        return {YYCURSOR, {max_wasted_bytes, shared_id}};
-    }
+    
 }
 
 INLINE LexResult<std::string_view>  lex_identifier_name (char* YYCURSOR) {
-    char* YYMARKER;
+    const char* start;
+    
+    /*!stags:re2c format = 'const char *@@;\n'; */
     /*!local:re2c
-        re2c:define:YYMARKER = YYMARKER;
-        
-        white_space* [a-zA-Z_]              { goto name_start; }
+        re2c:tags = 1;
+        identifier = [a-zA-Z_][a-zA-Z0-9_]*;
 
         invalid = [^a-zA-Z0-9_];
+        
+        white_space* @start identifier      { goto done; }
 
         white_space* "int8"    invalid      { UNEXPECTED_INPUT("int8 is reserved");    }
         white_space* "int16"   invalid      { UNEXPECTED_INPUT("int16 is reserved");   }
@@ -166,17 +208,10 @@ INLINE LexResult<std::string_view>  lex_identifier_name (char* YYCURSOR) {
         white_space* "union"   invalid      { UNEXPECTED_INPUT("union is reserved");   }
         white_space* "target"  invalid      { UNEXPECTED_INPUT("target is reserved");  }
 
-        * { UNEXPECTED_INPUT("expected name"); }
+        white_space* { UNEXPECTED_INPUT("expected name"); }
     */
-    name_start:
-    auto start = YYCURSOR - 1;
-    /*!local:re2c
-        [a-zA-Z0-9_]*  { goto name_end; }
-    */
-    name_end:
-    auto end = YYCURSOR;
-
-    return { YYCURSOR, {start, end} };   
+    done:
+    return { YYCURSOR, {start, YYCURSOR} };
 }
 
 INLINE void add_identifier (IdentifierMap &identifier_map, std::string_view name, IdentifedDefinitionIndex definition_idx) {
@@ -239,7 +274,7 @@ INLINE std::conditional_t<expect_fixed, LexFixedTypeResult, LexTypeResult> add_v
 ) {
     auto attribute_lex_result = lex_variant_attributes(YYCURSOR);
     YYCURSOR = attribute_lex_result.cursor;
-    auto [max_wasted_bytes, shared_id] = attribute_lex_result.value;
+    auto [max_wasted_bytes, has_shared_id, shared_id] = attribute_lex_result.value;
 
     auto types_end_idx = buffer.position_idx<uint8_t>();
 
@@ -427,7 +462,6 @@ INLINE std::conditional_t<expect_fixed, LexFixedTypeResult, LexTypeResult> lex_v
 ) {
     while (1) {
         variant_count++;
-        YYCURSOR = skip_white_space(YYCURSOR);
         auto result = lex_type<expect_fixed>(YYCURSOR, buffer, identifier_map);
         YYCURSOR = result.cursor;
         inner_total_variant_count += result.total_variant_count;
@@ -466,7 +500,7 @@ INLINE std::conditional_t<expect_fixed, LexFixedTypeResult, LexTypeResult> lex_v
                 /*!local:re2c
                     white_space* "," { goto dynamic_variant_next; }
                     white_space* ">" { goto dynamic_variant_done;  }
-                    * { UNEXPECTED_INPUT("expected ',' or '>'"); }
+                    white_space* { UNEXPECTED_INPUT("expected ',' or '>'"); }
                 */
                 dynamic_variant_next: {
                     return lex_variant_types<true, expect_fixed>(
@@ -514,7 +548,7 @@ INLINE std::conditional_t<expect_fixed, LexFixedTypeResult, LexTypeResult> lex_v
         /*!local:re2c
             white_space* "," { continue; }
             white_space* ">" { goto variant_done; }
-            * { UNEXPECTED_INPUT("expected ',' or '>'"); }
+            white_space* { UNEXPECTED_INPUT("expected ',' or '>'"); }
         */
         variant_done: {
             return add_variant_type<is_dynamic, expect_fixed>(
@@ -542,7 +576,7 @@ INLINE std::conditional_t<expect_fixed, LexFixedTypeResult, LexTypeResult> lex_v
 
 template <bool expect_fixed>
 std::conditional_t<expect_fixed, LexFixedTypeResult, LexTypeResult> lex_type (char* YYCURSOR, Buffer &buffer, IdentifierMap &identifier_map) {
-    const char* identifier_start = YYCURSOR;
+    
     #define SIMPLE_TYPE(TYPE, ALIGN)                                                                                    \
     {                                                                                                                   \
         auto type = buffer.get_next<Type>();                                                                            \
@@ -555,27 +589,31 @@ std::conditional_t<expect_fixed, LexFixedTypeResult, LexTypeResult> lex_type (ch
             return LexTypeResult{YYCURSOR, fixed_leaf_counts, {0}, {0}, byte_size, byte_size, 0, 0, 0, 0, 0, ALIGN};    \
         }                                                                                                               \
     }
-    
-    /*!local:re2c
-        name = [a-zA-Z_][a-zA-Z0-9_]*;
-                    
-        "int8"      { SIMPLE_TYPE(INT8,    SIZE::SIZE_1 ) }
-        "int16"     { SIMPLE_TYPE(INT16,   SIZE::SIZE_2 ) }
-        "int32"     { SIMPLE_TYPE(INT32,   SIZE::SIZE_4 ) }
-        "int64"     { SIMPLE_TYPE(INT64,   SIZE::SIZE_8 ) }
-        "uint8"     { SIMPLE_TYPE(UINT8,   SIZE::SIZE_1 ) }
-        "uint16"    { SIMPLE_TYPE(UINT16,  SIZE::SIZE_2 ) }
-        "uint32"    { SIMPLE_TYPE(UINT32,  SIZE::SIZE_4 ) }
-        "uint64"    { SIMPLE_TYPE(UINT64,  SIZE::SIZE_8 ) }
-        "float32"   { SIMPLE_TYPE(FLOAT32, SIZE::SIZE_4 ) }
-        "float64"   { SIMPLE_TYPE(FLOAT64, SIZE::SIZE_8 ) }
-        "bool"      { SIMPLE_TYPE(BOOL,    SIZE::SIZE_1 ) }
-        "string"    { goto string;                        }
-        "array"     { goto array;                         }
-        "variant"   { goto variant;                       }
-        name        { goto identifier;                    }
 
-        * { UNEXPECTED_INPUT("expected type"); }
+    const char* identifier_start; // only initilized if the lexer finds an identifier
+    
+    /*!stags:re2c format = 'const char *@@;\n'; */
+    /*!local:re2c
+        re2c:tags = 1;
+        identifier = [a-zA-Z_][a-zA-Z0-9_]*;
+                    
+        white_space*  "int8"                        { SIMPLE_TYPE(INT8,    SIZE::SIZE_1 ) }
+        white_space*  "int16"                       { SIMPLE_TYPE(INT16,   SIZE::SIZE_2 ) }
+        white_space*  "int32"                       { SIMPLE_TYPE(INT32,   SIZE::SIZE_4 ) }
+        white_space*  "int64"                       { SIMPLE_TYPE(INT64,   SIZE::SIZE_8 ) }
+        white_space*  "uint8"                       { SIMPLE_TYPE(UINT8,   SIZE::SIZE_1 ) }
+        white_space*  "uint16"                      { SIMPLE_TYPE(UINT16,  SIZE::SIZE_2 ) }
+        white_space*  "uint32"                      { SIMPLE_TYPE(UINT32,  SIZE::SIZE_4 ) }
+        white_space*  "uint64"                      { SIMPLE_TYPE(UINT64,  SIZE::SIZE_8 ) }
+        white_space*  "float32"                     { SIMPLE_TYPE(FLOAT32, SIZE::SIZE_4 ) }
+        white_space*  "float64"                     { SIMPLE_TYPE(FLOAT64, SIZE::SIZE_8 ) }
+        white_space*  "bool"                        { SIMPLE_TYPE(BOOL,    SIZE::SIZE_1 ) }
+        white_space*  "string"                      { goto string;                        }
+        white_space*  "array"                       { goto array;                         }
+        white_space*  "variant"                     { goto variant;                       }
+        white_space*  @identifier_start identifier  { goto identifier;                    }
+
+        white_space* { UNEXPECTED_INPUT("expected type"); }
     */
     #undef SIMPLE_TYPE
     #undef LEAF_COUNTS_TYPE_8
@@ -685,8 +723,6 @@ std::conditional_t<expect_fixed, LexFixedTypeResult, LexTypeResult> lex_type (ch
         auto [extended_idx, base_idx] = ArrayType::create(buffer);
 
         YYCURSOR = lex_same_line_symbol<'<', "expected argument list">(YYCURSOR);
-
-        YYCURSOR = skip_white_space(YYCURSOR);
 
         auto result = lex_type<true>(YYCURSOR, buffer, identifier_map);
         YYCURSOR = result.cursor;
@@ -834,7 +870,7 @@ std::conditional_t<expect_fixed, LexFixedTypeResult, LexTypeResult> lex_type (ch
     }
 
     identifier: {
-        auto identifer_end = YYCURSOR;
+        char* const identifer_end = YYCURSOR;
 
         auto identifier_idx_iter = identifier_map.find(std::string_view{identifier_start, identifer_end});
         if (identifier_idx_iter == identifier_map.end()) {
@@ -940,13 +976,11 @@ INLINE char* lex_struct_or_union_fields (
     SIZE max_alignment
 ) {
     before_field:
-    YYCURSOR = skip_any_white_space(YYCURSOR);
-
     /*!local:re2c
-        [a-zA-Z_]   { goto name_start; }
-        "}"         { goto struct_end; }
+        any_white_space* [a-zA-Z_]   { goto name_start; }
+        any_white_space* "}"         { goto struct_end; }
 
-        * { UNEXPECTED_INPUT("expected field name or '}'"); }
+        any_white_space* { show_syntax_error("Expected field name or end of struct", YYCURSOR - 1); }
     */
 
     struct_end: {
@@ -989,14 +1023,13 @@ INLINE char* lex_struct_or_union_fields (
     }
     /*!local:re2c
         white_space* ":" { goto struct_field; }
-        * { UNEXPECTED_INPUT("expected ':'"); }
+        white_space* { UNEXPECTED_INPUT("expected ':'"); }
     */
 
     struct_field: {
         StructField::Data* field = DefinitionWithFields::reserve_field(buffer);
         field->name = {start, length};
         
-        YYCURSOR = skip_white_space(YYCURSOR);
         auto result = lex_type<false>(YYCURSOR, buffer, identifier_map);
         YYCURSOR = result.cursor;
 
@@ -1068,50 +1101,25 @@ INLINE char* lex_struct_or_union(
     );
 }
 
-INLINE auto set_member_value (char* start, uint64_t value, bool is_negative) {
-    if (is_negative) {
-        if (value == 1) {
-            is_negative = false;
-        } /*else if (value == 0) {
-            INTERNAL_ERROR("[set_member_value] value would underflow");
-        }*/ // this state should never happen since we dont call set_member_value with "-0"
-        value--;
-    } else {
-        if (value == std::numeric_limits<uint64_t>::max()) {
-            INTERNAL_ERROR("[set_member_value] value would overflow");
-        }
-        value++;
-    }
-    return std::pair(value, is_negative);
-}
 
-INLINE auto add_member (Buffer &buffer, char* start, char* end, uint64_t value, bool is_negative) {
-    auto field = EnumDefinition::reserve_field(buffer);
-    field->name = {start, end};
-    field->value = value;
-    field->is_negative = is_negative;
-}
 
 template <bool is_signed>
 INLINE char* lex_enum_fields (
     char* YYCURSOR,
     Buffer::Index<EnumDefinition> definition_data_idx,
     uint16_t field_count,
-    uint64_t value,
+    EnumField::Value&& value,
     uint64_t max_value_unsigned,
-    bool is_negative,
     ankerl::unordered_dense::set<std::string_view>&& member_names,
     IdentifierMap& identifier_map,
     Buffer &buffer
 ) {
     while (1) {
-        YYCURSOR = skip_any_white_space(YYCURSOR);
-
         /*!local:re2c
-            [a-zA-Z_]   { goto name_start; }
-            "}"         { goto enum_end; }
+            any_white_space* [a-zA-Z_]   { goto name_start; }
+            any_white_space* "}"         { goto enum_end; }
 
-            * { UNEXPECTED_INPUT("expected field name or '}'"); }
+            any_white_space* { show_syntax_error("Expected field name or end of struct", YYCURSOR - 1); }
         */
 
         enum_end: {
@@ -1138,12 +1146,11 @@ INLINE char* lex_enum_fields (
             [a-zA-Z0-9_]*  { goto name_end; }
         */
         name_end:
-        char* end = YYCURSOR;
-        size_t length = end - start;
+        std::string_view name = {std::move(start), YYCURSOR};
         {   
-            bool did_emplace = member_names.emplace(std::string_view{start, length}).second;
+            bool did_emplace = member_names.emplace(name).second;
             if (!did_emplace) {
-                show_syntax_error("field already defined", start, length);
+                show_syntax_error("field already defined", name.data(), name.size());
             }
             //auto field = buffer.get(definition_data_idx)->first_field();
             //for (uint32_t i = 0; i < field_count; i++) {
@@ -1157,87 +1164,82 @@ INLINE char* lex_enum_fields (
             white_space* "," { goto default_value; }
             white_space* "=" { goto custom_value; }
             white_space* "}" { goto default_last_member; }
-            * { UNEXPECTED_INPUT("expected custom value or ','"); }
+            white_space* { UNEXPECTED_INPUT("expected custom value or ','"); }
         */
 
         default_value: {
-            std::tie(value, is_negative) = set_member_value(start, value, is_negative);
+            value.increment();
             goto enum_member;
         }
 
         custom_value: {
-            YYCURSOR = skip_white_space(YYCURSOR);
-            is_negative = *YYCURSOR == '-';
-            if constexpr (is_signed) {
-                if (is_negative) {
-                    auto parsed = parse_uint<uint64_t, std::numeric_limits<int64_t>::max()>(YYCURSOR + 1);
-                    value = parsed.value;
-                    YYCURSOR = parsed.cursor;
-                    max_value_unsigned = std::max(max_value_unsigned, value * 2 - 1);
+            /*!local:re2c
+                white_space* "-"    { goto parse_negative_value; }
+                white_space*        { goto parse_positive_value; }
+            */
 
-                    /*!local:re2c
-                        white_space* "," { goto enum_member; }
-                        white_space* "}" { goto last_member; }
-                        * { UNEXPECTED_INPUT("expected ',' or end of enum definition"); }
-                    */
-                } else {
-                    auto parsed = parse_uint<uint64_t, std::numeric_limits<int64_t>::max()>(YYCURSOR);
-                    value = parsed.value;
-                    YYCURSOR = parsed.cursor;
-                    max_value_unsigned = std::max(max_value_unsigned, value * 2 + 1);
+            parse_negative_value: {
+                auto parsed = parse_uint<uint64_t, static_cast<uint64_t>(std::numeric_limits<int64_t>::min())>(YYCURSOR);
+                YYCURSOR = parsed.cursor;
 
-                    /*!local:re2c
-                        white_space* "," { goto enum_member; }
-                        white_space* "}" { goto last_member; }
-                        * { UNEXPECTED_INPUT("expected ',' or end of enum definition"); }
-                    */
+                
+                max_value_unsigned = std::max(max_value_unsigned, parsed.value * 2 - 1);
+
+                bool is_negative = parsed.value != 0;
+                value = {parsed.value, is_negative};
+
+                /*!local:re2c
+                    white_space* "," { goto enum_member_signed; }
+                    white_space* "}" { goto last_member; }
+                    white_space* { UNEXPECTED_INPUT("expected ',' or end of enum definition"); }
+                */
+                enum_member_signed: {
+                    field_count++;
+                    EnumDefinition::add_field(buffer, {name, value});
+                    return lex_enum_fields<true>(YYCURSOR, definition_data_idx, field_count, std::move(value), max_value_unsigned, std::move(member_names), identifier_map, buffer);
                 }
-            } else {
-                if (is_negative) {
-                    auto parsed = parse_uint<uint64_t, std::numeric_limits<int64_t>::max()>(YYCURSOR + 1);
-                    value = parsed.value;
-                    YYCURSOR = parsed.cursor;
-                    max_value_unsigned = std::max(max_value_unsigned, value * 2 - 1);
+            }
 
-                    /*!local:re2c
-                        white_space* "," { goto enum_member_signed; }
-                        white_space* "}" { goto last_member; }
-                        * { UNEXPECTED_INPUT("expected ',' or end of enum definition"); }
-                    */
-                    enum_member_signed: {
-                        field_count++;
-                        add_member(buffer, start, end, value, is_negative);
-                        return lex_enum_fields<true>(YYCURSOR, definition_data_idx, field_count, value, max_value_unsigned, is_negative, std::move(member_names), identifier_map, buffer);
-                    }
+            parse_positive_value: {
+                auto parsed = parse_uint<
+                    uint64_t,
+                    std::numeric_limits<std::conditional_t<
+                        is_signed,
+                        int64_t,
+                        uint64_t
+                    >>::max()
+                >(YYCURSOR);
+                YYCURSOR = parsed.cursor;
+                if constexpr (is_signed) {
+                    max_value_unsigned = std::max(max_value_unsigned, parsed.value * 2 - 1);
                 } else {
-                    auto parsed = parse_uint<uint64_t>(YYCURSOR);
-                    value = parsed.value;
-                    YYCURSOR = parsed.cursor;
-                    max_value_unsigned = std::max(max_value_unsigned, value);
-
-                    /*!local:re2c
-                        white_space* "," { goto enum_member; }
-                        white_space* "}" { goto last_member; }
-                        * { UNEXPECTED_INPUT("expected ',' or end of enum definition"); }
-                    */
+                    max_value_unsigned = std::max(max_value_unsigned, parsed.value);
                 }
+
+                value = EnumField::Value{parsed.value, false};
+
+                /*!local:re2c
+                    white_space* "," { goto enum_member; }
+                    white_space* "}" { goto last_member; }
+                    white_space* { UNEXPECTED_INPUT("expected ',' or end of enum definition"); }
+                */
             }
         }
 
         default_last_member: {
-            std::tie(value, is_negative) = set_member_value(start, value, is_negative);
+            value.increment();
             goto last_member;
         }
 
         last_member: {
             field_count++;
-            add_member(buffer, start, end, value, is_negative);
+            EnumDefinition::add_field(buffer, {name, value});
             goto enum_end;
         }
 
         enum_member: {
             field_count++;
-            add_member(buffer, start, end, value, is_negative);
+            EnumDefinition::add_field(buffer, {name, value});
         }
     }
 }
@@ -1248,9 +1250,8 @@ INLINE char* lex_enum (
     IdentifierMap &identifier_map,
     Buffer &buffer
 ) {
-    YYCURSOR = lex_same_line_symbol<'{', "expected '{'">(YYCURSOR);
-    
-    return lex_enum_fields<false>(YYCURSOR, definition_data_idx, 0, 1, 0, true, {}, identifier_map, buffer);
+    YYCURSOR = lex_same_line_symbol<'{', "Expected '{' to denote start of enum">(YYCURSOR);
+    return lex_enum_fields<false>(YYCURSOR, definition_data_idx, 0, {-1LL}, 0, {}, identifier_map, buffer);
 }
 
 
@@ -1320,7 +1321,6 @@ INLINE const StructDefinition* lex (char* YYCURSOR, IdentifierMap &identifier_ma
         if constexpr (target_defined) {
             show_syntax_error("target already defined", YYCURSOR);
         } else {
-            YYCURSOR = skip_white_space(YYCURSOR);
             auto type_idx = Buffer::Index<Type>{buffer.current_position()};
             YYCURSOR = lex_type<false>(YYCURSOR, buffer, identifier_map).cursor;
             YYCURSOR = lex_same_line_symbol<';'>(YYCURSOR);

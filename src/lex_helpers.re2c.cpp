@@ -2,28 +2,40 @@
 
 #include "string_literal.cpp"
 #include "lex_error.cpp"
+#include <string_view>
 #include <utility>
 
 /*!re2c
-    re2c:define:YYMARKER = YYCURSOR;
     re2c:yyfill:enable = 0;
     re2c:define:YYCTYPE = char;
+
+    re2c:api = generic;
+    re2c:api:style = free-form;
+
+    re2c:define:YYBACKUP     = "YYBACKUP";
+    re2c:define:YYBACKUPCTX  = "YYBACKUPCTX";
+    re2c:define:YYLESSTHAN   = "YYLESSTHAN";
+    re2c:define:YYMTAGN      = "YYMTAGN";
+    re2c:define:YYMTAGP      = "YYMTAGP";
+    re2c:define:YYPEEK       = "*YYCURSOR";
+    re2c:define:YYRESTORE    = "YYRESTORE";
+    re2c:define:YYRESTORECTX = "YYRESTORECTX";
+    re2c:define:YYRESTORETAG = "YYRESTORETAG";
+    re2c:define:YYSKIP       = "++YYCURSOR;";
+    re2c:define:YYSHIFT      = "YYSHIFT";
+    re2c:define:YYCOPYMTAG   = "YYCOPYMTAG";
+    re2c:define:YYCOPYSTAG   = "YYCOPYSTAG";
+    re2c:define:YYSHIFTMTAG  = "YYSHIFTMTAG";
+    re2c:define:YYSHIFTSTAG  = "YYSHIFTSTAG";
+    re2c:define:YYSTAGN      = "YYSTAGN";
+    re2c:define:YYSTAGP      = "YYSTAGP";
 
     any_white_space = [ \t\r\n];
     white_space = [ \t];
 */
 
-
 template<char symbol>
-constexpr auto lex_symbol_error = StringLiteral("expected symbol: ") + StringLiteral(symbol);
-
-
-#define CHECK_SYMBOL                                                \
-if (yych == symbol) {                                               \
-    return ++YYCURSOR;                                              \
-} else {                                                            \
-    UNEXPECTED_INPUT(error_message.c_str())                         \
-}
+constexpr auto lex_symbol_error = "expected symbol: "_sl + StringLiteral(symbol);
 
 /**
  * \brief Lexes a specific symbol, allowing any amount of whitespace before it.
@@ -38,10 +50,23 @@ if (yych == symbol) {                                               \
  *          or triggers an error if the symbol is not found.
  */
 template <char symbol, StringLiteral error_message = lex_symbol_error<symbol>>
-__forceinline char *lex_symbol (char *YYCURSOR) {
-    /*!local:re2c
-        any_white_space* { CHECK_SYMBOL }
-    */
+INLINE char *lex_symbol (char *YYCURSOR) {
+    loop:
+    switch (*YYCURSOR) {
+        case 0:
+            UNEXPECTED_INPUT("unexpected end of input");
+        case '\t':
+        case '\n':
+        case '\r':
+        case ' ':
+            ++YYCURSOR;
+            goto loop;
+        case symbol:
+            return ++YYCURSOR;
+        default: {
+            UNEXPECTED_INPUT(error_message.sv());
+        }
+    }
 }
 
 /**
@@ -57,13 +82,22 @@ __forceinline char *lex_symbol (char *YYCURSOR) {
  *          or triggers an error if the symbol is not found.
  */
 template <char symbol, StringLiteral error_message = lex_symbol_error<symbol>>
-__forceinline char *lex_same_line_symbol (char *YYCURSOR) {
-    /*!local:re2c
-        white_space* { CHECK_SYMBOL }
-    */
+INLINE char *lex_same_line_symbol (char *YYCURSOR) {
+    loop:
+    switch (*YYCURSOR) {
+        case 0:
+            UNEXPECTED_INPUT("unexpected end of input");
+        case '\t':
+        case ' ':
+            ++YYCURSOR;
+            goto loop;
+        case symbol:
+            return ++YYCURSOR;
+        default: {
+            UNEXPECTED_INPUT(error_message.sv());
+        }
+    }
 }
-
-#undef CHECK_SYMBOL
 
 /**
  * \brief Skips over any white space characters in the input.
@@ -76,7 +110,7 @@ __forceinline char *lex_same_line_symbol (char *YYCURSOR) {
  *          white space characters, or the same position if no white space
  *          was found.
  */
-__forceinline char *skip_white_space (char *YYCURSOR) {
+INLINE char *skip_white_space (char *YYCURSOR) {
     /*!local:re2c
         white_space* { return YYCURSOR; }
     */
@@ -95,14 +129,14 @@ __forceinline char *skip_white_space (char *YYCURSOR) {
  *          white space characters, or the same position if no white space
  *          was found.
  */
-__forceinline char *skip_any_white_space (char *YYCURSOR) {
+INLINE char *skip_any_white_space (char *YYCURSOR) {
     /*!local:re2c
         any_white_space* { return YYCURSOR; }
     */
     std::unreachable();
 }
 
-__forceinline char *lex_white_space (char *YYCURSOR) {
+INLINE char *lex_white_space (char *YYCURSOR) {
     /*!local:re2c
         white_space+ { return YYCURSOR; }
         * { UNEXPECTED_INPUT("expected white space"); }
@@ -110,7 +144,7 @@ __forceinline char *lex_white_space (char *YYCURSOR) {
     std::unreachable();
 }
 
-__forceinline char *lex_any_white_space (char *YYCURSOR) {
+INLINE char *lex_any_white_space (char *YYCURSOR) {
     /*!local:re2c
         any_white_space+ { return YYCURSOR; }
         * { UNEXPECTED_INPUT("expected any white space"); }

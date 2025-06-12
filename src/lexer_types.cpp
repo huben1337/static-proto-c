@@ -350,10 +350,40 @@ struct StructField {
 };
 
 struct EnumField {
-    uint64_t value = 0;
     std::string_view name;
     
-    bool is_negative = false;
+    struct Value {
+        constexpr Value (int64_t value) {
+            if (value < 0) {
+                is_negative = true;
+                this->value = -value;
+            } else {
+                is_negative = false;
+                this->value = value;
+            }
+        }
+        constexpr Value (uint64_t value) : value(value), is_negative(false) {}
+        constexpr Value (uint64_t value, bool is_negative) : value(value), is_negative(is_negative) {}
+
+        uint64_t value;
+        bool is_negative;
+
+        void increment () {
+            if (is_negative) {
+                if (value == 1) {
+                    is_negative = false;
+                } /*else if (value == 0) {
+                    INTERNAL_ERROR("[set_member_value] value would underflow");
+                }*/ // this state should never happen since we dont call set_member_value with "-0"
+                value--;
+            } else {
+                if (value == std::numeric_limits<uint64_t>::max()) {
+                    INTERNAL_ERROR("[EnumValue::next] value would overflow");
+                }
+                value++;
+            }
+        }
+    } value;
 
     INLINE EnumField* next () {
         return this + 1;
@@ -399,8 +429,8 @@ struct EnumDefinition : IdentifiedDefinition::Data {
         return __create_extended<EnumDefinition, IdentifiedDefinition>(buffer);
     }
 
-    INLINE static EnumField* reserve_field(Buffer &buffer) {
-        return buffer.get_next_aligned<EnumField>();
+    INLINE static void add_field (Buffer &buffer, const EnumField& field) {
+        *buffer.get_next_aligned<EnumField>() = field;
     }
 
     INLINE EnumField* first_field() {

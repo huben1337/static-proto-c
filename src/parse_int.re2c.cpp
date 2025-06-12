@@ -9,29 +9,43 @@
 #include "constexpr_helpers.cpp"
 
 /*!re2c
-    re2c:define:YYMARKER = YYCURSOR;
     re2c:yyfill:enable = 0;
     re2c:define:YYCTYPE = char;
 
-    any_white_space = [ \t\r\n];
-    white_space = [ \t];
+    re2c:api = generic;
+    re2c:api:style = free-form;
+
+    re2c:define:YYBACKUP     = "YYBACKUP";
+    re2c:define:YYBACKUPCTX  = "YYBACKUPCTX";
+    re2c:define:YYLESSTHAN   = "YYLESSTHAN";
+    re2c:define:YYMTAGN      = "YYMTAGN";
+    re2c:define:YYMTAGP      = "YYMTAGP";
+    re2c:define:YYPEEK       = "*YYCURSOR";
+    re2c:define:YYRESTORE    = "YYRESTORE";
+    re2c:define:YYRESTORECTX = "YYRESTORECTX";
+    re2c:define:YYRESTORETAG = "YYRESTORETAG";
+    re2c:define:YYSKIP       = "++YYCURSOR;";
+    re2c:define:YYSHIFT      = "YYSHIFT";
+    re2c:define:YYCOPYMTAG   = "YYCOPYMTAG";
+    re2c:define:YYCOPYSTAG   = "YYCOPYSTAG";
+    re2c:define:YYSHIFTMTAG  = "YYSHIFTMTAG";
+    re2c:define:YYSHIFTSTAG  = "YYSHIFTSTAG";
+    re2c:define:YYSTAGN      = "YYSTAGN";
+    re2c:define:YYSTAGP      = "YYSTAGP";
 */
 
-
-#define RETURN_VALUE_CHECKED(BASE)                                                                      \
+#define RETURN_VALUE_CHECKED(BASE, DIGITS)                                                              \
 if constexpr (max != std::numeric_limits<T>::max()) {                                                   \
     if (value > max) {                                                                                  \
-        UNEXPECTED_INPUT("value out of range");                                                         \
+        show_syntax_error("value out of range", YYCURSOR - 2 - DIGITS, DIGITS);                         \
     }                                                                                                   \
 }                                                                                                       \
 if constexpr (min != std::numeric_limits<T>::min()) {                                                   \
     if (value < min) {                                                                                  \
-        UNEXPECTED_INPUT("value out of range");                                                         \
+        show_syntax_error("value out of range", YYCURSOR - 2 - DIGITS, DIGITS);                         \
     }                                                                                                   \
 }                                                                                                       \
 return { YYCURSOR - 1, value };
-
-#undef CHECK_RANGE
 
 
 template <std::unsigned_integral T, const T max, const T min>
@@ -55,7 +69,7 @@ template <std::unsigned_integral T, const T max, const T min>
         /*!local:re2c
             [0]         { value = value << 1;       continue;   }
             [1]         { value = (value << 1) + 1; continue;   }
-            *           { RETURN_VALUE_CHECKED(2)               }
+            *           { RETURN_VALUE_CHECKED(2, i)            }
         */
     }
     UNEXPECTED_INPUT("value overflow");
@@ -63,23 +77,24 @@ template <std::unsigned_integral T, const T max, const T min>
 
 template <std::signed_integral T, const T max, const T min, size_t digits>
 [[clang::always_inline]] [[gnu::always_inline]] INLINE LexResult<T> lex_trimmed_bin_digits_signed_negative_early_overflow (T value, char *YYCURSOR) {
+    constexpr size_t max_digits = uint_log2<max> + 1;
     #pragma unroll
-    for (size_t i = digits; i < uint_log2<max> + 1; i++) {
+    for (size_t i = digits; i < max_digits; i++) {
         /*!local:re2c
             [0]         { value = value << 1;       continue;   }
             [1]         { value = (value << 1) - 1; continue;   }
-            *           { RETURN_VALUE_CHECKED(2)               }
+            *           { RETURN_VALUE_CHECKED(2, i)            }
         */
     }
     /*!local:re2c
-        [0]         { value = value << 1; goto expect_end;  }
-        [1]         { UNEXPECTED_INPUT("value overflow");   }
-        *           { RETURN_VALUE_CHECKED(2)               }
+        [0]         { value = value << 1; goto expect_end;      }
+        [1]         { UNEXPECTED_INPUT("value overflow");       }
+        *           { RETURN_VALUE_CHECKED(2, max_digits - 1)   }
     */
     expect_end:
     /*!local:re2c
         [01]        { UNEXPECTED_INPUT("value overflow");   }
-        *           { RETURN_VALUE_CHECKED(2)               }
+        *           { RETURN_VALUE_CHECKED(2, max_digits)   }
     */
 
 }
@@ -90,18 +105,18 @@ template <std::signed_integral T, const T max, const T min, size_t digits>
         /*!local:re2c
             [0]         { value = value << 1;       return lex_trimmed_bin_digits_signed_negative<T, max, min, digits + 1>(value, YYCURSOR);                }
             [1]         { value = (value << 1) - 1; return lex_trimmed_bin_digits_signed_negative_early_overflow<T, max, min, digits + 1>(value, YYCURSOR); }
-            *           { RETURN_VALUE_CHECKED(2)                                                                                                           }
+            *           { RETURN_VALUE_CHECKED(2, digits)                                                                                                   }
         */
     } else {
         /*!local:re2c
             [0]         { value = value << 1; goto expect_end;  }
             [1]         { UNEXPECTED_INPUT("value overflow");   }
-            *           { RETURN_VALUE_CHECKED(2)               }
+            *           { RETURN_VALUE_CHECKED(2, digits)       }
         */
         expect_end:
         /*!local:re2c
             [01]        { UNEXPECTED_INPUT("value overflow");   }
-            *           { RETURN_VALUE_CHECKED(2)               }
+            *           { RETURN_VALUE_CHECKED(2, digits + 1)   }
         */
     }
 }
@@ -114,7 +129,7 @@ template <std::signed_integral T, const T max, const T min>
         /*!local:re2c
             [0]         { value = value << 1;       continue;   }
             [1]         { value = (value << 1) + 1; continue;   }
-            *           { RETURN_VALUE_CHECKED(2)               }
+            *           { RETURN_VALUE_CHECKED(2, i)            }
         */
     }
     UNEXPECTED_INPUT("value overflow");
@@ -134,8 +149,6 @@ template <std::signed_integral T, const T max, const T min, bool is_negative>
             *           { return { YYCURSOR - 1, 0 };                                                                                                                                                                   }
         */
     }
-
-    std::unreachable();
 }
 
 
@@ -155,7 +168,7 @@ template <std::unsigned_integral T, const T max, const T min>
     for (size_t i = 1; i < uint_log<8, max> + 2; i++) {
         /*!local:re2c
             [0-7]       { value = value << 3 | yych - '0';  continue;   }
-            *           { RETURN_VALUE_CHECKED(8)                       }
+            *           { RETURN_VALUE_CHECKED(8, i)                    }
         */
     }
     UNEXPECTED_INPUT("value overflow");
@@ -163,22 +176,23 @@ template <std::unsigned_integral T, const T max, const T min>
 
 template <std::signed_integral T, const T max, const T min, bool can_overflow_early>
 [[clang::always_inline]] [[gnu::always_inline]] INLINE LexResult<T> lex_trimmed_oct_digits_signed_negative (T value, char *YYCURSOR) {
+    constexpr size_t max_digits = uint_log<8, max> + (can_overflow_early ? 0 : 1);
     #pragma unroll
     for (size_t i = 0; i < uint_log<8, max> + (can_overflow_early ? 0 : 1); i++) {
         /*!local:re2c
             [0-7]       { value = (value << 3) - yych + '0';    continue;   }
-            *           { RETURN_VALUE_CHECKED(8)                           }
+            *           { RETURN_VALUE_CHECKED(8, i)                         }
         */
     }
     /*!local:re2c
-        [0]         { value = value << 3; goto expect_end;  }
-        [1-7]       { UNEXPECTED_INPUT("value overflow");   }
-        *           { RETURN_VALUE_CHECKED(8)               }
+        [0]         { value = value << 3; goto expect_end;      }
+        [1-7]       { UNEXPECTED_INPUT("value overflow");       }
+        *           { RETURN_VALUE_CHECKED(8, max_digits - 1)   }
     */
     expect_end:
     /*!local:re2c
         [0-7]       { UNEXPECTED_INPUT("value overflow");   }
-        *           { RETURN_VALUE_CHECKED(8)               }
+        *           { RETURN_VALUE_CHECKED(8, max_digits)   }
     */
 
 }
@@ -189,7 +203,7 @@ template <std::signed_integral T, const T max, const T min>
     for (size_t i = 1; i < uint_log<8, max> + 2; i++) {
         /*!local:re2c
             [0-7]       { value = (value << 3) | yych - '0';    continue;   }
-            *           { RETURN_VALUE_CHECKED(8)                           }
+            *           { RETURN_VALUE_CHECKED(8, i)                        }
         */
     }
     UNEXPECTED_INPUT("value overflow");
@@ -205,8 +219,6 @@ template <std::signed_integral T, const T max, const T min, bool is_negative>
             *           { return { YYCURSOR - 1, 0 };                                                                                                                                                                                               }
         */
     }
-
-    std::unreachable();
 }
 
 template <std::unsigned_integral T, const T max, const T min>
@@ -235,7 +247,7 @@ template <std::unsigned_integral T, const T max, const T min>
             [0-9]       { value = (value << 4) + yych - '0';        continue;   }
             [a-f]       { value = (value << 4) + yych - 'a' + 10;   continue;   }
             [A-F]       { value = (value << 4) + yych - 'A' + 10;   continue;   }
-            *           { RETURN_VALUE_CHECKED(16)                              }
+            *           { RETURN_VALUE_CHECKED(16, i)                           }
         */
     }
     UNEXPECTED_INPUT("value overflow");
@@ -243,24 +255,25 @@ template <std::unsigned_integral T, const T max, const T min>
 
 template <std::signed_integral T, const T max, const T min, bool can_overflow_early>
 [[clang::always_inline]] [[gnu::always_inline]] INLINE LexResult<T> lex_trimmed_hex_digits_signed_negative (T value, char *YYCURSOR) {
+    constexpr size_t max_digits = uint_log<16, max> + (can_overflow_early ? 0 : 1);
     #pragma unroll
-    for (size_t i = 1; i < uint_log<16, max> + (can_overflow_early ? 0 : 1); i++) {
+    for (size_t i = 1; i < max_digits; i++) {
         /*!local:re2c
             [0-9]       { value = (value << 4) - yych + '0';      continue;   }
             [a-f]       { value = (value << 4) - yych + 'a' - 10; continue;   }
             [A-F]       { value = (value << 4) - yych + 'A' - 10; continue;   }
-            *           { RETURN_VALUE_CHECKED(16)                            }
+            *           { RETURN_VALUE_CHECKED(16, i)                         }
         */
     }
     /*!local:re2c
-        [0]             { value = value << 4; goto expect_end;  }
-        [1-9a-fA-F]     { UNEXPECTED_INPUT("value overflow");   }
-        *               { RETURN_VALUE_CHECKED(16)              }
+        [0]             { value = value << 4; goto expect_end;      }
+        [1-9a-fA-F]     { UNEXPECTED_INPUT("value overflow");       }
+        *               { RETURN_VALUE_CHECKED(16, max_digits - 1)  }
     */
     expect_end:
     /*!local:re2c
         [0-9a-fA-F]     { UNEXPECTED_INPUT("value overflow");   }
-        *               { RETURN_VALUE_CHECKED(16)              }
+        *               { RETURN_VALUE_CHECKED(16, max_digits)  }
     */
 
 }
@@ -273,7 +286,7 @@ template <std::signed_integral T, const T max, const T min>
             [0-9]       { value = (value << 4) | yych - '0';        continue;   }
             [a-f]       { value = (value << 4) | yych - 'a' + 10;   continue;   }
             [A-F]       { value = (value << 4) | yych - 'A' + 10;   continue;   }
-            *           { RETURN_VALUE_CHECKED(16)                              }
+            *           { RETURN_VALUE_CHECKED(16, i)                           }
         */
     }
     UNEXPECTED_INPUT("value overflow");
@@ -299,67 +312,68 @@ template <std::signed_integral T, const T max, const T min, bool is_negative>
             *           { return { YYCURSOR - 1, 0 };                                                                                                                                                                                                   }
         */
     }
-
-    std::unreachable();
 }
 
 template <std::unsigned_integral T, const T max, const T min>
 [[clang::always_inline]] [[gnu::always_inline]] INLINE LexResult<T> lex_dec_digits_unsigned (T value, char *YYCURSOR) {
+    constexpr size_t max_digits = uint_log10<max>;
     #pragma unroll
-    for (size_t i = 1; i < uint_log10<max>; i++) {
+    for (size_t i = 1; i < max_digits; i++) {
         /*!local:re2c
             [0-9]       { value = value * 10 + yych - '0';  continue;   }
-            *           { RETURN_VALUE_CHECKED(10)                      }
+            *           { RETURN_VALUE_CHECKED(10, i)                   }
         */
     }
     /*!local:re2c
         [0-9]       { T new_value = value * 10 + yych - '0';    if (new_value < value) { UNEXPECTED_INPUT("value overflow"); }     value = new_value; goto expect_end;  }
-        *           { RETURN_VALUE_CHECKED(10)                                                                                                                          }
+        *           { RETURN_VALUE_CHECKED(10, max_digits - 1)                                                                                                          }
     */
     expect_end:
     /*!local:re2c
-        [0-9]       { UNEXPECTED_INPUT("value overflow");   }
-        *           { RETURN_VALUE_CHECKED(10)              }
+        [0-9]       { UNEXPECTED_INPUT("value overflow");           }
+        *           { RETURN_VALUE_CHECKED(10, max_digits)          }
     */
 }
 
 template <std::signed_integral T, const T max, const T min>
 [[clang::always_inline]] [[gnu::always_inline]] INLINE LexResult<T> lex_dec_digits_signed_positive (T value, char *YYCURSOR) {
+    constexpr size_t max_digits = uint_log10<max>;
     #pragma unroll
-    for (size_t i = 1; i < uint_log10<max>; i++) {
+    for (size_t i = 1; i < max_digits; i++) {
         /*!local:re2c
             [0-9]       { value = value * 10 + yych - '0';  continue;   }
-            *           { RETURN_VALUE_CHECKED(10)                      }
+            *           { RETURN_VALUE_CHECKED(10, i)                   }
         */
     }
     /*!local:re2c
         [0-9]       { T new_value = value * 10 + yych - '0';  if (new_value < value) { UNEXPECTED_INPUT("value overflow"); } else { value = new_value; goto expect_end; }   }
-        *           { RETURN_VALUE_CHECKED(10)                                                                                                                              }
+        *           { RETURN_VALUE_CHECKED(10, max_digits - 1)                                                                                                              }
     */
     expect_end:
     /*!local:re2c
         [0-9]       { UNEXPECTED_INPUT("value overflow");   }
-        *           { RETURN_VALUE_CHECKED(10)              }
+        *           { RETURN_VALUE_CHECKED(10, max_digits)  }
     */
 }
 
 template <std::signed_integral T, const T max, const T min>
 [[clang::always_inline]] [[gnu::always_inline]] INLINE LexResult<T> lex_dec_digits_signed_negative (T value, char *YYCURSOR) {
+    constexpr size_t max_digits = uint_log10<max>;
     #pragma unroll
-    for (size_t i = 1; i < uint_log10<max>; i++) {
+    for (size_t i = 1; i < max_digits; i++) {
         /*!local:re2c
             [0-9]       { value = value * 10 - yych + '0';  continue;   }
-            *           { RETURN_VALUE_CHECKED(10)                      }
+            *           { RETURN_VALUE_CHECKED(10, i)                   }
         */
     }
     /*!local:re2c
         [0-9]       { T new_value = value * 10 - yych + '0';  if (new_value > value) { UNEXPECTED_INPUT("value overflow"); } else { value = new_value; goto expect_end; }   }
-        *           { RETURN_VALUE_CHECKED(10)                                                                                                                              }
+        *           { RETURN_VALUE_CHECKED(10, max_digits - 1)                                                                                                              }
     */
     expect_end:
     /*!local:re2c
-        [0-9]       { UNEXPECTED_INPUT("value overflow"); }
-        *           { RETURN_VALUE_CHECKED(10)        }
+        [0-9]       { UNEXPECTED_INPUT("value overflow");   }
+        *           { RETURN_VALUE_CHECKED(10, max_digits)  }
     */
 }
 
@@ -370,7 +384,7 @@ template <std::unsigned_integral T, const T max, const T min>
     for (size_t i = 1; i < uint_log10<max> + 2; i++) {
         /*!local:re2c
             [0-9]       { T new_value = value * 10 + yych - '0';    if (new_value < value) { UNEXPECTED_INPUT("value overflow"); }     value = new_value;  continue;    }
-            *           { RETURN_VALUE_CHECKED(10)                                                                                                                      }
+            *           { RETURN_VALUE_CHECKED(10, i)                                                                                                                   }
         */
     }
     UNEXPECTED_INPUT("value overflow");
@@ -385,8 +399,6 @@ INLINE LexResult<T> parse_uint (char *YYCURSOR) {
         "0x"        { return lex_hex_digits_unsigned<T, max, min>(YYCURSOR);                }
         *           { UNEXPECTED_INPUT("expected unsigned integer literal");                }
     */
-
-    std::unreachable();
 }
 
 template <std::signed_integral T, const T max = std::numeric_limits<T>::max(), const T min = std::numeric_limits<T>::min()>
@@ -408,6 +420,4 @@ INLINE LexResult<T> parse_int (char *YYCURSOR) {
             *           { UNEXPECTED_INPUT("expected signed integer literal");                          }
         */
     }
-
-    std::unreachable();
 }
