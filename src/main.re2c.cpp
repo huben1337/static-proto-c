@@ -61,14 +61,7 @@ int main (int argc, const char** argv) {
     lexer::IdentifierMap identifier_map;
     uint8_t buffer_mem[5000];
     Buffer buffer = {buffer_mem};
-    auto target_struct = lexer::lex<false>(input_data, identifier_map, buffer);
-
-    // #define DO_PRINT
-    #ifdef DO_PRINT
-    printf("\n\n- target: ");
-    printf(extract_string(target_struct->name).c_str());
-    print_parse_result(identifier_map, buffer);
-    #endif
+    auto target_struct = lexer::lex<false>(input_data, identifier_map, buffer, {});
 
     for (size_t i = 0; i < 1; i++)
     {
@@ -84,7 +77,7 @@ int main (int argc, const char** argv) {
     #endif
 
     if (close(output_file.fd) != 0) {
-        logger::debug("could not close output file");
+        logger::error("could not close output file");
         return 1;
     };
 
