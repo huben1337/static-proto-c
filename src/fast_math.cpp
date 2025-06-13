@@ -1,5 +1,6 @@
 #pragma once
 #include "base.cpp"
+#include <concepts>
 #include <cstdint>
 #include <cstdlib>
 #include <stdio.h>
@@ -516,8 +517,10 @@ namespace fast_math {
         return _log10_unsafe(value);
     }
 
-    INLINE constexpr uint64_t sum_of_digits_unsafe (uint64_t value) {
+    template <uint64or32_c T, std::unsigned_integral U>
+    INLINE constexpr U _sum_of_digits_unsafe (T value) {
         uint32_t c = log10_unsafe(value);
+
         // 10ull
         // 190ull
         // 2890ull
@@ -562,58 +565,100 @@ namespace fast_math {
                 return value;
             }
             case 1: {
-                return 10ull + (value - 10ull) * 2;
+                if constexpr (sizeof(U) >= 1) {
+                    return 10ull + (value - 10ull) * 2;
+                }
             }
             case 2: {
-                return 190ull + (value - 100ull) * 3;
+                if constexpr (sizeof(U) >= 2) {
+                    return 190ull + (value - 100ull) * 3;
+                }
             }
             case 3: {
-                return 2890ull + (value - 1000ull) * 4;
+                if constexpr (sizeof(U) >= 2) {
+                    return 2890ull + (value - 1000ull) * 4;
+                }
             }
             case 4: {
-                return 38890ull + (value - 10000ull) * 5;
+                if constexpr (sizeof(U) >= 3) {
+                    return 38890ull + (value - 10000ull) * 5;
+                }
             }
             case 5: {
-                return 488890ull + (value - 100000ull) * 6;
+                if constexpr (sizeof(U) >= 3) {
+                    return 488890ull + (value - 100000ull) * 6;
+                }
             }
             case 6: {
-                return 5888890ull + (value - 1000000ull) * 7;
+                if constexpr (sizeof(U) >= 4) {
+                    return 5888890ull + (value - 1000000ull) * 7;
+                }
             }
             case 7: {
-                return 68888890ull + (value - 10000000ull) * 8;
+                if constexpr (sizeof(U) >= 4) {
+                    return 68888890ull + (value - 10000000ull) * 8;
+                }
             }
             case 8: {
-                return 788888890ull + (value - 100000000ull) * 9;
+                if constexpr (sizeof(U) >= 5) {
+                    return 788888890ull + (value - 100000000ull) * 9;
+                }
             }
             case 9: {
-                return 8888888890ull + (value - 1000000000ull) * 10;
+                if constexpr (sizeof(U) >= 5) {
+                    return 8888888890ull + (value - 1000000000ull) * 10;
+                }
             }
             case 10: {
-                return 98888888890ull + (value - 10000000000ull) * 11;
+                if constexpr (sizeof(U) >= 5) {
+                    return 98888888890ull + (value - 10000000000ull) * 11;
+                }
             }
             case 11: {
-                return 1088888888890ull + (value - 100000000000ull) * 12;
+                if constexpr (sizeof(U) >= 6) {
+                    return 1088888888890ull + (value - 100000000000ull) * 12;
+                }
             }
             case 12: {
-                return 11888888888890ull + (value - 1000000000000ull) * 13;
+                if constexpr (sizeof(U) >= 6) {
+                    return 11888888888890ull + (value - 1000000000000ull) * 13;
+                }
             }
             case 13: {
-                return 128888888888890ull + (value - 10000000000000ull) * 14;
+                if constexpr (sizeof(U) >= 7) {
+                    return 128888888888890ull + (value - 10000000000000ull) * 14;
+                }
             }
             case 14: {
-                return 1388888888888890ull + (value - 100000000000000ull) * 15;
+                if constexpr (sizeof(U) >= 7) {
+                    return 1388888888888890ull + (value - 100000000000000ull) * 15;
+                }
             }
             case 15: {
-                return 14888888888888890ull + (value - 1000000000000000ull) * 16;
+                if constexpr (sizeof(U) >= 7) {
+                    return 14888888888888890ull + (value - 1000000000000000ull) * 16;
+                }
             }
             case 16: {
-                return 158888888888888890ull + (value - 10000000000000000ull) * 17;
+                if constexpr (sizeof(U) >= 8) {
+                    return 158888888888888890ull + (value - 10000000000000000ull) * 17;
+                }
             }
             case 17: {
-                return 1688888888888888890ull + (value - 100000000000000000ull) * 18;
+                if constexpr (sizeof(U) >= 8) {
+                    return 1688888888888888890ull + (value - 100000000000000000ull) * 18;
+                }
             }
             case 18: {
-                return 17888888888888888890ull + (value - 1000000000000000000ull) * 19;
+                if constexpr (sizeof(U) >= 8) {
+                    return 17888888888888888890ull + (value - 1000000000000000000ull) * 19;
+                }
+            }
+            case 19: {
+                if constexpr (sizeof(U) >= 9) {
+                    static constexpr __uint128_t base = static_cast<__uint128_t>(1888888888888888888ull) * 100 + 90;
+                    return base + (static_cast<__uint128_t>(value) - 10000000000000000000ull) * 20;
+                }
             }
             default: {
                 write(STDOUT_FILENO, "Error in sum_of_digits_unsafe()", 31);
@@ -622,5 +667,23 @@ namespace fast_math {
         }
     }
 
-    auto a = sum_of_digits_unsafe(11);
+    template <std::unsigned_integral U = __uint128_t>
+    INLINE constexpr U sum_of_digits_unsafe (uint64_t value) {
+        return _sum_of_digits_unsafe<uint64_t, U>(value);
+    }
+
+    template <std::unsigned_integral U = uint64_t>
+    INLINE constexpr U sum_of_digits_unsafe (uint32_t value) {
+        return _sum_of_digits_unsafe<uint32_t, U>(value);
+    }
+
+    template <std::unsigned_integral U = uint32_t>
+    INLINE constexpr U sum_of_digits_unsafe (uint16_t value) {
+        return _sum_of_digits_unsafe<uint32_t, U>(static_cast<uint32_t>(value));
+    }
+
+    template <std::unsigned_integral U = uint16_t>
+    INLINE constexpr U sum_of_digits_unsafe (uint8_t value) {
+        return _sum_of_digits_unsafe<uint32_t, U>(static_cast<uint32_t>(value));
+    }
 }
