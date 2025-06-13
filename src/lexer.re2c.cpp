@@ -37,7 +37,7 @@ namespace lexer {
     re2c:define:YYCOPYMTAG   = "YYCOPYMTAG";
     re2c:define:YYCOPYSTAG   = "@@{lhs} = @@{rhs};";
     re2c:define:YYSHIFTMTAG  = "YYSHIFTMTAG";
-    re2c:define:YYSHIFTSTAG  = "YYSHIFTSTAG";
+    re2c:define:YYSHIFTSTAG  = "@@{tag} += @@{shift};// YYSHIFTSTAG";
     re2c:define:YYSTAGN      = "YYSTAGN";
     re2c:define:YYSTAGP      = "@@{tag} = YYCURSOR;";
 
@@ -56,8 +56,8 @@ INLINE char* lex_range_argument (char* YYCURSOR, F on_fixed, G on_range) {
     char* const after_min_cursor = YYCURSOR;
 
     /*!local:re2c
-        white_space* "." { goto maybe_range; }
-        white_space* { goto fixed; }
+        any_white_space* "." { goto maybe_range; }
+        any_white_space* { goto fixed; }
     */
 
     maybe_range: {
@@ -87,8 +87,8 @@ INLINE char* lex_range_argument (char* YYCURSOR, F on_fixed, G on_range) {
 
     lex_argument_list_end:
     /*!local:re2c
-        white_space* ">"    { goto done; }
-        white_space*        { UNEXPECTED_INPUT("expected end of argument list"); }
+        any_white_space* ">"    { goto done; }
+        any_white_space*        { UNEXPECTED_INPUT("expected end of argument list"); }
     */
     done:
     return YYCURSOR;
@@ -96,7 +96,7 @@ INLINE char* lex_range_argument (char* YYCURSOR, F on_fixed, G on_range) {
 
 template <std::unsigned_integral T>
 INLINE ParseNumberResult<T> lex_attribute_value (char* YYCURSOR) {
-    YYCURSOR = lex_same_line_symbol<'=', "Expected value assignment for attribute">(YYCURSOR);
+    YYCURSOR = lex_symbol<'=', "Expected value assignment for attribute">(YYCURSOR);
     return parse_uint_skip_white_space<T>(YYCURSOR);
 }
 
@@ -176,7 +176,8 @@ INLINE LexResult<VariantAttributes> lex_variant_attributes (char* YYCURSOR) {
     
 }
 
-INLINE LexResult<std::string_view>  lex_identifier_name (char* YYCURSOR) {
+
+INLINE LexResult<std::string_view> lex_identifier_name (char* YYCURSOR) {
     const char* start;
     
     /*!stags:re2c format = 'const char *@@;\n'; */
@@ -186,28 +187,28 @@ INLINE LexResult<std::string_view>  lex_identifier_name (char* YYCURSOR) {
 
         invalid = [^a-zA-Z0-9_];
         
-        white_space* @start identifier      { goto done; }
+        any_white_space* @start identifier      { goto done; }
 
-        white_space* "int8"    invalid      { UNEXPECTED_INPUT("int8 is reserved");    }
-        white_space* "int16"   invalid      { UNEXPECTED_INPUT("int16 is reserved");   }
-        white_space* "int32"   invalid      { UNEXPECTED_INPUT("int32 is reserved");   }
-        white_space* "int64"   invalid      { UNEXPECTED_INPUT("int64 is reserved");   }
-        white_space* "uint8"   invalid      { UNEXPECTED_INPUT("uint8 is reserved");   }
-        white_space* "uint16"  invalid      { UNEXPECTED_INPUT("uint16 is reserved");  }
-        white_space* "uint32"  invalid      { UNEXPECTED_INPUT("uint32 is reserved");  }
-        white_space* "uint64"  invalid      { UNEXPECTED_INPUT("uint64 is reserved");  }
-        white_space* "float32" invalid      { UNEXPECTED_INPUT("float32 is reserved"); }
-        white_space* "float64" invalid      { UNEXPECTED_INPUT("float64 is reserved"); }
-        white_space* "bool"    invalid      { UNEXPECTED_INPUT("bool is reserved");    }
-        white_space* "string"  invalid      { UNEXPECTED_INPUT("string is reserved");  }
-        white_space* "array"   invalid      { UNEXPECTED_INPUT("array is reserved");   }
-        white_space* "variant" invalid      { UNEXPECTED_INPUT("variant is reserved"); }
-        white_space* "struct"  invalid      { UNEXPECTED_INPUT("struct is reserved");  }
-        white_space* "enum"    invalid      { UNEXPECTED_INPUT("enum is reserved");    }
-        white_space* "union"   invalid      { UNEXPECTED_INPUT("union is reserved");   }
-        white_space* "target"  invalid      { UNEXPECTED_INPUT("target is reserved");  }
+        any_white_space* "int8"    invalid      { UNEXPECTED_INPUT("int8 is reserved");    }
+        any_white_space* "int16"   invalid      { UNEXPECTED_INPUT("int16 is reserved");   }
+        any_white_space* "int32"   invalid      { UNEXPECTED_INPUT("int32 is reserved");   }
+        any_white_space* "int64"   invalid      { UNEXPECTED_INPUT("int64 is reserved");   }
+        any_white_space* "uint8"   invalid      { UNEXPECTED_INPUT("uint8 is reserved");   }
+        any_white_space* "uint16"  invalid      { UNEXPECTED_INPUT("uint16 is reserved");  }
+        any_white_space* "uint32"  invalid      { UNEXPECTED_INPUT("uint32 is reserved");  }
+        any_white_space* "uint64"  invalid      { UNEXPECTED_INPUT("uint64 is reserved");  }
+        any_white_space* "float32" invalid      { UNEXPECTED_INPUT("float32 is reserved"); }
+        any_white_space* "float64" invalid      { UNEXPECTED_INPUT("float64 is reserved"); }
+        any_white_space* "bool"    invalid      { UNEXPECTED_INPUT("bool is reserved");    }
+        any_white_space* "string"  invalid      { UNEXPECTED_INPUT("string is reserved");  }
+        any_white_space* "array"   invalid      { UNEXPECTED_INPUT("array is reserved");   }
+        any_white_space* "variant" invalid      { UNEXPECTED_INPUT("variant is reserved"); }
+        any_white_space* "struct"  invalid      { UNEXPECTED_INPUT("struct is reserved");  }
+        any_white_space* "enum"    invalid      { UNEXPECTED_INPUT("enum is reserved");    }
+        any_white_space* "union"   invalid      { UNEXPECTED_INPUT("union is reserved");   }
+        any_white_space* "target"  invalid      { UNEXPECTED_INPUT("target is reserved");  }
 
-        white_space* { UNEXPECTED_INPUT("expected name"); }
+        any_white_space* { UNEXPECTED_INPUT("expected name"); }
     */
     done:
     return { YYCURSOR, {start, YYCURSOR} };
@@ -497,9 +498,9 @@ INLINE std::conditional_t<expect_fixed, LexFixedTypeResult, LexTypeResult> lex_v
         if constexpr (!is_dynamic && !expect_fixed) {
             if (result.var_leafs_count.as_uint64 > 0) {
                 /*!local:re2c
-                    white_space* "," { goto dynamic_variant_next; }
-                    white_space* ">" { goto dynamic_variant_done;  }
-                    white_space* { UNEXPECTED_INPUT("expected ',' or '>'"); }
+                    any_white_space* "," { goto dynamic_variant_next; }
+                    any_white_space* ">" { goto dynamic_variant_done;  }
+                    any_white_space* { UNEXPECTED_INPUT("expected ',' or '>'"); }
                 */
                 dynamic_variant_next: {
                     return lex_variant_types<true, expect_fixed>(
@@ -545,9 +546,9 @@ INLINE std::conditional_t<expect_fixed, LexFixedTypeResult, LexTypeResult> lex_v
         }
         
         /*!local:re2c
-            white_space* "," { continue; }
-            white_space* ">" { goto variant_done; }
-            white_space* { UNEXPECTED_INPUT("expected ',' or '>'"); }
+            any_white_space* "," { continue; }
+            any_white_space* ">" { goto variant_done; }
+            any_white_space* { UNEXPECTED_INPUT("expected ',' or '>'"); }
         */
         variant_done: {
             return add_variant_type<is_dynamic, expect_fixed>(
@@ -589,30 +590,30 @@ std::conditional_t<expect_fixed, LexFixedTypeResult, LexTypeResult> lex_type (ch
         }                                                                                                               \
     }
 
-    const char* identifier_start; // only initilized if the lexer finds an identifier
+    const char* typename_start; // Only initialized for non-simple types
     
     /*!stags:re2c format = 'const char *@@;\n'; */
     /*!local:re2c
         re2c:tags = 1;
         identifier = [a-zA-Z_][a-zA-Z0-9_]*;
                     
-        white_space*  "int8"                        { SIMPLE_TYPE(INT8,    SIZE::SIZE_1 ) }
-        white_space*  "int16"                       { SIMPLE_TYPE(INT16,   SIZE::SIZE_2 ) }
-        white_space*  "int32"                       { SIMPLE_TYPE(INT32,   SIZE::SIZE_4 ) }
-        white_space*  "int64"                       { SIMPLE_TYPE(INT64,   SIZE::SIZE_8 ) }
-        white_space*  "uint8"                       { SIMPLE_TYPE(UINT8,   SIZE::SIZE_1 ) }
-        white_space*  "uint16"                      { SIMPLE_TYPE(UINT16,  SIZE::SIZE_2 ) }
-        white_space*  "uint32"                      { SIMPLE_TYPE(UINT32,  SIZE::SIZE_4 ) }
-        white_space*  "uint64"                      { SIMPLE_TYPE(UINT64,  SIZE::SIZE_8 ) }
-        white_space*  "float32"                     { SIMPLE_TYPE(FLOAT32, SIZE::SIZE_4 ) }
-        white_space*  "float64"                     { SIMPLE_TYPE(FLOAT64, SIZE::SIZE_8 ) }
-        white_space*  "bool"                        { SIMPLE_TYPE(BOOL,    SIZE::SIZE_1 ) }
-        white_space*  "string"                      { goto string;                        }
-        white_space*  "array"                       { goto array;                         }
-        white_space*  "variant"                     { goto variant;                       }
-        white_space*  @identifier_start identifier  { goto identifier;                    }
+        any_white_space* "int8"                             { SIMPLE_TYPE(INT8,    SIZE::SIZE_1 ) }
+        any_white_space* "int16"                            { SIMPLE_TYPE(INT16,   SIZE::SIZE_2 ) }
+        any_white_space* "int32"                            { SIMPLE_TYPE(INT32,   SIZE::SIZE_4 ) }
+        any_white_space* "int64"                            { SIMPLE_TYPE(INT64,   SIZE::SIZE_8 ) }
+        any_white_space* "uint8"                            { SIMPLE_TYPE(UINT8,   SIZE::SIZE_1 ) }
+        any_white_space* "uint16"                           { SIMPLE_TYPE(UINT16,  SIZE::SIZE_2 ) }
+        any_white_space* "uint32"                           { SIMPLE_TYPE(UINT32,  SIZE::SIZE_4 ) }
+        any_white_space* "uint64"                           { SIMPLE_TYPE(UINT64,  SIZE::SIZE_8 ) }
+        any_white_space* "float32"                          { SIMPLE_TYPE(FLOAT32, SIZE::SIZE_4 ) }
+        any_white_space* "float64"                          { SIMPLE_TYPE(FLOAT64, SIZE::SIZE_8 ) }
+        any_white_space* "bool"                             { SIMPLE_TYPE(BOOL,    SIZE::SIZE_1 ) }
+        any_white_space*  @typename_start "string"          { goto string;                        }
+        any_white_space*  @typename_start "array"           { goto array;                         }
+        any_white_space*  @typename_start "variant"         { goto variant;                       }
+        any_white_space*  @typename_start identifier        { goto identifier;                    }
 
-        white_space* { UNEXPECTED_INPUT("expected type"); }
+        any_white_space* { UNEXPECTED_INPUT("expected type"); }
     */
     #undef SIMPLE_TYPE
     #undef LEAF_COUNTS_TYPE_8
@@ -621,7 +622,7 @@ std::conditional_t<expect_fixed, LexFixedTypeResult, LexTypeResult> lex_type (ch
     #undef LEAF_COUNTS_TYPE_64
 
     string: {
-        YYCURSOR = lex_same_line_symbol<'<', "expected argument list">(YYCURSOR);
+        YYCURSOR = lex_symbol<'<', "expected argument list">(YYCURSOR);
 
         if constexpr (!expect_fixed) {
             LeafCounts fixed_leaf_counts;
@@ -701,8 +702,8 @@ std::conditional_t<expect_fixed, LexFixedTypeResult, LexTypeResult> lex_type (ch
                     byte_size = length;
                     FixedStringType::create(buffer, length);
                 },
-                [identifier_start, &YYCURSOR](Range) {
-                    show_syntax_error("expected fixed size string", identifier_start, YYCURSOR - 1);
+                [typename_start, &YYCURSOR](Range) {
+                    show_syntax_error("expected fixed size string", typename_start, YYCURSOR - 1);
                 }
             );
             return LexFixedTypeResult{
@@ -721,12 +722,12 @@ std::conditional_t<expect_fixed, LexFixedTypeResult, LexTypeResult> lex_type (ch
     array: {
         auto [extended_idx, base_idx] = ArrayType::create(buffer);
 
-        YYCURSOR = lex_same_line_symbol<'<', "expected argument list">(YYCURSOR);
+        YYCURSOR = lex_symbol<'<', "expected argument list">(YYCURSOR);
 
         auto result = lex_type<true>(YYCURSOR, buffer, identifier_map);
         YYCURSOR = result.cursor;
 
-        YYCURSOR = lex_same_line_symbol<',', "expected length argument">(YYCURSOR);
+        YYCURSOR = lex_symbol<',', "expected length argument">(YYCURSOR);
 
         auto extended = buffer.get(extended_idx);
         auto base = buffer.get(base_idx);
@@ -820,8 +821,8 @@ std::conditional_t<expect_fixed, LexFixedTypeResult, LexTypeResult> lex_type (ch
                     extended->stored_size_size = SIZE::SIZE_0;
                     extended->size_size = get_size_size(length);
                 },
-                [identifier_start, YYCURSOR](Range) {
-                    show_syntax_error("expected fixed size array", identifier_start, YYCURSOR - 1);
+                [typename_start, YYCURSOR](Range) {
+                    show_syntax_error("expected fixed size array", typename_start, YYCURSOR - 1);
                 }
             );
             return LexFixedTypeResult{
@@ -839,7 +840,7 @@ std::conditional_t<expect_fixed, LexFixedTypeResult, LexTypeResult> lex_type (ch
 
     variant: {
 
-        YYCURSOR = lex_same_line_symbol<'<', "expected argument list">(YYCURSOR);
+        YYCURSOR = lex_symbol<'<', "expected argument list">(YYCURSOR);
 
         auto created_variant_type = DynamicVariantType::create(buffer);
 
@@ -869,11 +870,11 @@ std::conditional_t<expect_fixed, LexFixedTypeResult, LexTypeResult> lex_type (ch
     }
 
     identifier: {
-        char* const identifer_end = YYCURSOR;
+        char* const typename_end = YYCURSOR;
 
-        auto identifier_idx_iter = identifier_map.find(std::string_view{identifier_start, identifer_end});
+        auto identifier_idx_iter = identifier_map.find(std::string_view{typename_start, typename_end});
         if (identifier_idx_iter == identifier_map.end()) {
-            show_syntax_error("identifier not defined", identifier_start, identifer_end - 1);
+            show_syntax_error("identifier not defined", typename_start, typename_end - 1);
         }
         auto identifier_index = identifier_idx_iter->second;
         IdentifiedType::create(buffer, identifier_index);
@@ -901,7 +902,7 @@ std::conditional_t<expect_fixed, LexFixedTypeResult, LexTypeResult> lex_type (ch
                 };
             } else {
                 if (struct_definition->var_leafs_count.as_uint64 != 0) {
-                    show_syntax_error("fixed size struct expected", identifier_start, YYCURSOR - 1);
+                    show_syntax_error("fixed size struct expected", typename_start, YYCURSOR - 1);
                 }
                 return LexFixedTypeResult{
                     YYCURSOR,
@@ -1021,8 +1022,8 @@ INLINE char* lex_struct_or_union_fields (
         }
     }
     /*!local:re2c
-        white_space* ":" { goto struct_field; }
-        white_space* { UNEXPECTED_INPUT("expected ':'"); }
+        any_white_space* ":" { goto struct_field; }
+        any_white_space* { UNEXPECTED_INPUT("expected ':'"); }
     */
 
     struct_field: {
@@ -1032,7 +1033,7 @@ INLINE char* lex_struct_or_union_fields (
         auto result = lex_type<false>(YYCURSOR, buffer, identifier_map);
         YYCURSOR = result.cursor;
 
-        YYCURSOR = lex_same_line_symbol<';'>(YYCURSOR);
+        YYCURSOR = lex_symbol<';'>(YYCURSOR);
 
         if constexpr (is_first_field) {
             return lex_struct_or_union_fields<false>(
@@ -1078,7 +1079,7 @@ INLINE char* lex_struct_or_union(
     IdentifierMap &identifier_map,
     Buffer &buffer
 ) {
-    YYCURSOR = lex_same_line_symbol<'{', "expected '{'">(YYCURSOR);
+    YYCURSOR = lex_symbol<'{', "Expected '{' to denote start of struct">(YYCURSOR);
 
     return lex_struct_or_union_fields<true>(
         YYCURSOR,
@@ -1160,10 +1161,10 @@ INLINE char* lex_enum_fields (
             //}
         }
         /*!local:re2c
-            white_space* "," { goto default_value; }
-            white_space* "=" { goto custom_value; }
-            white_space* "}" { goto default_last_member; }
-            white_space* { UNEXPECTED_INPUT("expected custom value or ','"); }
+            any_white_space* "," { goto default_value; }
+            any_white_space* "=" { goto custom_value; }
+            any_white_space* "}" { goto default_last_member; }
+            any_white_space* { UNEXPECTED_INPUT("expected custom value or ','"); }
         */
 
         default_value: {
@@ -1173,8 +1174,8 @@ INLINE char* lex_enum_fields (
 
         custom_value: {
             /*!local:re2c
-                white_space* "-"    { goto parse_negative_value; }
-                white_space*        { goto parse_positive_value; }
+                any_white_space* "-"    { goto parse_negative_value; }
+                any_white_space*        { goto parse_positive_value; }
             */
 
             parse_negative_value: {
@@ -1188,9 +1189,9 @@ INLINE char* lex_enum_fields (
                 value = {parsed.value, is_negative};
 
                 /*!local:re2c
-                    white_space* "," { goto enum_member_signed; }
-                    white_space* "}" { goto last_member; }
-                    white_space* { UNEXPECTED_INPUT("expected ',' or end of enum definition"); }
+                    any_white_space* "," { goto enum_member_signed; }
+                    any_white_space* "}" { goto last_member; }
+                    any_white_space* { UNEXPECTED_INPUT("expected ',' or end of enum definition"); }
                 */
                 enum_member_signed: {
                     field_count++;
@@ -1219,9 +1220,9 @@ INLINE char* lex_enum_fields (
                 value = EnumField::Value{parsed.value, false};
 
                 /*!local:re2c
-                    white_space* "," { goto enum_member; }
-                    white_space* "}" { goto last_member; }
-                    white_space* { UNEXPECTED_INPUT("expected ',' or end of enum definition"); }
+                    any_white_space* "," { goto enum_member; }
+                    any_white_space* "}" { goto last_member; }
+                    any_white_space* { UNEXPECTED_INPUT("expected ',' or end of enum definition"); }
                 */
             }
         }
@@ -1250,7 +1251,7 @@ INLINE char* lex_enum (
     IdentifierMap &identifier_map,
     Buffer &buffer
 ) {
-    YYCURSOR = lex_same_line_symbol<'{', "Expected '{' to denote start of enum">(YYCURSOR);
+    YYCURSOR = lex_symbol<'{', "Expected '{' to denote start of enum">(YYCURSOR);
     return lex_enum_fields<false>(YYCURSOR, definition_data_idx, 0, {-1LL}, 0, {}, identifier_map, buffer);
 }
 
@@ -1259,20 +1260,15 @@ template <bool target_defined>
 INLINE const StructDefinition* lex (char* YYCURSOR, IdentifierMap &identifier_map, Buffer &buffer, std::conditional_t<target_defined, const StructDefinition*, Empty> target) {
     loop: {
     /*!local:re2c
-    
-        struct_keyword  = any_white_space* "struct"  white_space;
-        enum_keyword    = any_white_space* "enum"    white_space;
-        union_keyword   = any_white_space* "union"   white_space;
-        target_keyword  = any_white_space* "target"  white_space;
 
-        any_white_space* [\x00] { goto eof; }
+        any_white_space* "struct"  any_white_space  { goto struct_keyword; }
+        any_white_space* "enum"    any_white_space  { goto enum_keyword; }
+        any_white_space* "union"   any_white_space  { goto union_keyword; }
+        any_white_space* "target"  any_white_space  { goto target_keyword; }
 
-        * { UNEXPECTED_INPUT("unexpected input"); }
+        any_white_space* [\x00]                     { goto eof; }
 
-        struct_keyword  { goto struct_keyword; }
-        enum_keyword    { goto enum_keyword; }
-        union_keyword   { goto union_keyword; }
-        target_keyword  { goto target_keyword; }
+        any_white_space*                            { UNEXPECTED_INPUT("unexpected input"); }
 
     */
     goto loop;
@@ -1323,7 +1319,7 @@ INLINE const StructDefinition* lex (char* YYCURSOR, IdentifierMap &identifier_ma
         } else {
             auto type_idx = Buffer::Index<Type>{buffer.current_position()};
             YYCURSOR = lex_type<false>(YYCURSOR, buffer, identifier_map).cursor;
-            YYCURSOR = lex_same_line_symbol<';'>(YYCURSOR);
+            YYCURSOR = lex_symbol<';'>(YYCURSOR);
             auto type = buffer.get(type_idx);
             if (type->type != FIELD_TYPE::IDENTIFIER) {
                 INTERNAL_ERROR("target must be an identifier");
