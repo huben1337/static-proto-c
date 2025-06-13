@@ -126,7 +126,7 @@ struct ArrayLengths {
     const uint8_t length;
 };
 
-struct SizeChainCodeGenerator : codegen::Generator {
+struct SizeChainCodeGenerator : codegen::Generator<size_t> {
     SizeChainCodeGenerator(
         const Buffer& var_offset_buffer,
         const Buffer::View<uint64_t>& size_chain
@@ -147,7 +147,7 @@ struct SizeChainCodeGenerator : codegen::Generator {
     const Buffer::index_t size_chain_length;
     
     char* write(char* dst) const override {
-        for (size_t i = 0; i < size_chain_length; i++) {
+        for (Buffer::index_t i = 0; i < size_chain_length; i++) {
             const uint64_t size = size_chain_data[i];
             dst = codegen::write_string(dst, " + size"_sl);
             dst = codegen::write_string(dst, i);
@@ -162,7 +162,7 @@ struct SizeChainCodeGenerator : codegen::Generator {
 
     size_t get_size() const override {
         size_t offset_str_size = size_chain_length * (" + size"_sl.size() + "(base)"_sl.size()) + fast_math::sum_of_digits_unsafe(size_chain_length);
-        for (size_t i = 0; i < size_chain_length; i++) {
+        for (Buffer::index_t i = 0; i < size_chain_length; i++) {
             const uint64_t size = size_chain_data[i];
             if (size != 1) {
                 offset_str_size += " * "_sl.size() + fast_math::log10_unsafe(size) + 1;
@@ -173,14 +173,14 @@ struct SizeChainCodeGenerator : codegen::Generator {
 };
 
 template <bool no_multiply, bool last_is_direct = false>
-struct IdxCalcCodeGenerator : public codegen::OverAllocatedGenerator {
+struct IdxCalcCodeGenerator : codegen::OverAllocatedGenerator<Buffer::index_t> {
     IdxCalcCodeGenerator (const ArrayLengths& array_lengths) :
     array_lengths(array_lengths),
     estimated_size(estimate_size())
     {}
 
     const ArrayLengths& array_lengths;
-    const size_t estimated_size;
+    const Buffer::index_t estimated_size;
 
     Buffer::index_t estimate_size () {
         if (array_lengths.length == 0) {
@@ -195,7 +195,7 @@ struct IdxCalcCodeGenerator : public codegen::OverAllocatedGenerator {
             Buffer::index_t size;
 
             if constexpr (last_is_direct) {
-                size = (array_lengths.length - 1) * (" + idx_"_sl.size() + " * "_sl.size() + 19) + "idx"_sl.size() + fast_math::sum_of_digits_unsafe(array_lengths.length - 1);
+                size = (array_lengths.length - 1) * (" + idx_"_sl.size() + " * "_sl.size() + 19) + "idx"_sl.size() + fast_math::sum_of_digits_unsafe(static_cast<uint8_t>(array_lengths.length - 1));
             } else {
                 size = array_lengths.length * " + idx_"_sl.size() + (array_lengths.length - 1) * (" * "_sl.size() + 19) + fast_math::sum_of_digits_unsafe(array_lengths.length);
             }
@@ -251,11 +251,12 @@ struct IdxCalcCodeGenerator : public codegen::OverAllocatedGenerator {
             }
         }
         done:;
-        const size_t allocated_size = reinterpret_cast<size_t>(dst) - reinterpret_cast<size_t>(start);
-        return {dst, static_cast<Buffer::index_t>(estimated_size - allocated_size)}; // This cast is allowed since estimated_size always fits into Buffer::index_t (This is checked when memory is requested from Buffer)
+        const Buffer::index_t allocated_size = static_cast<Buffer::index_t>(dst - start);
+        const Buffer::index_t over_allocation = estimated_size - allocated_size;
+        return {dst, over_allocation};
     }
 
-    size_t get_size () const override {
+    Buffer::index_t get_size () const override {
         return estimated_size;
     }
 };
@@ -1429,7 +1430,7 @@ void generate (
     const int output_fd
 ) {
     uint8_t _buffer[5000];
-    auto code = codegen::create_code(_buffer)
+    auto code = codegen::create_code(Buffer{_buffer})
     .line("#include \"lib/lib.hpp\"")
     .line("");
     auto fixed_leaf_counts = target_struct->fixed_leaf_counts.counts;

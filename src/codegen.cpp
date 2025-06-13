@@ -56,18 +56,19 @@ INLINE char* make_indent (uint16_t indent_size, char* dst) {
     return dst;
 }
 
+template <std::unsigned_integral SizeT>
 struct GeneratorBase {
-    virtual size_t get_size() const = 0;
+    virtual SizeT get_size() const = 0;
 };
 
 template <typename GeneratorT>
 concept GeneratorBaseType = requires (GeneratorT generator) {
-    { generator.get_size() } -> std::same_as<size_t>;
+    { generator.get_size() } -> std::unsigned_integral;
 };
 
 
-
-struct Generator : GeneratorBase {
+template <std::unsigned_integral SizeT>
+struct Generator : GeneratorBase<SizeT> {
     virtual char* write(char*) const = 0;
 };
 
@@ -85,31 +86,33 @@ INLINE char* _write_string(char* dst, T&& generator, const Buffer&) {
     return write_string(dst, std::forward<T>(generator));
 }
 
-
-
-struct OverAllocatedGenerator : GeneratorBase {
+struct _OverAllocatedGenerator {
     struct WriteResult {
         char* dst;
         Buffer::index_t over_allocation;
     };
+};
+
+template <std::unsigned_integral SizeT>
+struct OverAllocatedGenerator : GeneratorBase<SizeT> {
+    using WriteResult = _OverAllocatedGenerator::WriteResult;
     virtual WriteResult write (char*) const = 0;
 };
 
 template <typename GeneratorT>
 concept OverAllocatedGeneratorType = GeneratorBaseType<GeneratorT> && requires(GeneratorT generator, char* dst) {
-    { generator.write(dst) } -> std::same_as<OverAllocatedGenerator::WriteResult>;
+    { generator.write(dst) } -> std::same_as<_OverAllocatedGenerator::WriteResult>;
 };
 
 template <OverAllocatedGeneratorType T>
 INLINE char* _write_string (char* dst, T&& generator, Buffer& buffer) {
-    OverAllocatedGenerator::WriteResult result = generator.write(dst);
+    _OverAllocatedGenerator::WriteResult result = generator.write(dst);
     buffer.go_back(result.over_allocation);
     return result.dst;
 }
 
 
-
-struct UnderAllocatedGenerator : GeneratorBase {
+struct _UnderAllocatedGenerator {
     struct Allocator {
         Allocator (Buffer& buffer) : buffer(buffer) {}
         private:
@@ -117,19 +120,24 @@ struct UnderAllocatedGenerator : GeneratorBase {
         public:
         void allocate (size_t size) const {
             buffer.next_multi_byte<char>(size);
-        } 
+        }
     };
+};
+
+template <std::unsigned_integral SizeT>
+struct UnderAllocatedGenerator : GeneratorBase<SizeT> {
+    using Allocator = _UnderAllocatedGenerator::Allocator;
     virtual char* write (char*, const Allocator&&) const = 0;
 };
 
 template <typename GeneratorT>
-concept UnderAllocatedGeneratorType = GeneratorBaseType<GeneratorT> && requires(GeneratorT generator, char* dst, const UnderAllocatedGenerator::Allocator&& allocator) {
+concept UnderAllocatedGeneratorType = GeneratorBaseType<GeneratorT> && requires(GeneratorT generator, char* dst, const _UnderAllocatedGenerator::Allocator&& allocator) {
     { generator.write(dst, allocator) } -> std::same_as<char*>;
 };
 
 template <UnderAllocatedGeneratorType T>
 INLINE char* _write_string (char* dst, T&& generator, Buffer& buffer) {
-    return generator.write(dst, UnderAllocatedGenerator::Allocator(buffer));
+    return generator.write(dst, _UnderAllocatedGenerator::Allocator(buffer));
 }
 
 
@@ -542,9 +550,8 @@ struct __UnknownStruct : __Struct<Empty, __UnknownStruct> {};
 typedef Struct<Empty> UnknownStruct;
 typedef NestedStruct<Empty> UnknownNestedStruct;
 
-template <size_t N>
-INLINE auto create_code (uint8_t (&memory)[N]) {
-    return CodeBlock<ClosedCodeBlock>({{{memory}, 0}});
+INLINE CodeBlock<ClosedCodeBlock> create_code (Buffer&& buffer) {
+    return {CodeData{std::move(buffer), 0}};
 }
 
 }
