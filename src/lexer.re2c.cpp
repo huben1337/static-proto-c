@@ -48,10 +48,9 @@ namespace lexer {
 template <typename F, typename G>
 INLINE char* lex_range_argument (char* YYCURSOR, F on_fixed, G on_range) {
 
-    YYCURSOR = skip_white_space(YYCURSOR);
-    char* const range_start = YYCURSOR;
-    auto parsed_0 = parse_uint<uint32_t>(YYCURSOR);
+    auto parsed_0 = parse_uint_skip_white_space<uint32_t, true>(YYCURSOR);
     YYCURSOR = parsed_0.cursor;
+    const char* const range_start = YYCURSOR - parsed_0.digits;
     auto min = parsed_0.value;
 
     char* const after_min_cursor = YYCURSOR;
@@ -71,11 +70,12 @@ INLINE char* lex_range_argument (char* YYCURSOR, F on_fixed, G on_range) {
     }
 
     range: {
-        YYCURSOR = skip_white_space(YYCURSOR);
-        auto parsed_1 = parse_uint<uint32_t>(YYCURSOR);
+        auto parsed_1 = parse_uint_skip_white_space<uint32_t>(YYCURSOR);
         YYCURSOR = parsed_1.cursor;
         auto max = parsed_1.value;
-        if (max <= min) show_syntax_error("invalid range", range_start, YYCURSOR - 1);
+        if (max <= min) [[unlikely]] {
+            show_syntax_error("invalid range", range_start, YYCURSOR - 1);
+        }
         on_range(Range{min, max});
         goto lex_argument_list_end;
     }
@@ -95,10 +95,9 @@ INLINE char* lex_range_argument (char* YYCURSOR, F on_fixed, G on_range) {
 }
 
 template <std::unsigned_integral T>
-INLINE LexResult<T> lex_attribute_value (char* YYCURSOR) {
+INLINE ParseNumberResult<T> lex_attribute_value (char* YYCURSOR) {
     YYCURSOR = lex_same_line_symbol<'=', "Expected value assignment for attribute">(YYCURSOR);
-    YYCURSOR = skip_white_space(YYCURSOR);
-    return parse_uint<T>(YYCURSOR);
+    return parse_uint_skip_white_space<T>(YYCURSOR);
 }
 
 struct VariantAttributes {
@@ -1179,7 +1178,7 @@ INLINE char* lex_enum_fields (
             */
 
             parse_negative_value: {
-                auto parsed = parse_uint<uint64_t, static_cast<uint64_t>(std::numeric_limits<int64_t>::min())>(YYCURSOR);
+                auto parsed = parse_uint<uint64_t, false, static_cast<uint64_t>(std::numeric_limits<int64_t>::min())>(YYCURSOR);
                 YYCURSOR = parsed.cursor;
 
                 
@@ -1203,6 +1202,7 @@ INLINE char* lex_enum_fields (
             parse_positive_value: {
                 auto parsed = parse_uint<
                     uint64_t,
+                    false,
                     std::numeric_limits<std::conditional_t<
                         is_signed,
                         int64_t,

@@ -4,7 +4,6 @@
 #include <cstddef>
 #include <concepts>
 #include <limits>
-#include "lex_result.cpp"
 #include "lex_error.cpp"
 #include "constexpr_helpers.cpp"
 
@@ -32,7 +31,27 @@
     re2c:define:YYSHIFTSTAG  = "YYSHIFTSTAG";
     re2c:define:YYSTAGN      = "YYSTAGN";
     re2c:define:YYSTAGP      = "YYSTAGP";
+
+    white_space = [ \t];
 */
+
+template <std::integral T, bool get_digits = false>
+struct ParseNumberResult;
+
+template <std::integral T>
+struct ParseNumberResult<T, false> {
+    char *cursor;
+    T value;
+};
+
+template <std::integral T>
+struct ParseNumberResult<T, true> {
+    char *cursor;
+    T value;
+    size_t digits;
+};
+
+
 
 #define RETURN_VALUE_CHECKED(BASE, DIGITS)                                                              \
 if constexpr (max != std::numeric_limits<T>::max()) {                                                   \
@@ -45,11 +64,16 @@ if constexpr (min != std::numeric_limits<T>::min()) {                           
         show_syntax_error("value out of range", YYCURSOR - 2 - DIGITS, DIGITS);                         \
     }                                                                                                   \
 }                                                                                                       \
-return { YYCURSOR - 1, value };
+if constexpr (get_digits) {                                                                             \
+    return {YYCURSOR - 1, value, DIGITS};                                                               \
+} else {                                                                                                \
+    return {YYCURSOR - 1, value};                                                                       \
+}
 
 
-template <std::unsigned_integral T, const T max, const T min>
-[[clang::always_inline]] [[gnu::always_inline]] INLINE LexResult<T> lex_bin_digits_unsigned (char *YYCURSOR) {
+
+template <std::unsigned_integral T, const T max, const T min, bool get_digits>
+[[clang::always_inline]] [[gnu::always_inline]] INLINE ParseNumberResult<T, get_digits> lex_bin_digits_unsigned (char *YYCURSOR) {
     T value;
     /*!local:re2c
         [0]         { goto only_zeros;                                          }
@@ -75,8 +99,8 @@ template <std::unsigned_integral T, const T max, const T min>
     UNEXPECTED_INPUT("value overflow");
 }
 
-template <std::signed_integral T, const T max, const T min, size_t digits>
-[[clang::always_inline]] [[gnu::always_inline]] INLINE LexResult<T> lex_trimmed_bin_digits_signed_negative_early_overflow (T value, char *YYCURSOR) {
+template <std::signed_integral T, const T max, const T min, bool get_digits, size_t digits>
+[[clang::always_inline]] [[gnu::always_inline]] INLINE ParseNumberResult<T, get_digits> lex_trimmed_bin_digits_signed_negative_early_overflow (T value, char *YYCURSOR) {
     constexpr size_t max_digits = uint_log2<max> + 1;
     #pragma unroll
     for (size_t i = digits; i < max_digits; i++) {
@@ -99,12 +123,12 @@ template <std::signed_integral T, const T max, const T min, size_t digits>
 
 }
 
-template <std::signed_integral T, const T max, const T min, size_t digits>
-[[clang::always_inline]] [[gnu::always_inline]] INLINE LexResult<T> lex_trimmed_bin_digits_signed_negative (T value, char *YYCURSOR) {
+template <std::signed_integral T, const T max, const T min, bool get_digits, size_t digits>
+[[clang::always_inline]] [[gnu::always_inline]] INLINE ParseNumberResult<T, get_digits> lex_trimmed_bin_digits_signed_negative (T value, char *YYCURSOR) {
     if constexpr (digits < uint_log2<max> + 1) {
         /*!local:re2c
-            [0]         { value = value << 1;       return lex_trimmed_bin_digits_signed_negative<T, max, min, digits + 1>(value, YYCURSOR);                }
-            [1]         { value = (value << 1) - 1; return lex_trimmed_bin_digits_signed_negative_early_overflow<T, max, min, digits + 1>(value, YYCURSOR); }
+            [0]         { value = value << 1;       return lex_trimmed_bin_digits_signed_negative<T, max, min, get_digits, digits + 1>(value, YYCURSOR);                }
+            [1]         { value = (value << 1) - 1; return lex_trimmed_bin_digits_signed_negative_early_overflow<T, max, min, get_digits, digits + 1>(value, YYCURSOR); }
             *           { RETURN_VALUE_CHECKED(2, digits)                                                                                                   }
         */
     } else {
@@ -121,8 +145,8 @@ template <std::signed_integral T, const T max, const T min, size_t digits>
     }
 }
 
-template <std::signed_integral T, const T max, const T min>
-[[clang::always_inline]] [[gnu::always_inline]] INLINE LexResult<T> lex_trimmed_bin_digits_signed_positive (char *YYCURSOR) {
+template <std::signed_integral T, const T max, const T min, bool get_digits>
+[[clang::always_inline]] [[gnu::always_inline]] INLINE ParseNumberResult<T, get_digits> lex_trimmed_bin_digits_signed_positive (char *YYCURSOR) {
     T value = 1;
     #pragma unroll
     for (size_t i = 1; i < uint_log2<max> + 2; i++) {
@@ -135,25 +159,25 @@ template <std::signed_integral T, const T max, const T min>
     UNEXPECTED_INPUT("value overflow");
 }
 
-template <std::signed_integral T, const T max, const T min, bool is_negative>
-[[clang::always_inline]] [[gnu::always_inline]] INLINE LexResult<T> lex_bin_digits_signed (char *YYCURSOR) {
+template <std::signed_integral T, const T max, const T min, bool get_digits, bool is_negative>
+[[clang::always_inline]] [[gnu::always_inline]] INLINE ParseNumberResult<T, get_digits> lex_bin_digits_signed (char *YYCURSOR) {
     /*!local:re2c
         [0]         { goto only_zeros;                                                                                                                                                                              }
-        [1]         { if constexpr (is_negative) { return lex_trimmed_bin_digits_signed_negative<T, max, min, 1>(-1, YYCURSOR); } else { return lex_trimmed_bin_digits_signed_positive<T, max, min>(YYCURSOR); }    }
+        [1]         { if constexpr (is_negative) { return lex_trimmed_bin_digits_signed_negative<T, max, min, get_digits, 1>(-1, YYCURSOR); } else { return lex_trimmed_bin_digits_signed_positive<T, max, min, get_digits>(YYCURSOR); }    }
         *           { UNEXPECTED_INPUT("expected at least one binary digit");                                                                                                                                       }
     */
     only_zeros: {
         /*!local:re2c
             [0]         { goto only_zeros;                                                                                                                                                                              }
-            [1]         { if constexpr (is_negative) { return lex_trimmed_bin_digits_signed_negative<T, max, min, 1>(-1, YYCURSOR); } else { return lex_trimmed_bin_digits_signed_positive<T, max, min>(YYCURSOR); }    }
+            [1]         { if constexpr (is_negative) { return lex_trimmed_bin_digits_signed_negative<T, max, min, get_digits, 1>(-1, YYCURSOR); } else { return lex_trimmed_bin_digits_signed_positive<T, max, min, get_digits>(YYCURSOR); }    }
             *           { return { YYCURSOR - 1, 0 };                                                                                                                                                                   }
         */
     }
 }
 
 
-template <std::unsigned_integral T, const T max, const T min>
-[[clang::always_inline]] [[gnu::always_inline]] INLINE LexResult<T> lex_oct_digits_unsigned (char *YYCURSOR) {
+template <std::unsigned_integral T, const T max, const T min, bool get_digits>
+[[clang::always_inline]] [[gnu::always_inline]] INLINE ParseNumberResult<T, get_digits> lex_oct_digits_unsigned (char *YYCURSOR) {
     T value;
     // Octal always has a leading zero. So no need to make sure the number has at least one digit.
     only_zeros:{
@@ -174,8 +198,8 @@ template <std::unsigned_integral T, const T max, const T min>
     UNEXPECTED_INPUT("value overflow");
 }
 
-template <std::signed_integral T, const T max, const T min, bool can_overflow_early>
-[[clang::always_inline]] [[gnu::always_inline]] INLINE LexResult<T> lex_trimmed_oct_digits_signed_negative (T value, char *YYCURSOR) {
+template <std::signed_integral T, const T max, const T min, bool get_digits, bool can_overflow_early>
+[[clang::always_inline]] [[gnu::always_inline]] INLINE ParseNumberResult<T, get_digits> lex_trimmed_oct_digits_signed_negative (T value, char *YYCURSOR) {
     constexpr size_t max_digits = uint_log<8, max> + (can_overflow_early ? 0 : 1);
     #pragma unroll
     for (size_t i = 0; i < uint_log<8, max> + (can_overflow_early ? 0 : 1); i++) {
@@ -197,8 +221,8 @@ template <std::signed_integral T, const T max, const T min, bool can_overflow_ea
 
 }
 
-template <std::signed_integral T, const T max, const T min>
-[[clang::always_inline]] [[gnu::always_inline]] INLINE LexResult<T> lex_trimmed_oct_digits_signed_positive (T value, char *YYCURSOR) {
+template <std::signed_integral T, const T max, const T min, bool get_digits>
+[[clang::always_inline]] [[gnu::always_inline]] INLINE ParseNumberResult<T, get_digits> lex_trimmed_oct_digits_signed_positive (T value, char *YYCURSOR) {
     #pragma unroll
     for (size_t i = 1; i < uint_log<8, max> + 2; i++) {
         /*!local:re2c
@@ -209,20 +233,20 @@ template <std::signed_integral T, const T max, const T min>
     UNEXPECTED_INPUT("value overflow");
 }
 
-template <std::signed_integral T, const T max, const T min, bool is_negative>
-[[clang::always_inline]] [[gnu::always_inline]] INLINE LexResult<T> lex_oct_digits_signed (char *YYCURSOR) {
+template <std::signed_integral T, const T max, const T min, bool get_digits, bool is_negative>
+[[clang::always_inline]] [[gnu::always_inline]] INLINE ParseNumberResult<T, get_digits> lex_oct_digits_signed (char *YYCURSOR) {
     only_zeros: {
         /*!local:re2c
             [0]         { goto only_zeros;                                                                                                                                                                                                          }
-            [1-3]       { if constexpr (is_negative) { return lex_trimmed_oct_digits_signed_negative<T, max, min, false>(-yych + '0', YYCURSOR); } else { return lex_trimmed_oct_digits_signed_positive<T, max, min>(yych - '0'     , YYCURSOR); }  }
-            [3-7]       { if constexpr (is_negative) { return lex_trimmed_oct_digits_signed_negative<T, max, min, true >(-yych + '0', YYCURSOR); } else { return lex_trimmed_oct_digits_signed_positive<T, max, min>(yych - '0'     , YYCURSOR); }  }
+            [1-3]       { if constexpr (is_negative) { return lex_trimmed_oct_digits_signed_negative<T, max, min, get_digits, false>(-yych + '0', YYCURSOR); } else { return lex_trimmed_oct_digits_signed_positive<T, max, min, get_digits>(yych - '0'     , YYCURSOR); }  }
+            [3-7]       { if constexpr (is_negative) { return lex_trimmed_oct_digits_signed_negative<T, max, min, get_digits, true >(-yych + '0', YYCURSOR); } else { return lex_trimmed_oct_digits_signed_positive<T, max, min, get_digits>(yych - '0'     , YYCURSOR); }  }
             *           { return { YYCURSOR - 1, 0 };                                                                                                                                                                                               }
         */
     }
 }
 
-template <std::unsigned_integral T, const T max, const T min>
-[[clang::always_inline]] [[gnu::always_inline]] INLINE LexResult<T> lex_hex_digits_unsigned (char *YYCURSOR) {
+template <std::unsigned_integral T, const T max, const T min, bool get_digits>
+[[clang::always_inline]] [[gnu::always_inline]] INLINE ParseNumberResult<T, get_digits> lex_hex_digits_unsigned (char *YYCURSOR) {
     T value;
     /*!local:re2c
         [0]         { goto only_zeros; }
@@ -253,8 +277,8 @@ template <std::unsigned_integral T, const T max, const T min>
     UNEXPECTED_INPUT("value overflow");
 }
 
-template <std::signed_integral T, const T max, const T min, bool can_overflow_early>
-[[clang::always_inline]] [[gnu::always_inline]] INLINE LexResult<T> lex_trimmed_hex_digits_signed_negative (T value, char *YYCURSOR) {
+template <std::signed_integral T, const T max, const T min, bool get_digits, bool can_overflow_early>
+[[clang::always_inline]] [[gnu::always_inline]] INLINE ParseNumberResult<T, get_digits> lex_trimmed_hex_digits_signed_negative (T value, char *YYCURSOR) {
     constexpr size_t max_digits = uint_log<16, max> + (can_overflow_early ? 0 : 1);
     #pragma unroll
     for (size_t i = 1; i < max_digits; i++) {
@@ -278,8 +302,8 @@ template <std::signed_integral T, const T max, const T min, bool can_overflow_ea
 
 }
 
-template <std::signed_integral T, const T max, const T min>
-[[clang::always_inline]] [[gnu::always_inline]] INLINE LexResult<T> lex_trimmed_hex_digits_signed_positive (T value, char *YYCURSOR) {
+template <std::signed_integral T, const T max, const T min, bool get_digits>
+[[clang::always_inline]] [[gnu::always_inline]] INLINE ParseNumberResult<T, get_digits> lex_trimmed_hex_digits_signed_positive (T value, char *YYCURSOR) {
     #pragma unroll
     for (size_t i = 1; i < uint_log<16, max> + 2; i++) {
         /*!local:re2c
@@ -292,30 +316,30 @@ template <std::signed_integral T, const T max, const T min>
     UNEXPECTED_INPUT("value overflow");
 }
 
-template <std::signed_integral T, const T max, const T min, bool is_negative>
-[[clang::always_inline]] [[gnu::always_inline]] INLINE LexResult<T> lex_hex_digits_signed (char *YYCURSOR) {
+template <std::signed_integral T, const T max, const T min, bool get_digits, bool is_negative>
+[[clang::always_inline]] [[gnu::always_inline]] INLINE ParseNumberResult<T, get_digits> lex_hex_digits_signed (char *YYCURSOR) {
     /*!local:re2c
         [0]         { goto only_zeros;                                                                                                                                                                                                              }
-        [1-7]       { if constexpr (is_negative) { return lex_trimmed_hex_digits_signed_negative<T, max, min, false>(-yych + '0'     , YYCURSOR); } else { return lex_trimmed_hex_digits_signed_positive<T, max, min>(yych - '0'     , YYCURSOR); } }
-        [8-9]       { if constexpr (is_negative) { return lex_trimmed_hex_digits_signed_negative<T, max, min, true >(-yych + '0'     , YYCURSOR); } else { return lex_trimmed_hex_digits_signed_positive<T, max, min>(yych - '0'     , YYCURSOR); } }
-        [a-f]       { if constexpr (is_negative) { return lex_trimmed_hex_digits_signed_negative<T, max, min, true >(-yych + 'a' - 10, YYCURSOR); } else { return lex_trimmed_hex_digits_signed_positive<T, max, min>(yych - 'a' + 10, YYCURSOR); } }
-        [A-F]       { if constexpr (is_negative) { return lex_trimmed_hex_digits_signed_negative<T, max, min, true >(-yych + 'A' - 10, YYCURSOR); } else { return lex_trimmed_hex_digits_signed_positive<T, max, min>(yych - 'A' + 10, YYCURSOR); } }
+        [1-7]       { if constexpr (is_negative) { return lex_trimmed_hex_digits_signed_negative<T, max, min, get_digits, false>(-yych + '0'     , YYCURSOR); } else { return lex_trimmed_hex_digits_signed_positive<T, max, min, get_digits>(yych - '0'     , YYCURSOR); } }
+        [8-9]       { if constexpr (is_negative) { return lex_trimmed_hex_digits_signed_negative<T, max, min, get_digits, true >(-yych + '0'     , YYCURSOR); } else { return lex_trimmed_hex_digits_signed_positive<T, max, min, get_digits>(yych - '0'     , YYCURSOR); } }
+        [a-f]       { if constexpr (is_negative) { return lex_trimmed_hex_digits_signed_negative<T, max, min, get_digits, true >(-yych + 'a' - 10, YYCURSOR); } else { return lex_trimmed_hex_digits_signed_positive<T, max, min, get_digits>(yych - 'a' + 10, YYCURSOR); } }
+        [A-F]       { if constexpr (is_negative) { return lex_trimmed_hex_digits_signed_negative<T, max, min, get_digits, true >(-yych + 'A' - 10, YYCURSOR); } else { return lex_trimmed_hex_digits_signed_positive<T, max, min, get_digits>(yych - 'A' + 10, YYCURSOR); } }
         *           { UNEXPECTED_INPUT("expected at least one hexadecimal digit");                                                                                                                                                                  }
     */
     only_zeros: {
         /*!local:re2c
             [0]         { goto only_zeros;                                                                                                                                                                                                              }
-            [1-7]       { if constexpr (is_negative) { return lex_trimmed_hex_digits_signed_negative<T, max, min, false>(yych - '0'      , YYCURSOR); } else { return lex_trimmed_hex_digits_signed_positive<T, max, min>(yych - '0'     , YYCURSOR); } }
-            [8-9]       { if constexpr (is_negative) { return lex_trimmed_hex_digits_signed_negative<T, max, min, true >(-yych + '0'     , YYCURSOR); } else { return lex_trimmed_hex_digits_signed_positive<T, max, min>(yych - '0'     , YYCURSOR); } }
-            [a-f]       { if constexpr (is_negative) { return lex_trimmed_hex_digits_signed_negative<T, max, min, true >(-yych + 'a' - 10, YYCURSOR); } else { return lex_trimmed_hex_digits_signed_positive<T, max, min>(yych - 'a' + 10, YYCURSOR); } }
-            [A-F]       { if constexpr (is_negative) { return lex_trimmed_hex_digits_signed_negative<T, max, min, true >(-yych + 'A' - 10, YYCURSOR); } else { return lex_trimmed_hex_digits_signed_positive<T, max, min>(yych - 'A' + 10, YYCURSOR); } }
+            [1-7]       { if constexpr (is_negative) { return lex_trimmed_hex_digits_signed_negative<T, max, min, get_digits, false>(yych - '0'      , YYCURSOR); } else { return lex_trimmed_hex_digits_signed_positive<T, max, min, get_digits>(yych - '0'     , YYCURSOR); } }
+            [8-9]       { if constexpr (is_negative) { return lex_trimmed_hex_digits_signed_negative<T, max, min, get_digits, true >(-yych + '0'     , YYCURSOR); } else { return lex_trimmed_hex_digits_signed_positive<T, max, min, get_digits>(yych - '0'     , YYCURSOR); } }
+            [a-f]       { if constexpr (is_negative) { return lex_trimmed_hex_digits_signed_negative<T, max, min, get_digits, true >(-yych + 'a' - 10, YYCURSOR); } else { return lex_trimmed_hex_digits_signed_positive<T, max, min, get_digits>(yych - 'a' + 10, YYCURSOR); } }
+            [A-F]       { if constexpr (is_negative) { return lex_trimmed_hex_digits_signed_negative<T, max, min, get_digits, true >(-yych + 'A' - 10, YYCURSOR); } else { return lex_trimmed_hex_digits_signed_positive<T, max, min, get_digits>(yych - 'A' + 10, YYCURSOR); } }
             *           { return { YYCURSOR - 1, 0 };                                                                                                                                                                                                   }
         */
     }
 }
 
-template <std::unsigned_integral T, const T max, const T min>
-[[clang::always_inline]] [[gnu::always_inline]] INLINE LexResult<T> lex_dec_digits_unsigned (T value, char *YYCURSOR) {
+template <std::unsigned_integral T, const T max, const T min, bool get_digits>
+[[clang::always_inline]] [[gnu::always_inline]] INLINE ParseNumberResult<T, get_digits> lex_dec_digits_unsigned (T value, char *YYCURSOR) {
     constexpr size_t max_digits = uint_log10<max>;
     #pragma unroll
     for (size_t i = 1; i < max_digits; i++) {
@@ -335,8 +359,8 @@ template <std::unsigned_integral T, const T max, const T min>
     */
 }
 
-template <std::signed_integral T, const T max, const T min>
-[[clang::always_inline]] [[gnu::always_inline]] INLINE LexResult<T> lex_dec_digits_signed_positive (T value, char *YYCURSOR) {
+template <std::signed_integral T, const T max, const T min, bool get_digits>
+[[clang::always_inline]] [[gnu::always_inline]] INLINE ParseNumberResult<T, get_digits> lex_dec_digits_signed_positive (T value, char *YYCURSOR) {
     constexpr size_t max_digits = uint_log10<max>;
     #pragma unroll
     for (size_t i = 1; i < max_digits; i++) {
@@ -356,8 +380,8 @@ template <std::signed_integral T, const T max, const T min>
     */
 }
 
-template <std::signed_integral T, const T max, const T min>
-[[clang::always_inline]] [[gnu::always_inline]] INLINE LexResult<T> lex_dec_digits_signed_negative (T value, char *YYCURSOR) {
+template <std::signed_integral T, const T max, const T min, bool get_digits>
+[[clang::always_inline]] [[gnu::always_inline]] INLINE ParseNumberResult<T, get_digits> lex_dec_digits_signed_negative (T value, char *YYCURSOR) {
     constexpr size_t max_digits = uint_log10<max>;
     #pragma unroll
     for (size_t i = 1; i < max_digits; i++) {
@@ -378,8 +402,8 @@ template <std::signed_integral T, const T max, const T min>
 }
 
 
-template <std::unsigned_integral T, const T max, const T min>
-[[clang::always_inline]] [[gnu::always_inline]] INLINE LexResult<T> lex_dec_digits_unsigned_ (T value, char *YYCURSOR) {
+template <std::unsigned_integral T, const T max, const T min, bool get_digits>
+[[clang::always_inline]] [[gnu::always_inline]] INLINE ParseNumberResult<T, get_digits> lex_dec_digits_unsigned_ (T value, char *YYCURSOR) {
     #pragma unroll
     for (size_t i = 1; i < uint_log10<max> + 2; i++) {
         /*!local:re2c
@@ -390,33 +414,66 @@ template <std::unsigned_integral T, const T max, const T min>
     UNEXPECTED_INPUT("value overflow");
 }
 
-template <std::unsigned_integral T, const T max = std::numeric_limits<T>::max(), const T min = std::numeric_limits<T>::min()>
-INLINE LexResult<T> parse_uint (char *YYCURSOR) {
+template <std::unsigned_integral T, bool get_digits = false, const T max = std::numeric_limits<T>::max(), const T min = std::numeric_limits<T>::min()>
+INLINE ParseNumberResult<T, get_digits> parse_uint (char *YYCURSOR) {
     /*!local:re2c
-        "0b"        { return lex_bin_digits_unsigned<T, max, min>(YYCURSOR);                }
-        "0"         { return lex_oct_digits_unsigned<T, max, min>(YYCURSOR);                }
-        [1-9]       { return lex_dec_digits_unsigned<T, max, min>(yych - '0', YYCURSOR);    }
-        "0x"        { return lex_hex_digits_unsigned<T, max, min>(YYCURSOR);                }
+        "0b"        { return lex_bin_digits_unsigned<T, max, min, get_digits>(YYCURSOR);                }
+        "0"         { return lex_oct_digits_unsigned<T, max, min, get_digits>(YYCURSOR);                }
+        [1-9]       { return lex_dec_digits_unsigned<T, max, min, get_digits>(yych - '0', YYCURSOR);    }
+        "0x"        { return lex_hex_digits_unsigned<T, max, min, get_digits>(YYCURSOR);                }
         *           { UNEXPECTED_INPUT("expected unsigned integer literal");                }
     */
 }
 
-template <std::signed_integral T, const T max = std::numeric_limits<T>::max(), const T min = std::numeric_limits<T>::min()>
-INLINE LexResult<T> parse_int (char *YYCURSOR) {
+template <std::unsigned_integral T, bool get_digits = false, const T max = std::numeric_limits<T>::max(), const T min = std::numeric_limits<T>::min()>
+INLINE ParseNumberResult<T, get_digits> parse_uint_skip_white_space (char *YYCURSOR) {
+    /*!local:re2c
+        white_space* "0b"       { return lex_bin_digits_unsigned<T, max, min, get_digits>(YYCURSOR);                }
+        white_space* "0"        { return lex_oct_digits_unsigned<T, max, min, get_digits>(YYCURSOR);                }
+        white_space* [1-9]      { return lex_dec_digits_unsigned<T, max, min, get_digits>(yych - '0', YYCURSOR);    }
+        white_space* "0x"       { return lex_hex_digits_unsigned<T, max, min, get_digits>(YYCURSOR);                }
+        white_space*            { UNEXPECTED_INPUT("expected unsigned integer literal");                }
+    */
+}
+
+
+template <std::signed_integral T, bool get_digits = false, const T max = std::numeric_limits<T>::max(), const T min = std::numeric_limits<T>::min()>
+INLINE ParseNumberResult<T, get_digits> parse_int (char *YYCURSOR) {
     /*!local:re2c
         "-"         { goto minus_sign; }
-        "0b"        { return lex_bin_digits_signed<T, max, min, false>(YYCURSOR);                   }
-        "0"         { return lex_oct_digits_signed<T, max, min, false>(YYCURSOR);                   }
-        [1-9]       { return lex_dec_digits_signed_positive<T, max, min>(yych - '0', YYCURSOR);     }
-        "0x"        { return lex_hex_digits_signed<T, max, min, false>(YYCURSOR);                   }
+        "0b"        { return lex_bin_digits_signed<T, max, min, get_digits, false>(YYCURSOR);                   }
+        "0"         { return lex_oct_digits_signed<T, max, min, get_digits, false>(YYCURSOR);                   }
+        [1-9]       { return lex_dec_digits_signed_positive<T, max, min, get_digits>(yych - '0', YYCURSOR);     }
+        "0x"        { return lex_hex_digits_signed<T, max, min, get_digits, false>(YYCURSOR);                   }
         *           { UNEXPECTED_INPUT("expected signed integer literal");                          }
     */
     minus_sign: {
         /*!local:re2c
-            "0b"        { return lex_bin_digits_signed<T, max, min, true>(YYCURSOR);                    }
-            "0"         { return lex_oct_digits_signed<T, max, min, true>(YYCURSOR);                    }
-            [1-9]       { return lex_dec_digits_signed_negative<T, max, min>('0' - yych, YYCURSOR);     }
-            "0x"        { return lex_hex_digits_signed<T, max, min, true>(YYCURSOR);                    }
+            "0b"        { return lex_bin_digits_signed<T, max, min, get_digits, true>(YYCURSOR);                    }
+            "0"         { return lex_oct_digits_signed<T, max, min, get_digits, true>(YYCURSOR);                    }
+            [1-9]       { return lex_dec_digits_signed_negative<T, max, min, get_digits>('0' - yych, YYCURSOR);     }
+            "0x"        { return lex_hex_digits_signed<T, max, min, get_digits, true>(YYCURSOR);                    }
+            *           { UNEXPECTED_INPUT("expected signed integer literal");                          }
+        */
+    }
+}
+
+template <std::signed_integral T, bool get_digits = false, const T max = std::numeric_limits<T>::max(), const T min = std::numeric_limits<T>::min()>
+INLINE ParseNumberResult<T, get_digits> parse_int_skip_white_space (char *YYCURSOR) {
+    /*!local:re2c
+        white_space* "-"        { goto minus_sign; }
+        white_space* "0b"       { return lex_bin_digits_signed<T, max, min, get_digits, false>(YYCURSOR);                   }
+        white_space* "0"        { return lex_oct_digits_signed<T, max, min, get_digits, false>(YYCURSOR);                   }
+        white_space* [1-9]      { return lex_dec_digits_signed_positive<T, max, min, get_digits>(yych - '0', YYCURSOR);     }
+        white_space* "0x"       { return lex_hex_digits_signed<T, max, min, get_digits, false>(YYCURSOR);                   }
+        white_space*            { UNEXPECTED_INPUT("expected signed integer literal");                          }
+    */
+    minus_sign: {
+        /*!local:re2c
+            "0b"        { return lex_bin_digits_signed<T, max, min, get_digits, true>(YYCURSOR);                    }
+            "0"         { return lex_oct_digits_signed<T, max, min, get_digits, true>(YYCURSOR);                    }
+            [1-9]       { return lex_dec_digits_signed_negative<T, max, min, get_digits>('0' - yych, YYCURSOR);     }
+            "0x"        { return lex_hex_digits_signed<T, max, min, get_digits, true>(YYCURSOR);                    }
             *           { UNEXPECTED_INPUT("expected signed integer literal");                          }
         */
     }
