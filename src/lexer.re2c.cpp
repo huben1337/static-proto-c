@@ -582,7 +582,7 @@ std::conditional_t<expect_fixed, LexFixedTypeResult, LexTypeResult> lex_type (ch
         auto type = buffer.get_next<Type>();                                                                            \
         type->type = FIELD_TYPE::TYPE;                                                                                  \
         constexpr LeafCounts fixed_leaf_counts = {ALIGN};                                                               \
-        constexpr uint64_t byte_size = byte_size_of(ALIGN);                                                             \
+        constexpr uint64_t byte_size = ALIGN.byte_size();                                                               \
         if constexpr (expect_fixed) {                                                                                   \
             return LexFixedTypeResult{YYCURSOR, fixed_leaf_counts, {0}, byte_size, 0, 0, 0, ALIGN};                     \
         } else {                                                                                                        \
@@ -921,7 +921,7 @@ std::conditional_t<expect_fixed, LexFixedTypeResult, LexTypeResult> lex_type (ch
             auto enum_definition = identifier->data()->as_enum();
             SIZE type_size = enum_definition->type_size;
             LeafCounts fixed_leaf_counts = {type_size};
-            uint64_t byte_size = byte_size_of(type_size);
+            uint64_t byte_size = type_size.byte_size();
             if constexpr (!expect_fixed) {
                 return LexTypeResult{
                     YYCURSOR,

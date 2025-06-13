@@ -489,7 +489,7 @@ INLINE codegen::Method<Last> _gen_fixed_value_leaf_in_array (
     OffsetsAccessor offsets_accessor,
     const ArrayLengths& array_lengths
 ) {
-    constexpr auto type_size_str = uint_to_string<lexer::byte_size_of(type_size)>();
+    constexpr auto type_size_str = uint_to_string<type_size.byte_size()>();
 
     uint64_t offset = offsets_accessor.next_fixed_offset();
 
@@ -567,7 +567,7 @@ INLINE codegen::Method<Last> _gen_var_value_leaf_in_array (
     OffsetsAccessor offsets_accessor,
     const ArrayLengths& array_lengths
 ) {
-    constexpr auto type_size_str = uint_to_string<lexer::byte_size_of(type_size)>();
+    constexpr auto type_size_str = uint_to_string<type_size.byte_size()>();
 
     uint64_t var_leafs_start = offsets_accessor.var_leafs_start;
     const Buffer::View<uint64_t> size_chain = offsets_accessor.next_var_offset();

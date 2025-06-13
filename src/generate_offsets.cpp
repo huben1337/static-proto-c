@@ -571,7 +571,7 @@ struct TypeVisitor : lexer::TypeVisitorBase<TypeT> {
 
             uint16_t leaf_idx = leafs.template next_idx<true>(stored_size_size);
             logger::debug("STRING.size leaf_idx: ", leaf_idx);
-            leafs.shared.fixed_offsets[leaf_idx] = lexer::byte_size_of(stored_size_size);
+            leafs.shared.fixed_offsets[leaf_idx] = stored_size_size.byte_size();
 
             uint16_t map_idx = leafs.shared.next_map_idx();
             leafs.shared.idx_map[map_idx] = leaf_idx;
@@ -613,7 +613,7 @@ struct TypeVisitor : lexer::TypeVisitorBase<TypeT> {
             }.visit();
 
             uint16_t leaf_idx = leafs.template next_idx<true>(stored_size_size);
-            leafs.shared.fixed_offsets[leaf_idx] = lexer::byte_size_of(stored_size_size);
+            leafs.shared.fixed_offsets[leaf_idx] = stored_size_size.byte_size();
 
             uint16_t map_idx = leafs.shared.next_map_idx();
             leafs.shared.idx_map[map_idx] = leaf_idx;
@@ -742,7 +742,7 @@ struct TypeVisitor : lexer::TypeVisitorBase<TypeT> {
             uint16_t leaf_idx = leafs.template next_idx<true>(stored_size_size);
             logger::debug("VARIANT size leaf_idx: ", leaf_idx);
             logger::debug("DYNAMIC_VARIANT stored_size_size: ", stored_size_size);
-            leafs.shared.fixed_offsets[leaf_idx] = lexer::byte_size_of(stored_size_size);
+            leafs.shared.fixed_offsets[leaf_idx] = stored_size_size.byte_size();
 
             uint16_t map_idx = leafs.shared.next_map_idx();
             leafs.shared.idx_map[map_idx] = leaf_idx;

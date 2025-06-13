@@ -55,17 +55,39 @@ enum class VALUE_FIELD_TYPE : uint8_t {
     FLOAT64,
 };
 
-enum SIZE : uint8_t {
-    SIZE_1,
-    SIZE_2,
-    SIZE_4,
-    SIZE_8,
-    SIZE_0 = 0xff
+struct SIZE {
+    constexpr SIZE () = default;
+
+    constexpr SIZE (const uint8_t value) : value(value) {}
+    uint8_t value;
+
+    constexpr SIZE (const SIZE& other) : value(other.value) {}
+    constexpr SIZE (SIZE&& other) : value(std::move(other.value)) {}
+    
+    constexpr SIZE& operator = (const SIZE& other) { value = other.value; return *this; }
+    constexpr SIZE& operator = (SIZE&& other) { value = std::move(other.value); return *this; }
+
+    constexpr operator uint8_t() const { return value; }
+
+    explicit operator bool () const = delete;
+
+    constexpr uint8_t byte_size () const {
+        return 1U << value;
+    }
+
+    static const SIZE SIZE_1;
+    static const SIZE SIZE_2;
+    static const SIZE SIZE_4;
+    static const SIZE SIZE_8;
+    static const SIZE SIZE_0;
 };
 
-INLINE constexpr uint8_t byte_size_of (SIZE size) {
-    return 1U << static_cast<uint8_t>(size);
-}
+
+constexpr SIZE SIZE::SIZE_1{0};
+constexpr SIZE SIZE::SIZE_2{1};
+constexpr SIZE SIZE::SIZE_4{2};
+constexpr SIZE SIZE::SIZE_8{3};
+constexpr SIZE SIZE::SIZE_0{0xff};
 
 template <lexer::VALUE_FIELD_TYPE field_type>
 consteval lexer::SIZE get_type_alignment () {
@@ -91,12 +113,12 @@ consteval lexer::SIZE get_type_alignment () {
 }
 template <lexer::VALUE_FIELD_TYPE field_type>
 consteval uint64_t get_type_size () {
-    return byte_size_of(get_type_alignment<field_type>());
+    return get_type_alignment<field_type>().byte_size();
 }
 
 template <std::integral T>
 INLINE constexpr T next_multiple (T value, SIZE base) {
-    T mask = (static_cast<T>(1) << static_cast<uint8_t>(base)) - 1;
+    T mask = (static_cast<T>(1) << static_cast<uint8_t>(base.value)) - 1;
     return (value + mask) & ~mask;
 }
 
@@ -113,31 +135,29 @@ INLINE constexpr SIZE get_size_size (uint16_t size) {
     if (size <= UINT8_MAX) {
         return SIZE::SIZE_1;
     } else {
-        return  SIZE::SIZE_2;
+        return SIZE::SIZE_2;
     }
 }
 INLINE constexpr SIZE get_size_size (uint32_t size) {
     if (size <= UINT8_MAX) {
         return SIZE::SIZE_1;
     } else if (size <= UINT16_MAX) {
-        return  SIZE::SIZE_2;
+        return SIZE::SIZE_2;
     } else {
-        return  SIZE::SIZE_4;
+        return SIZE::SIZE_4;
     }
 }
 INLINE constexpr SIZE get_size_size (uint64_t size) {
     if (size <= UINT8_MAX) {
         return SIZE::SIZE_1;
     } else if (size <= UINT16_MAX) {
-        return  SIZE::SIZE_2;
+        return SIZE::SIZE_2;
     } else if (size <= UINT32_MAX) {
-        return  SIZE::SIZE_4;
+        return SIZE::SIZE_4;
     } else {
-        return  SIZE::SIZE_8;
+        return SIZE::SIZE_8;
     }
 }
-
-
 
 struct Range {
     uint32_t min;
@@ -160,6 +180,21 @@ union LeafCounts {
         INLINE constexpr uint16_t total () const {
             return size8 + size16 + size32 + size64;
         }
+
+        template <SIZE size>
+        INLINE constexpr uint16_t& at_size () {
+            if constexpr (size == SIZE::SIZE_8) {
+                return size8;
+            } else if constexpr (size == SIZE::SIZE_4) {
+                return size32;
+            } else if constexpr (size == SIZE::SIZE_2) {
+                return size16;
+            } else if constexpr (size == SIZE::SIZE_1) {
+                return size8;
+            } else {
+                static_assert(false, "Invalid size");
+            }
+        }
     } counts;
     uint64_t as_uint64;
 
@@ -167,7 +202,7 @@ union LeafCounts {
     INLINE constexpr LeafCounts (Counts counts) : counts(counts) {}
     INLINE constexpr LeafCounts (uint16_t size8, uint16_t size16, uint16_t size32, uint16_t size64) : counts{size8, size16, size32, size64} {}
     INLINE constexpr LeafCounts (uint64_t as_uint64) : as_uint64(as_uint64) {}
-    INLINE constexpr LeafCounts (SIZE size) : as_uint64(1ULL << (static_cast<uint8_t>(size) * sizeof(uint16_t) * 8)) {}
+    INLINE constexpr LeafCounts (SIZE size) : as_uint64(1ULL << (static_cast<uint8_t>(size.value) * sizeof(uint16_t) * 8)) {}
 
     INLINE constexpr void operator += (const LeafCounts& other) { as_uint64 += other.as_uint64; }
     INLINE constexpr LeafCounts operator + (const LeafCounts& other) const { return {as_uint64 + other.as_uint64}; }
