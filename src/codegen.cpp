@@ -18,7 +18,7 @@ namespace codegen {
 
 template <StringLiteral seperator, typename ...T>
 struct _CodeParts {
-    constexpr _CodeParts (T&&... args, ...) : values(std::forward<T>(args)...) {}
+    INLINE constexpr _CodeParts (T&&... args, ...) : values(std::forward<T>(args)...) {}
     const std::tuple<const T...> values;
 };
 
@@ -127,11 +127,11 @@ struct _UnderAllocatedGenerator {
 template <std::unsigned_integral SizeT>
 struct UnderAllocatedGenerator : GeneratorBase<SizeT> {
     using Allocator = _UnderAllocatedGenerator::Allocator;
-    virtual char* write (char*, const Allocator&&) const = 0;
+    virtual char* write (char*, Allocator&&) const = 0;
 };
 
 template <typename GeneratorT>
-concept UnderAllocatedGeneratorType = GeneratorBaseType<GeneratorT> && requires(GeneratorT generator, char* dst, const _UnderAllocatedGenerator::Allocator&& allocator) {
+concept UnderAllocatedGeneratorType = GeneratorBaseType<GeneratorT> && requires(GeneratorT generator, char* dst, _UnderAllocatedGenerator::Allocator&& allocator) {
     { generator.write(dst, allocator) } -> std::same_as<char*>;
 };
 
@@ -270,12 +270,11 @@ INLINE size_t get_str_size (_CodeParts<seperator, T...> value) {
 
 struct CodeData {
     CodeData (Buffer&& buffer, uint8_t indent) : buffer(std::move(buffer)), indent(indent) {}
-    CodeData (CodeData&& other) : buffer(std::move(other.buffer)), indent(other.indent) {}
+    CodeData (CodeData&& other) noexcept = default;
 
-    INLINE constexpr void operator = (CodeData&& other) {
-        buffer = std::move(other.buffer);
-        indent = other.indent;
-    }
+    INLINE constexpr CodeData& operator = (CodeData&& other) = default;
+
+    INLINE ~CodeData () = default;
 
     protected:
     Buffer buffer;
@@ -303,7 +302,7 @@ struct ClosedCodeBlock {
     private:
     Buffer _buffer;
     public:
-    ClosedCodeBlock (Buffer&& buffer) : _buffer(buffer) {}
+    ClosedCodeBlock (Buffer&& buffer) : _buffer(std::move(buffer)) {}
     INLINE const char* c_str () {
         *_buffer.get_next<char>() = 0;
         return reinterpret_cast<const char*>(_buffer.c_memory());
