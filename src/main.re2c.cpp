@@ -1,4 +1,3 @@
-#include <cstdio>
 #include <cstdlib>
 #include <cstdint>
 #include <cstdarg>
@@ -56,25 +55,13 @@ int main (int argc, const char** argv) {
 
     auto start_ts = std::chrono::high_resolution_clock::now();
 
-    #define DO_LEX
-    #ifdef DO_LEX
     lexer::IdentifierMap identifier_map;
     uint8_t buffer_mem[5000];
     Buffer buffer = {buffer_mem};
     auto target_struct = lexer::lex<false>(input_data, identifier_map, buffer, {});
 
-    for (size_t i = 0; i < 1; i++)
-    {
-        #define DO_CODEGEN
-        #ifdef DO_CODEGEN
-        // decode_code::generate(target_struct, buffer, output_fd);
-        // printf("\n--------------------------------------------------------------\n");
-        decode_code::generate(target_struct, buffer, output_file.fd);
-        #endif
-    }
+    decode_code::generate(target_struct, std::move(buffer), output_file.fd);
     
-    buffer.dispose();
-    #endif
 
     if (close(output_file.fd) != 0) {
         logger::error("could not close output file");
