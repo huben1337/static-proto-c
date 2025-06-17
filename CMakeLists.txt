@@ -1,12 +1,20 @@
-cmake_minimum_required(VERSION 3.5.0)
+cmake_minimum_required(VERSION 3.28)
 project(spc VERSION 0.1.0 LANGUAGES C CXX)
 
+# Project options
 set(CMAKE_EXPORT_COMPILE_COMMANDS TRUE)
 
 set(SRC_DIR ${CMAKE_CURRENT_SOURCE_DIR}/src)
 
 set(MAIN_FILE ${SRC_DIR}/main.re2c.cpp)
 set(MAIN_SRC ${MAIN_FILE})
+
+set(STRIP_RELEASE true)
+
+# Compiler options
+set(CONSTEXPR_DEPTH 1000000000)
+set(CONSTEXPR_STEPS 1000000000) # Clang only
+set(OPTIMIZATION_LEVEL 3)
 
 function(re2c_compile INPUT OUTPUT)
   message(STATUS "Compiling ${INPUT} to ${OUTPUT}")
@@ -74,8 +82,14 @@ foreach(DIR ${LIB_INCLUDES})
   message(STATUS "Including ${DIR}")
 endforeach()
 
-set(CONSTEXPR_DEPTH 1000000000)
-set(CONSTEXPR_STEPS 1000000000)
+if(CMAKE_BUILD_TYPE STREQUAL "Release" and STRIP_RELEASE)
+  add_custom_command(
+    TARGET spc
+    POST_BUILD
+    COMMAND ${CMAKE_STRIP} $<TARGET_FILE:spc>
+    COMMENT "Stripping symbols from $<TARGET_FILE:spc>"
+  )
+endif()
 
 set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -fconstexpr-depth=${CONSTEXPR_DEPTH}")
 
@@ -91,7 +105,6 @@ elseif (CMAKE_CXX_COMPILER_ID STREQUAL "MSVC")
   # using Visual Studio C++
 endif()
 
-set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -O1")
-#set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -fconcepts-diagnostics-depth=3")
-set(CMAKE_CXX_COMPILE_OPTIONS_COLOR_DIAGNOSTICS -fansi-escape-codes -fcolor-diagnostics)
-#set(CMAKE_CXX_FLAGS "-pg -no-pie")
+set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -O${OPTIMIZATION_LEVEL}")
+set(CMAKE_COLOR_MAKEFILE ON)
+set(CMAKE_COLOR_DIAGNOSTICS ON)
