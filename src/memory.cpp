@@ -19,23 +19,31 @@ struct Memory {
     uint8_t* memory;
     bool in_heap;
 
+    INLINE constexpr Memory (const Memory& other) = default;
+    INLINE constexpr Memory& operator = (const Memory& other) = default;
+
+    friend class estd::const_copy_detail; // Give const_copy_detail access to private move constructor
+
     public:
+    INLINE constexpr Memory (Memory&& other) = default;
+    INLINE constexpr Memory& operator = (Memory&& other) = default;
+
     INLINE Memory (U capacity) : capacity(capacity), in_heap(true) {
         memory = static_cast<uint8_t*>(std::malloc(capacity));
         if (!memory) {
             INTERNAL_ERROR("memory allocation failed\n");
-        }
+        };
     }
 
     template <typename T, U N>
     requires (sizeof(T) * N <= max_position)
-    INLINE Memory (T (&memory)[N]) : capacity(sizeof(T) * N), memory(reinterpret_cast<uint8_t*>(memory)), in_heap(false) {}
+    INLINE constexpr Memory (T (&memory)[N]) : capacity(sizeof(T) * N), memory(static_cast<uint8_t*>(static_cast<void*>(memory))), in_heap(false) {}
 
-    INLINE Memory (uint8_t* memory, U capacity) : capacity(capacity), memory(memory), in_heap(false) {}
+    INLINE constexpr Memory (uint8_t* memory, U capacity) : capacity(capacity), memory(memory), in_heap(false) {}
 
     using index_t = U;
 
-    INLINE void clear () {
+    INLINE constexpr void clear () {
         position = 0;
     }
 
@@ -48,35 +56,32 @@ struct Memory {
         position = 0;
         memory = nullptr;
     }
-
-    INLINE ~Memory () {
-        dispose();
-    }
-
+    
     template <typename T>
     struct Index {
+        INLINE constexpr Index () = default;
+        INLINE constexpr Index (U value) : value(value) {}
+        
         U value;
 
-        //constexpr Index (U value) : value(value) {}
-
-        INLINE Index add (U offset) const {
+        INLINE constexpr Index add (U offset) const {
             return Index{value + offset};
         }
 
-        INLINE Index sub (U offset) const {
+        INLINE constexpr Index sub (U offset) const {
             return Index{value - offset};
         }
 
-        INLINE operator Index<const T>() const {
+        INLINE constexpr operator Index<const T>() const {
             return Index<const T>{std::move(value)};
         }
     };
 
     template <typename T>
     struct Span {
-        Span () {}
-        Span (Index<T> start_idx, Index<T> end_idx) : start_idx(start_idx), end_idx(end_idx) {}
-        Span (Index<T> start_idx, U length) : start_idx(start_idx), end_idx(start_idx.add(length)) {}
+        INLINE constexpr Span () = default;
+        INLINE constexpr Span (Index<T> start_idx, Index<T> end_idx) : start_idx(start_idx), end_idx(end_idx) {}
+        INLINE constexpr Span (Index<T> start_idx, U length) : start_idx(start_idx), end_idx(start_idx.add(length)) {}
 
         Index<T> start_idx;
         Index<T> end_idx;
@@ -87,20 +92,20 @@ struct Memory {
             return mem.get(end_idx);
         }
 
-        INLINE U size () {
+        INLINE constexpr U size () {
             return end_idx.value - start_idx.value;
         }
 
-        INLINE bool empty () {
+        INLINE constexpr bool empty () {
             return start_idx.value == end_idx.value;
         }
     };
 
     template <typename T>
     struct View {
-        View () {}
-        View (Index<T> start_idx, U length) : start_idx(start_idx), length(length) {}
-        View (Index<T> start_idx, Index<T> end_idx) : start_idx(start_idx), length((end_idx.value - start_idx.value) / sizeof(T)) {}
+        INLINE constexpr View () = default;
+        INLINE constexpr View (Index<T> start_idx, U length) : start_idx(start_idx), length(length) {}
+        INLINE constexpr View (Index<T> start_idx, Index<T> end_idx) : start_idx(start_idx), length((end_idx.value - start_idx.value) / sizeof(T)) {}
         Index<T> start_idx;
         U length;
 
@@ -111,17 +116,17 @@ struct Memory {
             return mem.get(start_idx.add(length));
         }
 
-        INLINE U size () const {
+        INLINE constexpr U size () const {
             return length;
         }
 
-        INLINE bool empty () const {
+        INLINE constexpr bool empty () const {
             return length == 0;
         }
     };
 
 
-    INLINE uint8_t* c_memory () const {
+    INLINE constexpr uint8_t* c_memory () const {
         return memory;
     }
 
@@ -155,12 +160,12 @@ struct Memory {
     }
 
     template <typename T>
-    INLINE T* get (Index<T> index) const {
+    INLINE constexpr T* get (Index<T> index) const {
         return reinterpret_cast<T*>(memory + index.value);
     }
 
     template <typename T>
-    INLINE T* get_aligned (Index<T> index) const {
+    INLINE constexpr T* get_aligned (Index<T> index) const {
         return std::assume_aligned<alignof(T), T>(reinterpret_cast<T*>(memory + index.value));
     }
 
@@ -249,6 +254,12 @@ struct Memory {
         capacity = new_capacity;
     }
 
+    INLINE constexpr void close () {
+        in_heap = false;
+        capacity = 0;
+        position = 0;
+        memory = nullptr;
+    }
 };
 
 typedef Memory<uint32_t> Buffer;
