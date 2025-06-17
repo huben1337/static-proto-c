@@ -27,19 +27,12 @@ class const_copy_detail {
         return value;
     }
 
-    template <typename T>
-    static inline constexpr const T const_copy (T&& value) {
-        static_assert(!std::is_reference_v<T>, "can only copy const lvalues");
-        return value;
-    }
-
     friend inline constexpr const auto const_copy (auto&& value);
 };
 
 inline constexpr const auto const_copy (auto&& value) {
     return const_copy_detail::const_copy(std::forward<decltype(value)>(value));
 }
-
 
 }
 
