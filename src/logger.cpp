@@ -323,7 +323,7 @@ namespace _logger_internal_namespace {
             return write<is_first, is_last>(msg.begin(), msg.size());
         }
         template<bool is_first, bool is_last>
-        static INLINE void write (const std::string_view&& msg) {
+        static INLINE void write (std::string_view&& msg) {
             return write<is_first, is_last>(msg.begin(), msg.size());
         }
         template <bool is_first, bool is_last, size_t N>
@@ -331,11 +331,15 @@ namespace _logger_internal_namespace {
             return write<is_first, is_last>(value, N - 1);
         }
         template <bool is_first, bool is_last, size_t N>
-        static INLINE void write (const char (&&value)[N]) {
+        static INLINE void write (char (&&value)[N]) {
             return write<is_first, is_last>(value, N - 1);
         }
         template <bool is_first, bool is_last, size_t N>
-        static INLINE void write (const StringLiteral<N>&& value) {
+        static INLINE void write (const StringLiteral<N>& value) {
+            return write<is_first, is_last>(value.value, N - 1);
+        }
+        template <bool is_first, bool is_last, size_t N>
+        static INLINE void write (StringLiteral<N>&& value) {
             return write<is_first, is_last>(value.value, N - 1);
         }
         template<bool is_first, bool is_last, bool is_negative, fast_math::uint64or32_c T>
