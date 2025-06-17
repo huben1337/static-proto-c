@@ -113,7 +113,7 @@ class _FileHandle {
         }
     }
 
-    INLINE constexpr _FileHandle (const HANDLE&& value) : value(std::move(value)) {}
+    INLINE constexpr _FileHandle (HANDLE&& value) : value(std::move(value)) {}
     INLINE constexpr _FileHandle (const HANDLE& value) : value(value) {}
 
     const HANDLE value;
