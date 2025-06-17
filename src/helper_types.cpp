@@ -19,6 +19,28 @@ template <class __Fn, class __Ret, class... __Args>
 concept invocable_r = requires (__Fn&& __fn, __Args&&... __args) {
     { __fn(std::forward<__Args>(__args)...) } -> std::same_as<__Ret>;
 };
+
+class const_copy_detail {
+    template <typename T>
+    static inline constexpr const T const_copy (T& value) {
+        static_assert(std::is_const_v<std::remove_reference_t<T>>, "can only copy const lvalues");
+        return value;
+    }
+
+    template <typename T>
+    static inline constexpr const T const_copy (T&& value) {
+        static_assert(!std::is_reference_v<T>, "can only copy const lvalues");
+        return value;
+    }
+
+    friend inline constexpr const auto const_copy (auto&& value);
+};
+
+inline constexpr const auto const_copy (auto&& value) {
+    return const_copy_detail::const_copy(std::forward<decltype(value)>(value));
+}
+
+
 }
 
 namespace std {
