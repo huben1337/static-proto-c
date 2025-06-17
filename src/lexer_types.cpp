@@ -58,20 +58,20 @@ enum class VALUE_FIELD_TYPE : uint8_t {
 struct SIZE {
     constexpr SIZE () = default;
 
-    constexpr SIZE (const uint8_t value) : value(value) {}
+    INLINE constexpr SIZE (const uint8_t value) : value(value) {}
     uint8_t value;
 
-    constexpr SIZE (const SIZE& other) : value(other.value) {}
-    constexpr SIZE (SIZE&& other) : value(std::move(other.value)) {}
+    INLINE constexpr SIZE (const SIZE& other) : value(other.value) {}
+    INLINE constexpr SIZE (SIZE&& other) : value(std::move(other.value)) {}
     
-    constexpr SIZE& operator = (const SIZE& other) { value = other.value; return *this; }
-    constexpr SIZE& operator = (SIZE&& other) { value = std::move(other.value); return *this; }
+    INLINE constexpr SIZE& operator = (const SIZE& other) { value = other.value; return *this; }
+    INLINE constexpr SIZE& operator = (SIZE&& other) { value = std::move(other.value); return *this; }
 
-    constexpr operator uint8_t() const { return value; }
+    INLINE constexpr operator uint8_t() const { return value; }
 
     explicit operator bool () const = delete;
 
-    constexpr uint8_t byte_size () const {
+    INLINE constexpr uint8_t byte_size () const {
         return 1U << value;
     }
 
@@ -169,7 +169,6 @@ typedef uint16_t variant_count_t;
 union LeafCounts {
     
     struct Counts {
-        //Counts () = default;
         uint16_t size8;
         uint16_t size16;
         uint16_t size32;
@@ -180,25 +179,10 @@ union LeafCounts {
         INLINE constexpr uint16_t total () const {
             return size8 + size16 + size32 + size64;
         }
-
-        template <SIZE size>
-        INLINE constexpr uint16_t& at_size () {
-            if constexpr (size == SIZE::SIZE_8) {
-                return size8;
-            } else if constexpr (size == SIZE::SIZE_4) {
-                return size32;
-            } else if constexpr (size == SIZE::SIZE_2) {
-                return size16;
-            } else if constexpr (size == SIZE::SIZE_1) {
-                return size8;
-            } else {
-                static_assert(false, "Invalid size");
-            }
-        }
     } counts;
     uint64_t as_uint64;
 
-    LeafCounts () = default;
+    INLINE constexpr LeafCounts () = default;
     INLINE constexpr LeafCounts (Counts counts) : counts(counts) {}
     INLINE constexpr LeafCounts (uint16_t size8, uint16_t size16, uint16_t size32, uint16_t size64) : counts{size8, size16, size32, size64} {}
     INLINE constexpr LeafCounts (uint64_t as_uint64) : as_uint64(as_uint64) {}
@@ -209,7 +193,7 @@ union LeafCounts {
     INLINE constexpr uint32_t bytes () const { return counts.bytes(); }
     INLINE constexpr uint16_t total () const { return counts.total(); }
 
-    static INLINE constexpr LeafCounts zero () { return {0, 0, 0, 0}; }
+    INLINE static consteval LeafCounts zero () { return {0, 0, 0, 0}; }
 };
 
 struct IdentifiedDefinition {
@@ -388,7 +372,7 @@ struct EnumField {
     std::string_view name;
     
     struct Value {
-        constexpr Value (int64_t value) {
+        INLINE constexpr Value (int64_t value) {
             if (value < 0) {
                 is_negative = true;
                 this->value = -value;
@@ -397,8 +381,7 @@ struct EnumField {
                 this->value = value;
             }
         }
-        constexpr Value (uint64_t value) : value(value), is_negative(false) {}
-        constexpr Value (uint64_t value, bool is_negative) : value(value), is_negative(is_negative) {}
+        INLINE constexpr Value (uint64_t value, bool is_negative) : value(value), is_negative(is_negative) {}
 
         uint64_t value;
         bool is_negative;
@@ -533,14 +516,14 @@ struct TypeVisitorResult;
 template <typename TypeT>
 struct TypeVisitorResult<TypeT, void> {
     using ConstTypeT = const std::remove_const_t<TypeT>;
-    constexpr TypeVisitorResult (ConstTypeT*&& next_type) : next_type(std::forward<ConstTypeT*>(next_type)) {}
+    INLINE constexpr TypeVisitorResult (ConstTypeT*&& next_type) : next_type(std::forward<ConstTypeT*>(next_type)) {}
     ConstTypeT* next_type;
 };
 
 template <typename TypeT, typename ValueT>
 struct TypeVisitorResult {
     using ConstTypeT = const std::remove_const_t<TypeT>;
-    constexpr TypeVisitorResult (ConstTypeT*&& next_type, ValueT&& value) : next_type(std::forward<ConstTypeT*>(next_type)), value(std::forward<ValueT>(value)) {}
+    INLINE constexpr TypeVisitorResult (ConstTypeT*&& next_type, ValueT&& value) : next_type(std::forward<ConstTypeT*>(next_type)), value(std::forward<ValueT>(value)) {}
     ConstTypeT* next_type;
     ValueT value;
 };
@@ -548,14 +531,14 @@ struct TypeVisitorResult {
 template <typename TypeT, typename ValueT = void>
 struct TypeVisitorBase {
     private:
-    const Type* const& type;
+    const Type* const type;
 
     public:
     static constexpr bool no_value = std::is_same_v<ValueT, void>;
     using ConstTypeT = const std::remove_const_t<TypeT>;
     using ResultT = TypeVisitorResult<TypeT, ValueT>;
 
-    INLINE constexpr TypeVisitorBase (const Type* const& type) : type(type) {}
+    INLINE constexpr TypeVisitorBase (const Type* const type) : type(type) {}
     
     INLINE ResultT visit () const {
         switch (type->type) {
@@ -692,26 +675,26 @@ struct TypeVisitorBase {
         }
     }
 
-    INLINE virtual ValueT on_bool () const = 0;
-    INLINE virtual ValueT on_uint8 () const = 0;
-    INLINE virtual ValueT on_uint16 () const = 0;
-    INLINE virtual ValueT on_uint32 () const = 0;
-    INLINE virtual ValueT on_uint64 () const = 0;
-    INLINE virtual ValueT on_int8 () const = 0;
-    INLINE virtual ValueT on_int16 () const = 0;
-    INLINE virtual ValueT on_int32 () const = 0;
-    INLINE virtual ValueT on_int64 () const = 0;
-    INLINE virtual ValueT on_float32 () const = 0;
-    INLINE virtual ValueT on_float64 () const = 0;
+    INLINE virtual ValueT on_bool       () const = 0;
+    INLINE virtual ValueT on_uint8      () const = 0;
+    INLINE virtual ValueT on_uint16     () const = 0;
+    INLINE virtual ValueT on_uint32     () const = 0;
+    INLINE virtual ValueT on_uint64     () const = 0;
+    INLINE virtual ValueT on_int8       () const = 0;
+    INLINE virtual ValueT on_int16      () const = 0;
+    INLINE virtual ValueT on_int32      () const = 0;
+    INLINE virtual ValueT on_int64      () const = 0;
+    INLINE virtual ValueT on_float32    () const = 0;
+    INLINE virtual ValueT on_float64    () const = 0;
     
-    INLINE virtual ValueT on_fixed_string (const lexer::FixedStringType*) const = 0;
-    INLINE virtual ValueT on_string (const lexer::StringType*) const = 0;
-    INLINE virtual ResultT on_fixed_array (const lexer::ArrayType*) const = 0;
-    INLINE virtual ResultT on_array (const lexer::ArrayType*) const = 0;
-    INLINE virtual ResultT on_fixed_variant (const lexer::FixedVariantType*) const = 0;
-    INLINE virtual ResultT on_packed_variant (const lexer::PackedVariantType*) const = 0;
-    INLINE virtual ResultT on_dynamic_variant (const lexer::DynamicVariantType*) const = 0;
-    INLINE virtual ValueT on_identifier (const lexer::IdentifiedType*) const = 0;
+    INLINE virtual ValueT on_fixed_string       (const lexer::FixedStringType*      ) const = 0;
+    INLINE virtual ValueT on_string             (const lexer::StringType*           ) const = 0;
+    INLINE virtual ResultT on_fixed_array       (const lexer::ArrayType*            ) const = 0;
+    INLINE virtual ResultT on_array             (const lexer::ArrayType*            ) const = 0;
+    INLINE virtual ResultT on_fixed_variant     (const lexer::FixedVariantType*     ) const = 0;
+    INLINE virtual ResultT on_packed_variant    (const lexer::PackedVariantType*    ) const = 0;
+    INLINE virtual ResultT on_dynamic_variant   (const lexer::DynamicVariantType*   ) const = 0;
+    INLINE virtual ValueT on_identifier         (const lexer::IdentifiedType*       ) const = 0;
 };
 
 template <typename T, typename TypeMeta_T, typename U = const std::remove_const_t<T>>
