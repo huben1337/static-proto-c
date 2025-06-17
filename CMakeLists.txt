@@ -82,7 +82,7 @@ foreach(DIR ${LIB_INCLUDES})
   message(STATUS "Including ${DIR}")
 endforeach()
 
-if(CMAKE_BUILD_TYPE STREQUAL "Release" and STRIP_RELEASE)
+if(CMAKE_BUILD_TYPE STREQUAL "Release" AND STRIP_RELEASE)
   add_custom_command(
     TARGET spc
     POST_BUILD
