@@ -14,11 +14,19 @@
             }
         },
         {
+            "name": "release-base",
+            "hidden": true,
+            "cacheVariables": {
+                "CMAKE_BUILD_TYPE": "Release"
+            }
+        },
+        {
             "name": "mingw-gcc-base",
             "hidden": true,
             "cacheVariables": {
                 "CMAKE_C_COMPILER": "C:\\msys64\\ucrt64\\bin\\gcc.exe",
-                "CMAKE_CXX_COMPILER": "C:\\msys64\\ucrt64\\bin\\g++.exe"
+                "CMAKE_CXX_COMPILER": "C:\\msys64\\ucrt64\\bin\\g++.exe",
+                "CMAKE_STRIP": "C:\\msys64\\ucrt64\\bin\\strip.exe"
             },
             "environment": {
                 "NINJA_PATH": "C:\\msys64\\ucrt64\\bin\\ninja.exe",
@@ -30,7 +38,8 @@
             "hidden": true,
             "cacheVariables": {
                 "CMAKE_C_COMPILER": "C:\\msys64\\clang64\\bin\\clang.exe",
-                "CMAKE_CXX_COMPILER": "C:\\msys64\\clang64\\bin\\clang++.exe"
+                "CMAKE_CXX_COMPILER": "C:\\msys64\\clang64\\bin\\clang++.exe",
+                "CMAKE_STRIP": "C:\\msys64\\clang64\\bin\\strip.exe"
             },
             "environment": {
                 "NINJA_PATH": "ninja.exe",
@@ -55,35 +64,23 @@
         },
         {
             "name": "mingw-ninja-gcc",
-            "inherits": ["mingw-gcc-base", "ninja-base"],
-            "binaryDir": "./.build/${presetName}",
-            "cacheVariables": {
-                "CMAKE_BUILD_TYPE": "Debug"
-            }
+            "inherits": ["mingw-gcc-base", "ninja-base", "release-base"],
+            "binaryDir": "./.build/${presetName}"
         },
         {
             "name": "mingw-ninja-clang",
-            "inherits": ["mingw-clang-base", "ninja-base"],
-            "binaryDir": "./.build/${presetName}",
-            "cacheVariables": {
-                "CMAKE_BUILD_TYPE": "Debug"
-            }
+            "inherits": ["mingw-clang-base", "ninja-base", "release-base"],
+            "binaryDir": "./.build/${presetName}"
         },
         {
             "name": "mingw-make-gcc",
-            "inherits": ["mingw-gcc-base", "mingw-make-base"],
-            "binaryDir": "./.build/${presetName}",
-            "cacheVariables": {
-                "CMAKE_BUILD_TYPE": "Debug"
-            }
+            "inherits": ["mingw-gcc-base", "mingw-make-base", "release-base"],
+            "binaryDir": "./.build/${presetName}"
         },
         {
             "name": "mingw-make-clang",
-            "inherits": ["mingw-clang-base", "mingw-make-base"],
-            "binaryDir": "./.build/${presetName}",
-            "cacheVariables": {
-                "CMAKE_BUILD_TYPE": "Debug"
-            }
+            "inherits": ["mingw-clang-base", "mingw-make-base", "release-base"],
+            "binaryDir": "./.build/${presetName}"
         }
     ],
     "buildPresets": [
