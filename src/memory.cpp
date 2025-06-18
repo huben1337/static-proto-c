@@ -73,7 +73,7 @@ struct Memory {
         }
 
         INLINE constexpr operator Index<const T>() const {
-            return Index<const T>{std::move(value)};
+            return Index<const T>{value};
         }
     };
 
@@ -85,39 +85,41 @@ struct Memory {
 
         Index<T> start_idx;
         Index<T> end_idx;
-        INLINE T* begin (Memory mem) {
+        INLINE T* begin (const Memory& mem) const {
             return mem.get(start_idx);
         }
-        INLINE T* end (Memory mem) {
+        INLINE T* end (const Memory& mem) const {
             return mem.get(end_idx);
         }
 
-        INLINE constexpr U size () {
+        INLINE constexpr U size () const {
             return end_idx.value - start_idx.value;
         }
 
-        INLINE constexpr bool empty () {
+        INLINE constexpr bool empty () const {
             return start_idx.value == end_idx.value;
         }
     };
 
     template <typename T>
     struct View {
+        using length_t = fitting_uint<std::numeric_limits<U>::max() / sizeof(T)>;
+
         INLINE constexpr View () = default;
-        INLINE constexpr View (Index<T> start_idx, U length) : start_idx(start_idx), length(length) {}
+        INLINE constexpr View (Index<T> start_idx, length_t length) : start_idx(start_idx), length(length) {}
         INLINE constexpr View (Index<T> start_idx, Index<T> end_idx) : start_idx(start_idx), length((end_idx.value - start_idx.value) / sizeof(T)) {}
         Index<T> start_idx;
-        U length;
+        length_t length;
 
-        INLINE T* begin (Memory mem) const {
+        INLINE T* begin (const Memory& mem) const {
             return mem.get(start_idx);
         }
-        INLINE T* end (Memory mem) const {
+        INLINE T* end (const Memory& mem) const {
             return mem.get(start_idx.add(length));
         }
 
         INLINE constexpr U size () const {
-            return length;
+            return length * sizeof(T);
         }
 
         INLINE constexpr bool empty () const {
@@ -126,15 +128,15 @@ struct Memory {
     };
 
 
-    INLINE constexpr uint8_t* c_memory () const {
+    INLINE constexpr uint8_t* const& c_memory () const {
         return memory;
     }
 
-    INLINE constexpr U current_position () const {
+    INLINE constexpr const U& current_position () const {
         return position;
     }
 
-    INLINE constexpr U current_capacity () const {
+    INLINE constexpr const U& current_capacity () const {
         return capacity;
     }
 
@@ -144,8 +146,7 @@ struct Memory {
 
     INLINE constexpr void go_to (U position) {
         if (position > this->position) {
-            logger::error("[Memory::go_to] cant go forward\n");
-            exit(1);
+            INTERNAL_ERROR("[Memory::go_to] cant go forward\n");
         }
         this->position = position;
     }
