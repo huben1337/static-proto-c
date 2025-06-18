@@ -9,7 +9,6 @@
 #include <tuple>
 #include <type_traits>
 #include <utility>
-#include "helper_types.cpp"
 #include "string_literal.cpp"
 #include "memory.cpp"
 #include "fast_math.cpp"
@@ -269,12 +268,13 @@ INLINE size_t get_str_size (_CodeParts<seperator, T...> value) {
 
 
 struct CodeData {
-    CodeData (Buffer&& buffer, uint8_t indent) : buffer(std::move(buffer)), indent(indent) {}
-    CodeData (CodeData&& other) noexcept = default;
+    INLINE constexpr CodeData (Buffer&& buffer, uint8_t indent) : buffer(std::move(buffer)), indent(indent) {}
 
+    CodeData (const CodeData& other) noexcept = delete;
+    CodeData& operator = (const CodeData& other) = delete;
+
+    INLINE constexpr CodeData (CodeData&& other) noexcept = default;    
     INLINE constexpr CodeData& operator = (CodeData&& other) = default;
-
-    INLINE ~CodeData () = default;
 
     protected:
     Buffer buffer;
@@ -284,7 +284,7 @@ struct CodeData {
     INLINE void write_strs (T&&... strs) {
         uint16_t indent_size = indent * 4;
         size_t size = (... + get_str_size(strs)) + indent_size;
-        auto dst_idx = buffer.next_multi_byte<char>(size);
+        Buffer::Index<char> dst_idx = buffer.next_multi_byte<char>(size);
         char *dst = buffer.get(dst_idx);
         char* dst_start = dst;
         dst = make_indent(indent_size, dst);
@@ -298,6 +298,8 @@ struct CodeData {
     }
 };
 
+#define CODE_DATA_CTOR_ARGS {std::move(this->buffer), this->indent}
+
 struct ClosedCodeBlock {
     private:
     Buffer _buffer;
@@ -307,8 +309,8 @@ struct ClosedCodeBlock {
         *_buffer.get_next<char>() = 0;
         return reinterpret_cast<const char*>(_buffer.c_memory());
     }
-    INLINE const Buffer::index_t size () { return _buffer.current_position(); }
-    INLINE Buffer& buffer () { return _buffer; }
+    INLINE const Buffer::index_t& size () { return _buffer.current_position(); }
+    INLINE const Buffer& buffer () { return _buffer; }
     INLINE void dispose () {
         _buffer.dispose();
     }
@@ -327,15 +329,15 @@ struct __CodeBlock : CodeData {
     template <typename ...T>
     INLINE Derived line (T&&... strs) {
         _line(strs...);
-        return c_cast<Derived>(__CodeBlock<Last, Derived>({std::move(buffer), indent}));
+        return {{CODE_DATA_CTOR_ARGS}};
     }
 
-    INLINE Last end () {
+    INLINE auto end () {
         if constexpr (std::is_same_v<Last, ClosedCodeBlock>) {
             return ClosedCodeBlock(std::move(buffer));
         } else {
             _end();
-            return c_cast<Last>(__CodeBlock<typename Last::__Last, typename Last::__Derived>({std::move(buffer), indent}));
+            return Last{{CODE_DATA_CTOR_ARGS}};
         }
     }
 
@@ -352,17 +354,17 @@ struct CodeBlock : __CodeBlock<Last, CodeBlock<Last>> {};
 
 template <typename Last>
 struct If : __CodeBlock<Last, If<Last>> {
-    INLINE auto _else () {
+    INLINE CodeBlock<Last> _else () {
         this->indent--;
         this->_line("} else {");
-        return CodeBlock<Last>({{this->buffer, this->indent}});
+        return {{CODE_DATA_CTOR_ARGS}};
     }
 };
 template <typename Last, typename Derived>
 INLINE auto __CodeBlock<Last, Derived>::_if (std::string_view condition) {
     _line("if (", condition, ") {");
     indent++;
-    return If<Derived>({{std::move(buffer), indent}});
+    return If<Derived>{{CODE_DATA_CTOR_ARGS}};
 };
 
 
@@ -374,34 +376,34 @@ struct Case : __CodeBlock<Last, Case<Last>> {
 
 template <typename Last>
 struct Switch : CodeData {
-    INLINE auto _case(std::string_view value) {
+    INLINE Case<Last> _case(std::string_view value) {
         _line("case ", value, ": {");
         indent++;
-        return Case<Last>({{std::move(buffer), indent}});
+        return {{CODE_DATA_CTOR_ARGS}};
     };
 
-    INLINE auto _default () {
+    INLINE Case<Last> _default () {
         _line("default: {");
         indent++;
-        return Case<Last>({{std::move(buffer), indent}});
+        return {{CODE_DATA_CTOR_ARGS}};
     }
 
-    INLINE auto end () {
+    INLINE Last end () {
         indent--;
         _line("}");
-        return c_cast<Last>(__CodeBlock<typename Last::__Last, typename Last::__Derived>({std::move(buffer), indent}));
+        return {{CODE_DATA_CTOR_ARGS}};
     }
 };
 template <typename Last>
 INLINE auto Case<Last>::end ()  {
     this->_end();
-    return Switch<Last>({this->buffer, this->indent});
+    return Switch<Last>{{CODE_DATA_CTOR_ARGS}};
 }
 template <typename Last, typename Derived>
 INLINE auto __CodeBlock<Last, Derived>::_switch (std::string_view key) {
     _line("switch (", key, ") {");
     indent++;
-    return Switch<Derived>({std::move(buffer), indent});
+    return Switch<Derived>{{CODE_DATA_CTOR_ARGS}};
 };
 
 template <typename Last>
@@ -420,67 +422,63 @@ struct __Struct : CodeData {
     using __Last = Last;
     using __Derived = Derived;
 
-    struct StructName {
-        Buffer::Index<char> start;
-        Buffer::Index<char> end;
-    } name;
+    Buffer::View<char> name;
 
-    INLINE auto _private () {
+    INLINE Derived _private () {
         _line("private:");
-        return c_cast<Derived>(__Struct< Last, Derived>({std::move(buffer), indent}));
+        return {{CODE_DATA_CTOR_ARGS}};
     }
-    INLINE auto _public () {
+    INLINE Derived _public () {
         _line("public:");
-        return c_cast<Derived>(__Struct<Last, Derived>({std::move(buffer), indent}));
+        return {{CODE_DATA_CTOR_ARGS}};
     }
-    INLINE auto _protected () {
+    INLINE Derived _protected () {
         _line("protected:");
-        return c_cast<Derived>(__Struct<Last, Derived>({std::move(buffer), indent}));
+        return {{CODE_DATA_CTOR_ARGS}};
     }
 
 
     template <typename T, typename U>
-    INLINE auto ctor (T&& args, U&& initializers) {
-        _line(std::string_view{buffer.get(name.start), buffer.get(name.end)}, " (", args, ") : ", initializers, " {}");
-        return EmptyCtor<Derived>({{std::move(buffer), indent}});
+    INLINE EmptyCtor<Derived> ctor (T&& args, U&& initializers) {
+        _line(std::string_view{name.begin(buffer), name.length}, " (", args, ") : ", initializers, " {}");
+        return {{CODE_DATA_CTOR_ARGS}};
     }
 
     template <typename T, typename U>
-    INLINE auto method (T&& type, U&& name) {
+    INLINE Method<Derived> method (T&& type, U&& name) {
         _line(type, " ", name, " () {");
         indent++;
-        return Method<Derived>({{std::move(buffer), indent}});
+        return {{CODE_DATA_CTOR_ARGS}};
     }
 
     template <typename T, typename U, typename ...V>
     requires (sizeof...(V) > 0)
-    INLINE auto method (T&& type, U&& name, Args<V...> args) {
-        uint16_t indent_size = indent * 4;
+    INLINE Method<Derived> method (T&& type, U&& name, Args<V...> args) {
         _line(type, " ", name, " (", args, ") {");
         indent++;
-        return Method<Derived>({{std::move(buffer), indent}});
+        return {{CODE_DATA_CTOR_ARGS}};
     }
 
     template <typename ...T, typename U, typename V>
     requires (sizeof...(T) > 0)
-    INLINE auto method (Attributes<T...> attributes, U&& type, V&& name) {
+    INLINE Method<Derived> method (Attributes<T...> attributes, U&& type, V&& name) {
         _line(attributes, " ", type, " ", name, " () {");
         indent++;
-        return Method<Derived>({{std::move(buffer), indent}});
+        return {{CODE_DATA_CTOR_ARGS}};
     }
 
     template <typename ...T, typename U, typename V, typename ...W>
     requires (sizeof...(T) > 0 && sizeof...(W) > 0)
-    INLINE auto method (Attributes<T...> attributes, U&& type, V&& name, Args<W...> args) {
+    INLINE Method<Derived> method (Attributes<T...> attributes, U&& type, V&& name, Args<W...> args) {
         _line(attributes, " ", type, " ", name, " (", args, ") {");
         indent++;
-        return Method<Derived>({{std::move(buffer), indent}});
+        return {{CODE_DATA_CTOR_ARGS}};
     }
 
     template <typename T, typename U>
     INLINE Derived field (T&& type, U&& name) {
         _line(type, " ", name, ";");
-        return c_cast<Derived>(__Struct<Last, Derived>({std::move(buffer), indent}));
+        return {{CODE_DATA_CTOR_ARGS}};
     } 
 
     template <typename ...T>
@@ -489,48 +487,43 @@ struct __Struct : CodeData {
 template <typename Last>
 INLINE auto Method<Last>::end ()  {
     this->_end();
-    return c_cast<Last>(__Struct<typename Last::__Last, typename Last::__Derived>({std::move(this->buffer), this->indent}));
+    return Last{{CODE_DATA_CTOR_ARGS}};
 }
 
 template <typename Last>
 INLINE auto EmptyCtor<Last>::end ()  {
-    return c_cast<Last>(__Struct<typename Last::__Last, typename Last::__Derived>({std::move(this->buffer), this->indent}));
+    return Last{{CODE_DATA_CTOR_ARGS}};
 }
 
 template <typename Last>
 struct Struct : __Struct<Last, Struct<Last>> {
-    INLINE auto end () {
+    INLINE Last end () {
         this->indent--;
         this->_line("};");
-        return c_cast<Last>(__CodeBlock<typename Last::__Last, typename Last::__Derived>({std::move(this->buffer), this->indent}));
+        return {{CODE_DATA_CTOR_ARGS}};
     }
 };
 template <typename Last, typename Derived>
 template <typename ...T>
 INLINE auto __CodeBlock<Last, Derived>::_struct (T&&... strs) {
-    Buffer::Index<char> name_start_idx = buffer.position_idx<char>().add(7 + indent * 4);
+    Buffer::Index<char> name_start_idx = buffer.position_idx<char>().add(indent * 4 + "struct "_sl.size());
     _line("struct ", strs..., " {");
-    Buffer::Index<char> name_end_idx = buffer.position_idx<char>().sub(3);
+    Buffer::Index<char> name_end_idx = buffer.position_idx<char>().sub(" {"_sl.size());
     indent++;
-    return Struct<Derived>({{std::move(buffer), indent}, {name_start_idx, name_end_idx}});
+    return Struct<Derived>{{CODE_DATA_CTOR_ARGS, {name_start_idx, name_end_idx}}};
 };
 template <typename Last>
 struct NestedStruct : __Struct<Last, NestedStruct<Last>> {
-    INLINE auto end () {
+    INLINE Last end () {
         this->indent--;
         this->_line("};");
-        return _end();
+        return {{CODE_DATA_CTOR_ARGS}};
     }
 
-    INLINE auto end (std::string_view name) {
+    INLINE Last end (std::string_view name) {
         this->indent--;
         this->_line("}; ", name, ";");
-        return _end();
-    }
-
-    private:
-    INLINE auto _end () {
-        return c_cast<Last>(__Struct<typename Last::__Last, typename Last::__Derived>({std::move(this->buffer), this->indent}));
+        return {{CODE_DATA_CTOR_ARGS}};
     }
 };
 template <typename Last, typename Derived>
@@ -540,7 +533,7 @@ INLINE auto __Struct<Last, Derived>::_struct (T&&... strs) {
     _line("struct ", strs..., " {");
     Buffer::Index<char> name_end_idx = buffer.position_idx<char>().sub(3);
     indent++;
-    return NestedStruct<Derived>({{std::move(buffer), indent}, {name_start_idx, name_end_idx}});
+    return NestedStruct<Derived>{{CODE_DATA_CTOR_ARGS, {name_start_idx, name_end_idx}}};
 }
 
 struct Empty {};
