@@ -39,7 +39,7 @@ struct Memory {
     requires (sizeof(T) * N <= max_position)
     INLINE constexpr Memory (T (&memory)[N]) : capacity(sizeof(T) * N), memory(static_cast<uint8_t*>(static_cast<void*>(memory))), in_heap(false) {}
 
-    INLINE constexpr Memory (uint8_t* memory, U capacity) : capacity(capacity), memory(memory), in_heap(false) {}
+    INLINE constexpr Memory (void* memory, U capacity) : capacity(capacity), memory(static_cast<uint8_t*>(memory)), in_heap(false) {}
 
     using index_t = U;
 
@@ -266,3 +266,5 @@ struct Memory {
 typedef Memory<uint32_t> Buffer;
 
 typedef Buffer::View<char> BufferStringView;
+
+#define MEMORY_INIT_STACK(SIZE) alloca(SIZE), SIZE
