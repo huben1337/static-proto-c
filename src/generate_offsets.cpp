@@ -10,27 +10,6 @@
 
 namespace generate_offsets {
 
-struct Offsets {
-    Offsets (
-        uint64_t* const fixed_offsets,
-        Buffer::View<uint64_t>* const var_offsets,
-        uint64_t* const variant_offsets,
-        uint16_t* const idx_map
-    ) :
-    fixed_offsets(fixed_offsets),
-    var_offsets(var_offsets),
-    variant_offsets(variant_offsets),
-    idx_map(idx_map)
-    {}
-    uint64_t* const fixed_offsets;
-    Buffer::View<uint64_t>* const var_offsets;
-    uint64_t* const variant_offsets;
-    uint16_t* const idx_map;
-};
-
-struct SizeLeaf {
-    uint16_t leaf_idx;
-};
 
 struct VariantField {
     uint64_t size;
@@ -44,19 +23,28 @@ INLINE constexpr T next_multiple (T value) {
     T result =  (value + mask) & ~mask;
     return result;
 }
-template <typename F, typename Ret, typename... Args>
-concept CallableWith = requires(F func, Args... args) {
-    { func(args...) } -> std::same_as<Ret>;
-};
 
 template <std::integral T>
-struct Range {
-    T start;
-    T end;
+struct IntegralRange {
+
+    constexpr IntegralRange (T from, T to) : from(from), to(to) {}
+
+    T from;
+    T to;
+
+    struct iterator {
+        T pos;
+        const iterator& operator ++ () { ++pos; return *this; }
+        bool operator == (const iterator& other) const { return pos == other.pos; }
+        T& operator * () { return pos; }
+    };
+
+    iterator begin() { return {from}; }
+    iterator end() { return {to}; }
 };
 
 template <lexer::SIZE size>
-[[clang::always_inline]] inline Range<uint16_t> get_range (const lexer::LeafCounts::Counts counts) {
+INLINE IntegralRange<uint16_t> get_range (const lexer::LeafCounts::Counts counts) {
     uint16_t start;
     uint16_t end;
     if constexpr (size == lexer::SIZE::SIZE_8) {
@@ -76,7 +64,7 @@ template <lexer::SIZE size>
 }
 
 template <lexer::SIZE size>
-[[clang::always_inline]] inline const uint16_t& get_count (const lexer::LeafCounts::Counts& counts) {
+INLINE const uint16_t& get_count (const lexer::LeafCounts::Counts& counts) {
     if constexpr (size == lexer::SIZE::SIZE_8) {
         return counts.size64;
     } else if constexpr (size == lexer::SIZE::SIZE_4) {
@@ -103,13 +91,12 @@ consteval lexer::SIZE next_smaller_size () {
 }
 
 template <lexer::SIZE size = lexer::SIZE::SIZE_8, bool aligned = true, std::invocable_r<uint64_t, uint16_t, uint64_t> F_set_offset, std::invocable_r<uint64_t, uint16_t, uint64_t> F_add_variant_base>
-[[clang::always_inline]] inline uint64_t set_sizes (uint64_t offset, const lexer::LeafCounts::Counts fixed_leaf_counts, const lexer::LeafCounts::Counts variant_field_counts, F_set_offset&& set_offset, F_add_variant_base&& add_variant_base) {
+INLINE uint64_t set_sizes (uint64_t offset, const lexer::LeafCounts::Counts fixed_leaf_counts, const lexer::LeafCounts::Counts variant_field_counts, F_set_offset&& set_offset, F_add_variant_base&& add_variant_base) {
     if constexpr (size == lexer::SIZE::SIZE_0) {
         return offset;
     } else {
         if constexpr (aligned) {
-            auto [fixed_leafs_start, fixed_leafs_end] = get_range<size>(fixed_leaf_counts);
-            for (uint16_t i = fixed_leafs_start; i < fixed_leafs_end; i++) {
+            for (uint16_t& i : get_range<size>(fixed_leaf_counts)) {
                 offset = set_offset(i, offset);
             }
             if (get_count<size>(variant_field_counts) > 0) {
@@ -143,8 +130,7 @@ template <lexer::SIZE size = lexer::SIZE::SIZE_8, bool aligned = true, std::invo
                     return set_sizes<next_smaller_size<size>(), true>(offset, fixed_leaf_counts, variant_field_counts, set_offset, add_variant_base);
                 }
             } else {
-                auto [variant_field_start, variant_field_end] = get_range<size>(variant_field_counts);
-                for (uint16_t i = variant_field_start; i < variant_field_end; i++) {
+                for (uint16_t& i : get_range<size>(variant_field_counts)) {
                     offset = next_multiple<size>(offset);
                     offset = add_variant_base(i, offset);
                 }
@@ -153,19 +139,6 @@ template <lexer::SIZE size = lexer::SIZE::SIZE_8, bool aligned = true, std::invo
         }
     }
 }
-
-// template <bool in_variant>
-// INLINE void set_size_leafs (
-//     Leafs<in_variant> leafs
-// ) {
-//     for (uint16_t i = 0; i < leafs.total_size_leafs; i++) {
-//         auto [leaf_idx] = leafs.size_leafs()[i];
-//         uint16_t map_idx = leafs.leaf_sizes.current_map_idx_ptr[0]++;
-//         leafs.leaf_sizes.idx_map[map_idx] = leaf_idx;
-//         LOG("size_leaf map_idx: %d, leaf_idx: %d\n", 0, leaf_idx);
-//     }
-// }
-
 
 struct TypeVisitorState {
 
@@ -188,9 +161,8 @@ struct TypeVisitorState {
 
         const Buffer buffer;
         uint64_t* fixed_offsets;                  // represets the size of each fixed size leaf. once leafs are arranged it represents the offset
-        // uint64_t* const var;                         // represents the size of the variable size leaf. used for genrating the offset calc strings
         uint64_t* variant_offsets;                //
-        Buffer::View<uint64_t>* var_offsets;      //
+        Buffer::View<uint64_t>* var_offsets;      // represents the size of the variable size leaf. used for genrating the offset calc strings
         uint16_t* idx_map;                        // maps occurence in the AST to a stored leaf
     
     };
@@ -215,9 +187,6 @@ struct TypeVisitorState {
         fixed_idx_base(fixed_idx_base),
         var_idx_base(var_idx_base)
         {}
-
-        //explicit LevelConstState (const LevelConstState& other) = delete;
-        //explicit LevelConstState (LevelConstState&& other) = delete;
 
         uint64_t* const var_leaf_sizes;
         VariantField* const variant_fields;
@@ -495,7 +464,6 @@ struct TypeVisitorState {
             logger::debug("Writing var_offset: ", level_mutable_state.current_var_idx_base + i);
             const_state.var_offsets[level_mutable_state.current_var_idx_base + i] = Buffer::View<uint64_t>{size_chain_idx, known_size_leafs};
             memset(size_leafs, 0, sizeof(uint64_t) * known_size_leafs);
-            // memset(size_leafs, 0, sizeof(uint64_t) * known_size_leafs);
         }
     }
 };
@@ -737,10 +705,6 @@ struct TypeVisitor : public lexer::TypeVisitorBase<TypeT> {
             state.const_state.idx_map[map_idx] = leaf_idx;
 
             state.reserve_next<false, in_variant>(dynamic_variant_type->max_alignment, 1);
-            // uint16_t size_leaf_idx = leafs.next_size_leaf_idx();
-            // logger::debug("VARIANT size_leaf_idx: ", size_leaf_idx);
-            // leafs.size_leafs()[size_leaf_idx] = {variant_type->min_byte_size, leaf_idx, variant_type->size_size, stored_size_size};
-            // leafs.size_leafs()[size_leaf_idx] = {leaf_idx};
 
             auto type = dynamic_variant_type->first_variant();
 
@@ -803,7 +767,6 @@ struct TypeVisitor : public lexer::TypeVisitorBase<TypeT> {
                     state.mutable_state,
                     level_mutable_state
                 }.visit().next_type;
-                // set_size_leafs(variant_leafs);
 
                 uint64_t offset = 0;
                 offset = set_sizes(
