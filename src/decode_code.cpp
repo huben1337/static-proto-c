@@ -123,9 +123,6 @@ INLINE constexpr ArrayCtorStrs make_array_ctor_strs (uint8_t array_depth) {
     };
 }
 
-template <size_t N>
-constexpr bool is_power_of_two = (N != 0) && ((N & (N - 1)) == 0);
-
 struct ArrayLengths {
     const uint32_t* const data;
     const uint8_t length;
@@ -142,14 +139,14 @@ struct SizeChainCodeGenerator : codegen::Generator<size_t> {
 
     SizeChainCodeGenerator(
         const uint64_t* const size_chain_data,
-        const Buffer::index_t size_chain_length
+        const Buffer::View<uint64_t>::length_t size_chain_length
     ) :
     size_chain_data(size_chain_data),
     size_chain_length(size_chain_length)
     {}
 
     const uint64_t* const size_chain_data;
-    const Buffer::index_t size_chain_length;
+    const Buffer::View<uint64_t>::length_t size_chain_length;
     
     char* write(char* dst) const override {
         for (Buffer::index_t i = 0; i < size_chain_length; i++) {
@@ -1352,80 +1349,13 @@ struct TypeVisitor : lexer::TypeVisitorBase<TypeT, codegen::__UnknownStruct> {
 // TODO: 
 // current_size_leaf_idx only is needed for var size leafs
 
-
-INLINE void handled_write (int fd, const char* buf, size_t size) {
-    int result = write(fd, buf, size);
-    if (result < 0) {
-        INTERNAL_ERROR("[handled_write] write failed, ERRNO: ", errno);
-    }
-}
-
-template <size_t size>
-requires (is_power_of_two<size>)
-struct Writer {
-    char buffer[size];
-    size_t position = 0;
-    const int fd;
-    Writer (int fd) : fd(fd) {}
-
-    void write (std::string_view str) {
-        const char* start = str.data();
-        write(start, start + str.size());
-    }
-
-    void write (const char* start, const char* end) {
-        size_t length = end - start;
-
-        size_t free_space = size - position;
-        if (free_space >= length) {
-            memcpy(buffer + position, start, length);
-            position += length;
-            if (position == size) {
-                handled_write(fd, buffer, size);
-                position = 0;
-            }
-        } else {
-            memcpy(buffer + position, start, free_space);
-            handled_write(fd, buffer, size);
-            start += free_space;
-            while (start <= end - size) {
-                memcpy(buffer, start, size);
-                handled_write(fd, buffer, size);
-                start += size;
-            }
-            if (start < end) {
-                size_t remaining = end - start;
-                memcpy(buffer, start, remaining);
-                position = remaining;
-            } else {
-                position = 0;
-            }
-        }
-        
-    }
-
-    void done () {
-        if (position == 0) {
-            return;
-        }
-        logger::debug("Wrinting to fd: ", fd);
-        handled_write(fd, buffer, position);
-        position = 0;
-    }
-
-    ~Writer () {
-        // Auto call done
-        done();
-    }
-};
-
 void print_leafs (const char* name, lexer::LeafCounts leafs) {
     logger::debug(name, ": {8:", leafs.counts.size8, ", 16:", leafs.counts.size16, ", 32:", leafs.counts.size32, ", 64:", leafs.counts.size64, ", total:", leafs.total(), "}");
 }
 
 void generate (
     const lexer::StructDefinition* target_struct,
-    Buffer&& buffer,
+    const Buffer& buffer,
     const int output_fd
 ) {
     uint8_t _buffer[5000];
@@ -1467,8 +1397,8 @@ void generate (
     uint64_t _var_offset_buffer[512];
     Buffer var_offset_buffer = {_var_offset_buffer};
 
-    #define DO_BENCHMARK 1
-    #if DO_BENCHMARK
+    #define DO_OFFSET_GEN_BENCHMARK 0
+    #if DO_OFFSET_GEN_BENCHMARK
     for (size_t i = 0; i < 10'000'000; ++i) {
         auto generate_offsets_result = generate_offsets::generate(
             target_struct,
@@ -1492,7 +1422,7 @@ void generate (
         var_offset_buffer.clear();
     }
     #endif
-    #undef DO_BENCHMARK
+    #undef DO_OFFSET_GEN_BENCHMARK
     
 
     auto generate_offsets_result = generate_offsets::generate(
@@ -1542,19 +1472,6 @@ void generate (
     for (uint16_t i = 0; i < target_struct->field_count; i++) {
         auto field_data = field->data();
         auto name = field_data->name;
-        // auto result = gen_leaf<true, false>(
-        //     field_data->type(),
-        //     buffer,
-        //     codegen::__UnknownStruct{std::move(struct_code)},
-        //     struct_name,
-        //     offsets_accessor,
-        //     level_size_leafs,
-        //     current_size_leaf_idx,
-        //     GenStructLeafArgs{name, 0},
-        //     ArrayLengths{nullptr, 0}
-        // );
-        //field = result.next;
-        //struct_code = (decltype(struct_code))result.code;
         auto result = TypeVisitor<
             lexer::StructField,
             true,
@@ -1578,7 +1495,7 @@ void generate (
         
     }
 
-    buffer.dispose();
+
     offsets_accessor.var_offset_buffer.dispose();
 
     struct_code = struct_code
@@ -1591,11 +1508,16 @@ void generate (
     .end()
     .end();
 
-
+    #define DO_WRITE_OUTPUT 1
+    #if DO_WRITE_OUTPUT
     const Buffer& code_buffer = code_done.buffer();
-    auto writer = Writer<4096>(output_fd);
-    writer.write(code_buffer.get<char>({0}), code_buffer.get<char>({code_buffer.current_position()}));
-    writer.done();
+    int write_result = write(output_fd, code_buffer.get<char>({0}), code_buffer.current_position());
+    if (write_result == -1) {
+        logger::error("write failed: ", strerror(errno));
+        exit(1);
+    }
+    #endif
+    #undef DO_WRITE_OUTPUT
 
     code_done.dispose();
 }
