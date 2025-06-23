@@ -952,9 +952,6 @@ GenerateResult generate (
 
     visitor_state.set_var_offsets(total_var_leafs, level_size_leafs_count);
 
-    logger::debug("var_offset_buffer dump: size: ", var_offset_buffer.current_position(), " {", std::string_view((const char*)var_offset_buffer.c_memory(), var_offset_buffer.current_position()), "}");
-    
-
     return {
         std::move(mutable_state.var_offset_buffer),
         offset
