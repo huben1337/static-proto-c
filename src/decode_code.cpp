@@ -34,7 +34,7 @@ struct OffsetsAccessor {
         const Buffer::View<uint64_t>* const var_offsets,
         const uint64_t* const variant_offsets,
         const uint16_t* const idx_map,
-        Buffer&& var_offset_buffer,
+        const ReadOnlyBuffer& var_offset_buffer,
         const uint64_t var_leafs_start,
         uint16_t& current_map_idx,
         uint16_t& current_variant_field_idx
@@ -43,7 +43,7 @@ struct OffsetsAccessor {
     var_offsets(var_offsets),
     variant_offsets(variant_offsets),
     idx_map(idx_map),
-    var_offset_buffer(std::move(var_offset_buffer)),
+    var_offset_buffer(var_offset_buffer),
     var_leafs_start(var_leafs_start),
     current_map_idx(current_map_idx),
     current_variant_field_idx(current_variant_field_idx)
@@ -52,7 +52,7 @@ struct OffsetsAccessor {
     const Buffer::View<uint64_t>* const var_offsets;
     const uint64_t* const variant_offsets;
     const uint16_t* const idx_map;
-    Buffer var_offset_buffer;
+    const ReadOnlyBuffer var_offset_buffer;
     const uint64_t var_leafs_start;
     uint16_t& current_map_idx;
     uint16_t& current_variant_field_idx;
@@ -130,7 +130,7 @@ struct ArrayLengths {
 
 struct SizeChainCodeGenerator : codegen::Generator<size_t> {
     SizeChainCodeGenerator(
-        const Buffer& var_offset_buffer,
+        const ReadOnlyBuffer& var_offset_buffer,
         const Buffer::View<uint64_t>& size_chain
     ) :
     size_chain_data(var_offset_buffer.get_aligned(size_chain.start_idx)),
@@ -700,7 +700,7 @@ template <typename TypeT, bool is_fixed, bool in_array, typename ArgsT, typename
 struct TypeVisitor : lexer::TypeVisitorBase<TypeT, codegen::__UnknownStruct> {
     INLINE constexpr TypeVisitor (
         const lexer::Type* const& field,
-        const Buffer& buffer,
+        const ReadOnlyBuffer& ast_buffer,
         codegen::__UnknownStruct&& code,
         const BaseNameT& base_name,
         const OffsetsAccessor& offsets_accessor,
@@ -710,7 +710,7 @@ struct TypeVisitor : lexer::TypeVisitorBase<TypeT, codegen::__UnknownStruct> {
         const ArrayLengths& array_lengths
     ) :
     lexer::TypeVisitorBase<TypeT, codegen::__UnknownStruct>(field),
-    buffer(buffer),
+    ast_buffer(ast_buffer),
     code(std::move(code)),
     base_name(base_name),
     offsets_accessor(offsets_accessor),
@@ -720,7 +720,7 @@ struct TypeVisitor : lexer::TypeVisitorBase<TypeT, codegen::__UnknownStruct> {
     array_lengths(array_lengths)
     {}
 
-    const Buffer& buffer;
+    const ReadOnlyBuffer& ast_buffer;
     codegen::__UnknownStruct&& code;
     const BaseNameT& base_name;
     const OffsetsAccessor& offsets_accessor;
@@ -898,7 +898,7 @@ struct TypeVisitor : lexer::TypeVisitorBase<TypeT, codegen::__UnknownStruct> {
             std::conditional_t<is_dynamic_variant_element<ArgsT>, decltype(unique_name), decltype(base_name)>
         >{
             fixed_array_type->inner_type(),
-            buffer,
+            ast_buffer,
             codegen::__UnknownStruct{std::move(array_struct)},
             conditionally<is_dynamic_variant_element<ArgsT>>(unique_name, base_name),
             offsets_accessor,
@@ -967,7 +967,7 @@ struct TypeVisitor : lexer::TypeVisitorBase<TypeT, codegen::__UnknownStruct> {
                 std::conditional_t<is_dynamic_variant_element<ArgsT>, decltype(unique_name), decltype(base_name)>
             >{
                 array_type->inner_type(),
-                buffer,
+                ast_buffer,
                 codegen::__UnknownStruct{std::move(array_struct)},
                 conditionally<is_dynamic_variant_element<ArgsT>>(unique_name, base_name),
                 offsets_accessor,
@@ -1062,7 +1062,7 @@ struct TypeVisitor : lexer::TypeVisitorBase<TypeT, codegen::__UnknownStruct> {
                 std::conditional_t<is_dynamic_variant_element<ArgsT>, decltype(unique_name), decltype(base_name)>
             >{
                 type,
-                buffer,
+                ast_buffer,
                 codegen::__UnknownStruct{std::move(variant_struct)},
                 conditionally<is_dynamic_variant_element<ArgsT>>(unique_name, base_name),
                 offsets_accessor,
@@ -1205,7 +1205,7 @@ struct TypeVisitor : lexer::TypeVisitorBase<TypeT, codegen::__UnknownStruct> {
                     std::conditional_t<is_dynamic_variant_element<ArgsT>, decltype(unique_name), decltype(base_name)>
                 >{
                     type,
-                    buffer,
+                    ast_buffer,
                     codegen::__UnknownStruct{std::move(variant_struct)},
                     conditionally<is_dynamic_variant_element<ArgsT>>(unique_name, base_name),
                     offsets_accessor,
@@ -1271,7 +1271,7 @@ struct TypeVisitor : lexer::TypeVisitorBase<TypeT, codegen::__UnknownStruct> {
     }
 
     INLINE codegen::__UnknownStruct on_identifier (const lexer::IdentifiedType* const identified_type) const override {
-        auto identifier = buffer.get(identified_type->identifier_idx);
+        auto identifier = ast_buffer.get(identified_type->identifier_idx);
         if (identifier->keyword != lexer::KEYWORDS::STRUCT) {
             INTERNAL_ERROR("not implemented");
         }
@@ -1303,7 +1303,7 @@ struct TypeVisitor : lexer::TypeVisitorBase<TypeT, codegen::__UnknownStruct> {
                 std::conditional_t<is_dynamic_variant_element<ArgsT>, decltype(unique_name), decltype(base_name)>
             >{
                 field_data->type(),
-                buffer,
+                ast_buffer,
                 codegen::__UnknownStruct{std::move(struct_code)},
                 conditionally<is_dynamic_variant_element<ArgsT>>(unique_name, base_name),
                 offsets_accessor,
@@ -1355,10 +1355,10 @@ void print_leafs (const char* name, lexer::LeafCounts leafs) {
 
 void generate (
     const lexer::StructDefinition* target_struct,
-    const Buffer& buffer,
+    const ReadOnlyBuffer& ast_buffer,
     const int output_fd
 ) {
-    uint8_t _buffer[5000];
+    max_align_t _buffer[BUFFER_INIT_ARRAY_SIZE<char, 1 << 9>];
     auto code = codegen::create_code(Buffer{_buffer})
     .line("#include \"lib/lib.hpp\"")
     .line("");
@@ -1394,7 +1394,7 @@ void generate (
     logger::debug("variant_offsets length: ", total_variant_count);
     uint64_t variant_offsets[total_variant_count];
 
-    uint64_t _var_offset_buffer[512];
+    max_align_t _var_offset_buffer[BUFFER_INIT_ARRAY_SIZE<uint64_t, 256>];
     Buffer var_offset_buffer = {_var_offset_buffer};
 
     #define DO_OFFSET_GEN_BENCHMARK 0
@@ -1403,7 +1403,7 @@ void generate (
         auto generate_offsets_result = generate_offsets::generate(
             target_struct,
             generate_offsets::TypeVisitorState::ConstState{
-                buffer,
+                ast_buffer,
                 fixed_offsets,
                 variant_offsets,
                 var_offsets,
@@ -1428,7 +1428,7 @@ void generate (
     auto generate_offsets_result = generate_offsets::generate(
         target_struct,
         generate_offsets::TypeVisitorState::ConstState{
-            buffer,
+            ast_buffer,
             fixed_offsets,
             variant_offsets,
             var_offsets,
@@ -1452,7 +1452,7 @@ void generate (
         var_offsets,
         variant_offsets,
         idx_map,
-        std::move(var_offset_buffer),
+        var_offset_buffer,
         generate_offsets_result.var_leafs_start,
         current_map_idx,
         current_variant_field_idx
@@ -1480,7 +1480,7 @@ void generate (
             decltype(struct_name)
         >{
             field_data->type(),
-            buffer,
+            ast_buffer,
             codegen::__UnknownStruct{std::move(struct_code)},
             struct_name,
             offsets_accessor,
@@ -1496,7 +1496,7 @@ void generate (
     }
 
 
-    offsets_accessor.var_offset_buffer.dispose();
+    //var_offset_buffer.dispose();
 
     struct_code = struct_code
         ._private()
@@ -1508,7 +1508,7 @@ void generate (
     .end()
     .end();
 
-    #define DO_WRITE_OUTPUT 1
+    #define DO_WRITE_OUTPUT 0
     #if DO_WRITE_OUTPUT
     const Buffer& code_buffer = code_done.buffer();
     int write_result = write(output_fd, code_buffer.get<char>({0}), code_buffer.current_position());

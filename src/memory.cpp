@@ -1,4 +1,5 @@
 #pragma once
+#include <cstddef>
 #include <cstdint>
 #include <cstring>
 #include <concepts>
@@ -9,54 +10,10 @@
 #include "fatal_error.cpp"
 #include "logger.cpp"
 
+
+
 template <std::unsigned_integral U>
-struct Memory {
-    private:
-    static constexpr U max_position = std::numeric_limits<U>::max();
-    static constexpr uint8_t grow_factor = 2;
-    U capacity;
-    U position = 0;
-    uint8_t* memory;
-    bool in_heap;
-
-    INLINE constexpr Memory (const Memory& other) = default;
-    INLINE constexpr Memory& operator = (const Memory& other) = default;
-
-    friend class estd::const_copy_detail; // Give const_copy_detail access to private move constructor
-
-    public:
-    INLINE constexpr Memory (Memory&& other) = default;
-    INLINE constexpr Memory& operator = (Memory&& other) = default;
-
-    INLINE Memory (U capacity) : capacity(capacity), in_heap(true) {
-        memory = static_cast<uint8_t*>(std::malloc(capacity));
-        if (!memory) {
-            INTERNAL_ERROR("memory allocation failed\n");
-        };
-    }
-
-    template <typename T, U N>
-    requires (sizeof(T) * N <= max_position)
-    INLINE constexpr Memory (T (&memory)[N]) : capacity(sizeof(T) * N), memory(static_cast<uint8_t*>(static_cast<void*>(memory))), in_heap(false) {}
-
-    INLINE constexpr Memory (void* memory, U capacity) : capacity(capacity), memory(static_cast<uint8_t*>(memory)), in_heap(false) {}
-
-    using index_t = U;
-
-    INLINE constexpr void clear () {
-        position = 0;
-    }
-
-    INLINE void dispose () {
-        if (in_heap) {
-            std::free(memory);
-            in_heap = false; // Prevent double free
-        }
-        capacity = 0;
-        position = 0;
-        memory = nullptr;
-    }
-    
+struct MemoryBase {
     template <typename T>
     struct Index {
         INLINE constexpr Index () = default;
@@ -65,15 +22,15 @@ struct Memory {
         U value;
 
         INLINE constexpr Index add (U offset) const {
-            return Index{value + offset};
+            return {value + offset};
         }
 
         INLINE constexpr Index sub (U offset) const {
-            return Index{value - offset};
+            return {value - offset};
         }
 
         INLINE constexpr operator Index<const T>() const {
-            return Index<const T>{value};
+            return {value};
         }
     };
 
@@ -85,10 +42,12 @@ struct Memory {
 
         Index<T> start_idx;
         Index<T> end_idx;
-        INLINE T* begin (const Memory& mem) const {
+        template <typename MemoryT>
+        INLINE T* begin (const MemoryT& mem) const {
             return mem.get(start_idx);
         }
-        INLINE T* end (const Memory& mem) const {
+        template <typename MemoryT>
+        INLINE T* end (const MemoryT& mem) const {
             return mem.get(end_idx);
         }
 
@@ -111,10 +70,12 @@ struct Memory {
         Index<T> start_idx;
         length_t length;
 
-        INLINE T* begin (const Memory& mem) const {
+        template <typename MemoryT>
+        INLINE T* begin (const MemoryT& mem) const {
             return mem.get(start_idx);
         }
-        INLINE T* end (const Memory& mem) const {
+        template <typename MemoryT>
+        INLINE T* end (const MemoryT& mem) const {
             return mem.get(start_idx.add(length));
         }
 
@@ -127,9 +88,86 @@ struct Memory {
         }
     };
 
+    using index_t = U;
 
-    INLINE constexpr uint8_t* const& c_memory () const {
-        return memory;
+    template <typename T>
+    using _Index = MemoryBase<U>::template Index<T>;
+
+    template <typename T>
+    using _Span = MemoryBase<U>::template Span<T>;
+
+    template <typename T>
+    using _View = MemoryBase<U>::template View<T>;
+};
+
+template <std::unsigned_integral U>
+struct ReadOnlyMemory;
+
+template <std::unsigned_integral U>
+struct Memory : MemoryBase<U> {
+    private:
+    static constexpr U max_position = std::numeric_limits<U>::max();
+    static constexpr uint8_t grow_factor = 2;
+    U capacity;
+    U position = 0;
+    uint8_t* _data;
+    bool in_heap;
+
+    INLINE constexpr Memory (const Memory& other) = default;
+    INLINE constexpr Memory& operator = (const Memory& other) = default;
+
+    friend class estd::const_copy_detail; // Give const_copy_detail access to private move constructor
+
+    public:
+    template <typename T>
+    using Index = MemoryBase<U>::template Index<T>;
+
+    template <typename T>
+    using Span = MemoryBase<U>::template Span<T>;
+
+    template <typename T>
+    using View = MemoryBase<U>::template View<T>;
+
+    INLINE constexpr Memory (Memory&& other) = default;
+    INLINE constexpr Memory& operator = (Memory&& other) = default;
+
+    INLINE Memory (U capacity) : capacity(capacity) {
+        max_align_t* allocated = static_cast<max_align_t*>(std::malloc(capacity));
+        if (!allocated) {
+            INTERNAL_ERROR("memory allocation failed\n");
+        };
+        if (reinterpret_cast<uintptr_t>(allocated) % sizeof(max_align_t) != 0) {
+            INTERNAL_ERROR("allocated memory is not aligned\n");
+        }
+        _data = reinterpret_cast<uint8_t*>(allocated);
+        in_heap = true;
+    }
+
+    template <U N>
+    INLINE constexpr Memory (max_align_t (&data)[N]) : capacity(sizeof(max_align_t) * N), _data(reinterpret_cast<uint8_t*>(data)), in_heap(false) {
+        static_assert(sizeof(max_align_t) * N <= max_position, "capacity overflow");
+    }
+    
+    INLINE constexpr Memory (max_align_t* data, U capacity) : capacity(capacity), _data(reinterpret_cast<uint8_t*>(data)), in_heap(false) {}
+
+    INLINE constexpr void clear () {
+        position = 0;
+    }
+
+    INLINE void dispose () {
+        if (in_heap) {
+            std::free(_data);
+            // Prevent double free
+            in_heap = false;
+        }
+        _data = nullptr;
+        capacity = 0;
+        position = 0;
+    }
+
+
+    INLINE constexpr uint8_t* data () const {
+        return reinterpret_cast<uint8_t*>(_data);
     }
 
     INLINE constexpr const U& current_position () const {
@@ -162,22 +200,22 @@ struct Memory {
 
     template <typename T>
     INLINE constexpr T* get (Index<T> index) const {
-        return reinterpret_cast<T*>(memory + index.value);
+        return reinterpret_cast<T*>(_data + index.value);
     }
 
     template <typename T>
     INLINE constexpr T* get_aligned (Index<T> index) const {
-        return std::assume_aligned<alignof(T), T>(reinterpret_cast<T*>(memory + index.value));
+        return std::assume_aligned<alignof(T), T>(reinterpret_cast<T*>(_data + index.value));
     }
 
     template <typename T>
     INLINE T* get_next () {
-        return get(next_idx<T>());
+        return this->get(next_idx<T>());
     }
 
     template <typename T>
     INLINE T* get_next_aligned () {
-        return get_aligned(next_idx<T>());
+        return this->get_aligned(next_idx<T>());
     }
 
     template <typename T>
@@ -235,7 +273,7 @@ struct Memory {
 
     private:
     INLINE void grow () {
-        U new_capacity;;
+        U new_capacity;
         if (position >= (max_position / grow_factor)) {
             logger::warn("[Memory::grow] capped growth\n");
             new_capacity = max_position;
@@ -243,28 +281,66 @@ struct Memory {
             new_capacity = position * grow_factor;
         }
         if (in_heap) {
-            memory = reinterpret_cast<uint8_t*>(std::realloc(memory, new_capacity));
-            // printf("reallocated memory in heap: to %d\n", capacity);
+            _data = reinterpret_cast<uint8_t*>(std::realloc(_data, new_capacity));
         } else {
-            uint8_t* heap_memory = reinterpret_cast<uint8_t*>(std::malloc(new_capacity));
-            std::memcpy(heap_memory, memory, capacity);
-            memory = heap_memory;
+            uint8_t* mallocated = reinterpret_cast<uint8_t*>(std::malloc(new_capacity));
+            std::memcpy(mallocated, _data, capacity);
+            _data = mallocated;
             in_heap = true;
-            // printf("reallocated memory from stack: to %d\n", capacity);
         }
         capacity = new_capacity;
     }
 
-    INLINE constexpr void close () {
-        in_heap = false;
-        capacity = 0;
-        position = 0;
-        memory = nullptr;
+    friend struct ReadOnlyMemory<U>;
+};
+
+template <std::unsigned_integral U>
+struct ReadOnlyMemory : MemoryBase<U> {
+    private:
+    uint8_t* const _data;
+
+    public:
+    template <typename T>
+    using Index = MemoryBase<U>::template Index<T>;
+
+    template <typename T>
+    using Span = MemoryBase<U>::template Span<T>;
+
+    template <typename T>
+    using View = MemoryBase<U>::template View<T>;
+
+
+    INLINE constexpr ReadOnlyMemory (uint8_t* data) : _data(data) {}
+
+    INLINE constexpr ReadOnlyMemory (const Memory<U>& memory) : _data(memory._data) {}
+
+    INLINE constexpr uint8_t* data () const {
+        return _data;
+    }
+
+    template <typename T>
+    INLINE constexpr T* get (Index<T> index) const {
+        return reinterpret_cast<T*>(_data + index.value);
+    }
+
+    template <typename T>
+    INLINE constexpr T* get_aligned (Index<T> index) const {
+        return std::assume_aligned<alignof(T), T>(reinterpret_cast<T*>(_data + index.value));
     }
 };
 
+typedef MemoryBase<uint32_t> BufferBase;
 typedef Memory<uint32_t> Buffer;
+typedef ReadOnlyMemory<uint32_t> ReadOnlyBuffer;
 
-typedef Buffer::View<char> BufferStringView;
+template <size_t SIZE>
+constexpr size_t MEMORY_INIT_STACK_MIN = SIZE < sizeof(max_align_t) ? sizeof(max_align_t) : SIZE;
 
-#define MEMORY_INIT_STACK(SIZE) alloca(SIZE), SIZE
+#define MEMORY_INIT_STACK(SIZE) static_cast<max_align_t*>(__builtin_alloca_with_align(SIZE, alignof(max_align_t) * 8)), SIZE
+#define BUFFER_INIT_STACK(SIZE) MEMORY_INIT_STACK(SIZE)
+
+template <typename ELEMENT_TYPE, size_t LENGTH>
+constexpr size_t MEMORY_INIT_ARRAY_SIZE = (LENGTH * sizeof(ELEMENT_TYPE) + sizeof(max_align_t) - 1) / sizeof(max_align_t);
+
+template <typename ELEMENT_TYPE, size_t LENGTH>
+constexpr size_t BUFFER_INIT_ARRAY_SIZE = MEMORY_INIT_ARRAY_SIZE<ELEMENT_TYPE, LENGTH>;

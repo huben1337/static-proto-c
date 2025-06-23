@@ -307,7 +307,7 @@ struct ClosedCodeBlock {
     ClosedCodeBlock (Buffer&& buffer) : _buffer(std::move(buffer)) {}
     INLINE const char* c_str () {
         *_buffer.get_next<char>() = 0;
-        return reinterpret_cast<const char*>(_buffer.c_memory());
+        return reinterpret_cast<const char*>(_buffer.data());
     }
     INLINE const Buffer::index_t& size () { return _buffer.current_position(); }
     INLINE const Buffer& buffer () { return _buffer; }

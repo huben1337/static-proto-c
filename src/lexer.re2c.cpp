@@ -844,7 +844,7 @@ std::conditional_t<expect_fixed, LexFixedTypeResult, LexTypeResult> lex_type (ch
 
         auto created_variant_type = DynamicVariantType::create(buffer);
 
-        _VariantTypeMeta<!expect_fixed> type_meta_mem[8];
+        max_align_t type_meta_mem[BUFFER_INIT_ARRAY_SIZE<_VariantTypeMeta<!expect_fixed>, 8>];
         Buffer type_meta_buffer = {type_meta_mem}; // Disposed in [add_variant_type]
 
         auto types_start_idx = buffer.position_idx<uint8_t>();

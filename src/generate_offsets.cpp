@@ -144,22 +144,20 @@ struct TypeVisitorState {
 
     struct ConstState {
         constexpr ConstState (
-            const Buffer& buffer,
+            const ReadOnlyBuffer& ast_buffer,
             uint64_t* fixed_offsets,
             uint64_t*  variant_offsets,
             Buffer::View<uint64_t>* var_offsets,
             uint16_t* idx_map
         ) :
-        buffer(estd::const_copy(buffer)),
+        ast_buffer(ast_buffer),
         fixed_offsets(fixed_offsets),
         variant_offsets(variant_offsets),
         var_offsets(var_offsets),
         idx_map(idx_map)
         {}
 
-        ConstState (const ConstState& other) : buffer(estd::const_copy(other.buffer)), fixed_offsets(other.fixed_offsets), variant_offsets(other.variant_offsets), var_offsets(other.var_offsets), idx_map(other.idx_map) {}
-
-        const Buffer buffer;
+        const ReadOnlyBuffer ast_buffer;
         uint64_t* fixed_offsets;                  // represets the size of each fixed size leaf. once leafs are arranged it represents the offset
         uint64_t* variant_offsets;                //
         Buffer::View<uint64_t>* var_offsets;      // represents the size of the variable size leaf. used for genrating the offset calc strings
@@ -808,7 +806,7 @@ struct TypeVisitor : public lexer::TypeVisitorBase<TypeT> {
     }
 
     INLINE void on_identifier (const lexer::IdentifiedType* const identified_type) const override {
-        auto* const identifier = state.const_state.buffer.get(identified_type->identifier_idx);
+        auto* const identifier = state.const_state.ast_buffer.get(identified_type->identifier_idx);
         if (identifier->keyword != lexer::KEYWORDS::STRUCT) {
             INTERNAL_ERROR("expected struct");
         }
