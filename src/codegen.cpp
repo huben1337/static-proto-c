@@ -21,8 +21,8 @@ struct _CodeParts : std::tuple<T...>  {
 };
 
 template <StringLiteral separator, typename... T>
-auto make_code_parts(T&&... args) {
-    return _CodeParts<separator, T...>(std::forward<T>(args)...);
+INLINE constexpr _CodeParts<separator, T...> make_code_parts(T&&... args) {
+    return {std::forward<T>(args)...};
 }
 
 template <typename... T>
