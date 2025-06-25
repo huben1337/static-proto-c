@@ -105,7 +105,7 @@ struct ReadOnlyMemory;
 
 template <std::unsigned_integral U>
 struct Memory : MemoryBase<U> {
-    private:
+    protected:
     static constexpr U max_position = std::numeric_limits<U>::max();
     static constexpr uint8_t grow_factor = 2;
     U capacity;
@@ -166,8 +166,8 @@ struct Memory : MemoryBase<U> {
     }
 
 
-    INLINE constexpr uint8_t* data () const {
-        return reinterpret_cast<uint8_t*>(_data);
+    INLINE constexpr const uint8_t* const& data () const {
+        return _data;
     }
 
     INLINE constexpr const U& current_position () const {
@@ -297,7 +297,7 @@ struct Memory : MemoryBase<U> {
 template <std::unsigned_integral U>
 struct ReadOnlyMemory : MemoryBase<U> {
     private:
-    uint8_t* const _data;
+    uint8_t* _data;
 
     public:
     template <typename T>
