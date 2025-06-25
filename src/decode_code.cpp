@@ -1277,7 +1277,7 @@ void generate (
     const ReadOnlyBuffer& ast_buffer,
     const int output_fd
 ) {
-    max_align_t _buffer[BUFFER_INIT_ARRAY_SIZE<char, 1 << 9>];
+    max_align_t _buffer[BUFFER_INIT_ARRAY_SIZE<char, 1 << 14>];
     auto code = codegen::create_code(Buffer{_buffer})
     .line("#include \"lib/lib.hpp\"")
     .line("");
@@ -1313,7 +1313,7 @@ void generate (
     logger::debug("variant_offsets length: ", total_variant_count);
     uint64_t variant_offsets[total_variant_count];
 
-    max_align_t _var_offset_buffer[BUFFER_INIT_ARRAY_SIZE<uint64_t, 256>];
+    max_align_t _var_offset_buffer[BUFFER_INIT_ARRAY_SIZE<uint64_t, 512>];
     Buffer var_offset_buffer = {_var_offset_buffer};
 
     #define DO_OFFSET_GEN_BENCHMARK 0
@@ -1422,14 +1422,13 @@ void generate (
 
     struct_code = add_size_leafs(level_size_leafs, fixed_offsets, std::move(struct_code));
 
-    auto code_done = struct_code
+    auto&& code_done = struct_code
     .end()
     .end();
 
     #define DO_WRITE_OUTPUT 0
     #if DO_WRITE_OUTPUT
-    const Buffer& code_buffer = code_done.buffer();
-    int write_result = write(output_fd, code_buffer.get<char>({0}), code_buffer.current_position());
+    int write_result = write(output_fd, code_done.data(), code_done.size());
     if (write_result == -1) {
         logger::error("write failed: ", strerror(errno));
         exit(1);

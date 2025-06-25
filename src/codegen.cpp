@@ -326,17 +326,17 @@ struct CodeData {
 
 struct ClosedCodeBlock {
     private:
-    Buffer _buffer;
+    Buffer buffer;
+
     public:
-    ClosedCodeBlock (Buffer&& buffer) : _buffer(std::move(buffer)) {}
-    INLINE const char* c_str () {
-        *_buffer.get_next<char>() = 0;
-        return reinterpret_cast<const char*>(_buffer.data());
-    }
-    INLINE const Buffer::index_t& size () { return _buffer.current_position(); }
-    INLINE const Buffer& buffer () { return _buffer; }
+    ClosedCodeBlock (Buffer&& buffer) : buffer(std::move(buffer)) {}
+
+    INLINE const char* const& data () const { return reinterpret_cast<const char *const &>(buffer.data()); }
+    
+    INLINE const Buffer::index_t& size () const { return buffer.current_position(); }
+
     INLINE void dispose () {
-        _buffer.dispose();
+        buffer.dispose();
     }
 };
 
