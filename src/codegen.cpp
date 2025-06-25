@@ -16,10 +16,14 @@
 namespace codegen {
 
 template <StringLiteral seperator, typename ...T>
-struct _CodeParts {
-    INLINE constexpr _CodeParts (T&&... args, ...) : values(std::forward<T>(args)...) {}
-    const std::tuple<const T...> values;
+struct _CodeParts : std::tuple<T...>  {
+    INLINE constexpr _CodeParts (T&&... args) : std::tuple<T...>(std::forward<T>(args)...) {}
 };
+
+template <StringLiteral separator, typename... T>
+auto make_code_parts(T&&... args) {
+    return _CodeParts<separator, T...>(std::forward<T>(args)...);
+}
 
 template <typename... T>
 struct StringParts : _CodeParts<"", T...> {
@@ -43,8 +47,28 @@ struct Args : _CodeParts<", ", T...> {
 template <typename... T>
 Args (T&&...) -> Args<T...>;
 
+template <typename... T>
+struct is_code_parts_t : std::false_type {};
+template <StringLiteral seperator, typename... T>
+struct is_code_parts_t<_CodeParts<seperator, T...>> : std::true_type {};
+
+template <typename... T>
+struct is_string_parts_t : std::false_type {};
+template <typename... T>
+struct is_string_parts_t<StringParts<T...>> : std::true_type {};
+
+template <typename... T>
+struct is_args_t : std::false_type {};
+template <typename... T>
+struct is_args_t<Args<T...>> : std::true_type {};
+
+template <typename... T>
+struct is_attributes_t : std::false_type {};
+template <typename... T>
+struct is_attributes_t<Attributes<T...>> : std::true_type {};
+
 // int x = 0;
-// auto a = _CodeParts<"">("as_", 1, x);
+// auto a = make_code_parts<"">("as_", 1, x);
 // auto b = StringParts("as_", 1, x);
 
 INLINE char* make_indent (uint16_t indent_size, char* dst) {
@@ -234,35 +258,35 @@ INLINE size_t get_str_size (uint64_t value) {
 
 
 template <StringLiteral seperator, typename ...T, size_t... Indices>
-INLINE char* _write_code_parts_with_seperator (char* dst, _CodeParts<seperator, T...> value, std::index_sequence<Indices...>) {
-    ((dst = write_string(write_string(dst, std::forward<std::tuple_element_t<Indices, decltype(value.values)>>(std::get<Indices>(value.values))), seperator)), ...);
+INLINE char* _write_code_parts_with_seperator (char* dst, const _CodeParts<seperator, T...>& value, std::index_sequence<Indices...>) {
+    ((dst = write_string(write_string(dst, std::get<Indices>(value)), seperator)), ...);
     return dst;
 };
 template <StringLiteral seperator, typename ...T>
-INLINE char* write_string(char* dst, _CodeParts<seperator, T...> value) {
+INLINE char* write_string(char* dst, const _CodeParts<seperator, T...>& value) {
     if constexpr (sizeof...(T) == 0) {
         return dst;
     } else {
         dst = _write_code_parts_with_seperator(dst, value, std::make_index_sequence<sizeof...(T) - 1>{});
-        return write_string(dst, std::get<sizeof...(T) - 1>(value.values));
+        return write_string(dst, std::get<sizeof...(T) - 1>(value));
     }
 }
 template <StringLiteral seperator, typename ...T>
-INLINE char* _write_string(char* dst, _CodeParts<seperator, T...> value, const Buffer&) {
+INLINE char* _write_string(char* dst, const _CodeParts<seperator, T...>& value, const Buffer&) {
     return write_string(dst, value);
 }
 
 template <StringLiteral seperator, typename ...T, size_t... Indices>
-INLINE size_t _get_code_parts_size (_CodeParts<seperator, T...> value, std::index_sequence<Indices...>) {
+INLINE size_t _get_code_parts_size (const _CodeParts<seperator, T...>& value, std::index_sequence<Indices...>) {
     if constexpr (sizeof...(T) == 0) {
         return 0;
     } else {
-        return (... + get_str_size(std::get<Indices>(value.values)));
+        return (... + get_str_size(std::get<Indices>(value)));
     }
 };
 
 template <StringLiteral seperator, typename ...T>
-INLINE size_t get_str_size (_CodeParts<seperator, T...> value) {
+INLINE size_t get_str_size (const _CodeParts<seperator, T...>& value) {
     return _get_code_parts_size(value, std::make_index_sequence<sizeof...(T)>{}) + (sizeof...(T) - 1) * seperator.size();
 }
 
@@ -453,7 +477,7 @@ struct __Struct : CodeData {
 
     template <typename T, typename U, typename ...V>
     requires (sizeof...(V) > 0)
-    INLINE Method<Derived> method (T&& type, U&& name, Args<V...> args) {
+    INLINE Method<Derived> method (T&& type, U&& name, const Args<V...>& args) {
         _line(type, " ", name, " (", args, ") {");
         indent++;
         return {{CODE_DATA_CTOR_ARGS}};
@@ -461,7 +485,7 @@ struct __Struct : CodeData {
 
     template <typename ...T, typename U, typename V>
     requires (sizeof...(T) > 0)
-    INLINE Method<Derived> method (Attributes<T...> attributes, U&& type, V&& name) {
+    INLINE Method<Derived> method (const Attributes<T...>& attributes, U&& type, V&& name) {
         _line(attributes, " ", type, " ", name, " () {");
         indent++;
         return {{CODE_DATA_CTOR_ARGS}};
@@ -469,7 +493,7 @@ struct __Struct : CodeData {
 
     template <typename ...T, typename U, typename V, typename ...W>
     requires (sizeof...(T) > 0 && sizeof...(W) > 0)
-    INLINE Method<Derived> method (Attributes<T...> attributes, U&& type, V&& name, Args<W...> args) {
+    INLINE Method<Derived> method (const Attributes<T...>& attributes, U&& type, V&& name, const Args<W...>& args) {
         _line(attributes, " ", type, " ", name, " (", args, ") {");
         indent++;
         return {{CODE_DATA_CTOR_ARGS}};
