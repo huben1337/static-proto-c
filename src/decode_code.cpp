@@ -76,15 +76,6 @@ struct OffsetsAccessor {
     INLINE Buffer::View<uint64_t> next_var_offset () const {
         return var_offsets[next_map_idx()];
     }
-
-    template<bool is_fixed>
-    INLINE std::conditional_t<is_fixed, uint64_t, Buffer::View<uint64_t>> next_offset () const {
-        if constexpr (is_fixed) {
-            return next_fixed_offset();
-        } else {
-            return next_var_offset();
-        }
-    }
 };
 
 INLINE std::string get_size_type_str (lexer::SIZE size) {
@@ -104,10 +95,10 @@ INLINE std::string get_size_type_str (lexer::SIZE size) {
 }
 
 struct ArrayCtorStrs {
-    std::string_view ctor_args;
-    std::string_view ctor_inits;
-    std::string_view ctor_used;
-    std::string_view el_ctor_used;
+    const std::string_view ctor_args;
+    const std::string_view ctor_inits;
+    const std::string_view ctor_used;
+    const std::string_view el_ctor_used;
 };
 /* Lookup table for the first 65 elements. (65 = 64 + 1. Since fixed arrays can only be of length 2 or more 64 nested is the max and 1 more for a outer dynamic array. If bools are packed perfectly add 3 more)*/
 INLINE constexpr ArrayCtorStrs make_array_ctor_strs (uint8_t array_depth) {
@@ -150,10 +141,10 @@ struct SizeChainCodeGenerator : codegen::Generator<size_t> {
     
     char* write(char* dst) const override {
         for (Buffer::index_t i = 0; i < size_chain_length; i++) {
-            const uint64_t& size = size_chain_data[i];
             dst = codegen::write_string(dst, " + size"_sl);
             dst = codegen::write_string(dst, i);
             dst = codegen::write_string(dst, "(base)"_sl);
+            const uint64_t size = size_chain_data[i];
             if (size != 1) {
                 dst = codegen::write_string(dst, " * "_sl);
                 dst = codegen::write_string(dst, size);
@@ -165,7 +156,7 @@ struct SizeChainCodeGenerator : codegen::Generator<size_t> {
     size_t get_size() const override {
         size_t offset_str_size = size_chain_length * (" + size"_sl.size() + "(base)"_sl.size()) + fast_math::sum_of_digits_unsafe(size_chain_length);
         for (Buffer::index_t i = 0; i < size_chain_length; i++) {
-            const uint64_t& size = size_chain_data[i];
+            const uint64_t size = size_chain_data[i];
             if (size != 1) {
                 offset_str_size += " * "_sl.size() + fast_math::log10_unsafe(size) + 1;
             }
@@ -284,18 +275,6 @@ struct GenDynamicVariantLeafArgs : GenFixedVariantLeafArgs {
     std::string_view offset;
 };
 
-// template <bool in_array>
-// struct GenFixedVariantLeafArgs : _GenVariantLeafArgs {};
-// 
-// template<>
-// struct GenFixedVariantLeafArgs<true> : _GenVariantLeafArgs {
-//     uint64_t max_size;
-//     std::string idx_calc_str;
-// };
-// 
-// template<>
-// struct GenFixedVariantLeafArgs<false> : _GenVariantLeafArgs {};
-
 struct GenStructLeafArgs {
     std::string_view name;
     uint16_t depth;
@@ -320,12 +299,6 @@ constexpr bool is_dynamic_variant_element = std::is_same_v<ArgsT, GenDynamicVari
 template <LeafArgs ArgsT>
 constexpr bool is_struct_element = std::is_same_v<ArgsT, GenStructLeafArgs>;
 
-template <typename F, typename ... Args>
-constexpr size_t arg_count( F(*f)(Args ...))
-{
-   return sizeof...(Args);
-}
-
 INLINE constexpr auto get_unique_name (const GenStructLeafArgs& additional_args) {
     return codegen::StringParts{additional_args.name, "_"_sl, additional_args.depth};
 }
@@ -334,25 +307,40 @@ INLINE constexpr auto get_unique_name (const GenStructLeafArgs& additional_args)
     return codegen::StringParts{additional_args.name, "_"_sl, additional_args.depth};
 }
 template <typename F>
-INLINE constexpr auto get_unique_name (const GenStructLeafArgs& additional_args, F on_element) {
+INLINE constexpr auto get_unique_name (const GenStructLeafArgs& additional_args, F&&) {
     return codegen::StringParts{additional_args.name, "_"_sl, additional_args.depth};
 }
 
 template <StringLiteral element_name>
-INLINE constexpr auto get_unique_name (const GenFixedArrayLeafArgs& additional_args) {
+INLINE constexpr auto get_unique_name (const GenFixedArrayLeafArgs&) {
     return element_name;
 }
-template <typename F>
-INLINE constexpr auto get_unique_name (const GenFixedArrayLeafArgs& additional_args, F on_element) {
+
+template <
+    estd::invocable_r<
+        estd::is_any_of<
+            estd::is_same_meta<std::string_view>::type,
+            codegen::is_string_parts_t
+        >::type
+    > F
+>
+INLINE constexpr auto get_unique_name (const GenFixedArrayLeafArgs&, F&& on_element) {
     return on_element();
 }
 
 template <StringLiteral element_name>
-INLINE constexpr auto get_unique_name (const GenArrayLeafArgs& additional_args) {
+INLINE constexpr auto get_unique_name (const GenArrayLeafArgs&) {
     return element_name;
 }
-template <typename F>
-INLINE constexpr auto get_unique_name (const GenArrayLeafArgs& additional_args, F on_element) {
+template <
+    estd::invocable_r<
+        estd::is_any_of<
+            estd::is_same_meta<std::string_view>::type,
+            codegen::is_string_parts_t
+        >::type
+    > F
+>
+INLINE constexpr auto get_unique_name (const GenArrayLeafArgs&, F&& on_element) {
     return on_element();
 }
 
@@ -364,20 +352,15 @@ INLINE constexpr auto get_unique_name (const GenFixedVariantLeafArgs& additional
     return codegen::StringParts{"_"_sl, additional_args.variant_depth, "_"_sl, additional_args.variant_id};
 }
 template <typename F>
-INLINE constexpr auto get_unique_name (const GenFixedVariantLeafArgs& additional_args, F on_element) {
+INLINE constexpr auto get_unique_name (const GenFixedVariantLeafArgs& additional_args, F&&) {
     return codegen::StringParts{"_"_sl, additional_args.variant_depth, "_"_sl, additional_args.variant_id};
 }
 
-// template <typename T>
-// struct is_gen_variant_leaf_args : std::false_type {};
-// template <bool in_array>
-// struct is_gen_variant_leaf_args<GenFixedVariantLeafArgs<in_array>> : std::true_type {};
-
-INLINE constexpr decltype(auto) get_name (const GenStructLeafArgs& additional_args) {
+INLINE constexpr const std::string_view& get_name (const GenStructLeafArgs& additional_args) {
     return additional_args.name;
 }
 template <typename T>
-INLINE constexpr auto get_name (const GenStructLeafArgs& additional_args, T) {
+INLINE constexpr const std::string_view& get_name (const GenStructLeafArgs& additional_args, T) {
     return additional_args.name;
 }
 
@@ -391,27 +374,19 @@ INLINE constexpr auto get_name (const GenFixedVariantLeafArgs& additional_args, 
 
 template <LeafArgs ArgsT, typename T>
 requires (!(std::is_same_v<ArgsT, GenStructLeafArgs> || std::is_same_v<ArgsT, GenFixedVariantLeafArgs> || std::is_same_v<ArgsT, GenDynamicVariantLeafArgs>))
-INLINE constexpr auto get_name (ArgsT, T&& unique_name) {
+INLINE constexpr T&& get_name (ArgsT, T&& unique_name) {
     return std::forward<T>(unique_name);
 }
 
 template <typename NameT>
 requires (!LeafArgs<std::remove_cvref_t<NameT>>)
-INLINE constexpr auto get_name (NameT&& name) {
+INLINE constexpr NameT&& get_name (NameT&& name) {
     return std::forward<NameT>(name);
 }
 
-template <bool condition, typename T, typename U>
-INLINE constexpr std::conditional_t<condition, T, U> conditionally (T&& t, U&& u) {
-    if constexpr (condition) {
-        return std::forward<T>(t);
-    } else {
-        return std::forward<U>(u);
-    }
-}
 
 template <typename CodeT>
-INLINE CodeT add_size_leafs (
+INLINE CodeT&& add_size_leafs (
     std::span<SizeLeaf> level_size_leafs,
     const uint64_t* const fixed_offsets,
     CodeT&& struct_code
@@ -426,32 +401,6 @@ INLINE CodeT add_size_leafs (
     }
     return std::move(struct_code);
 }
-
-// template <typename Last>
-// INLINE auto add_size_leafs (
-//     std::span<SizeLeaf> level_size_leafs,
-//     uint64_t* fixed_offsets,
-//     codegen::NestedStruct<Last>&& struct_code
-// ) {
-//     return codegen::NestedStruct<Last>{add_size_leafs(
-//         level_size_leafs,
-//         fixed_offsets,
-//         (codegen::__UnknownStruct{std::move(struct_code)})
-//     )};
-// }
-// 
-// template <typename Last>
-// INLINE auto add_size_leafs (
-//     std::span<SizeLeaf> level_size_leafs,
-//     uint64_t* fixed_offsets,
-//     codegen::Struct<Last>&& struct_code
-// ) {
-//     return codegen::Struct<Last>{add_size_leafs(
-//         level_size_leafs,
-//         fixed_offsets,
-//         (codegen::__UnknownStruct{std::move(struct_code)})
-//     )};
-// }
 
 template <StringLiteral type_name, char target>
 consteval bool _last_non_whitespace_is () {
@@ -480,14 +429,14 @@ constexpr auto get_first_return_line_part = _get_first_return_line_part<type_nam
 
 
 template <bool is_array_element, StringLiteral type_name, lexer::SIZE type_size, typename Last>
-INLINE codegen::Method<Last> _gen_fixed_value_leaf_in_array (
+INLINE codegen::Method<Last>&& _gen_fixed_value_leaf_in_array (
     codegen::Method<Last>&& get_method,
     const OffsetsAccessor& offsets_accessor,
     const ArrayLengths& array_lengths
 ) {
     constexpr auto type_size_str = uint_to_string<type_size.byte_size()>();
 
-    uint64_t offset = offsets_accessor.next_fixed_offset();
+    const uint64_t offset = offsets_accessor.next_fixed_offset();
 
     if constexpr (type_size == lexer::SIZE::SIZE_1) {
         if (offset == 0) {
@@ -511,11 +460,11 @@ INLINE codegen::Method<Last> _gen_fixed_value_leaf_in_array (
 }
 
 template <bool is_array_element, StringLiteral type_name, lexer::SIZE type_size, typename Last>
-INLINE codegen::Method<Last> _gen_fixed_value_leaf_default (
+INLINE codegen::Method<Last>&& _gen_fixed_value_leaf_default (
     codegen::Method<Last>&& get_method,
     const OffsetsAccessor& offsets_accessor
 ) {
-    uint64_t offset = offsets_accessor.next_fixed_offset();
+    const uint64_t offset = offsets_accessor.next_fixed_offset();
 
     if (offset == 0) {
         get_method = get_method
@@ -529,7 +478,7 @@ INLINE codegen::Method<Last> _gen_fixed_value_leaf_default (
 }
 
 template <bool in_array, bool is_array_element, StringLiteral type_name, lexer::SIZE type_size, typename ArgsT, typename CodeT>
-INLINE CodeT _gen_fixed_value_leaf (
+INLINE CodeT&& _gen_fixed_value_leaf (
     CodeT&& code,
     const OffsetsAccessor& offsets_accessor,
     ArgsT&& additional_args,
@@ -558,14 +507,14 @@ INLINE CodeT _gen_fixed_value_leaf (
 }
 
 template <bool is_array_element, StringLiteral type_name, lexer::SIZE type_size, typename Last>
-INLINE codegen::Method<Last> _gen_var_value_leaf_in_array (
+INLINE codegen::Method<Last>&& _gen_var_value_leaf_in_array (
     codegen::Method<Last>&& get_method,
     const OffsetsAccessor& offsets_accessor,
     const ArrayLengths& array_lengths
 ) {
     constexpr auto type_size_str = uint_to_string<type_size.byte_size()>();
 
-    uint64_t var_leafs_start = offsets_accessor.var_leafs_start;
+    const uint64_t& var_leafs_start = offsets_accessor.var_leafs_start;
     const Buffer::View<uint64_t> size_chain = offsets_accessor.next_var_offset();
 
     if constexpr (type_size == lexer::SIZE::SIZE_1) {
@@ -589,11 +538,11 @@ INLINE codegen::Method<Last> _gen_var_value_leaf_in_array (
 }
 
 template <bool is_array_element, StringLiteral type_name, lexer::SIZE type_size, typename Last>
-INLINE codegen::Method<Last> _gen_var_value_leaf_default (
+INLINE codegen::Method<Last>&& _gen_var_value_leaf_default (
     codegen::Method<Last>&& get_method,
     const OffsetsAccessor& offsets_accessor
 ) {
-    uint64_t var_leafs_start = offsets_accessor.var_leafs_start;
+    const uint64_t& var_leafs_start = offsets_accessor.var_leafs_start;
     const Buffer::View<uint64_t> size_chain = offsets_accessor.next_var_offset();
 
     if (size_chain.empty()) {
@@ -608,7 +557,7 @@ INLINE codegen::Method<Last> _gen_var_value_leaf_default (
 }
 
 template <bool in_array, bool is_array_element, StringLiteral type_name, lexer::SIZE type_size, typename ArgsT, typename CodeT>
-INLINE CodeT _gen_var_value_leaf (
+INLINE CodeT&& _gen_var_value_leaf (
     CodeT&& code,
     const OffsetsAccessor& offsets_accessor,
     ArgsT&& additional_args,
@@ -637,7 +586,7 @@ INLINE CodeT _gen_var_value_leaf (
 }
 
 template <bool is_fixed, bool is_array_element, bool in_array, StringLiteral type_name, lexer::SIZE type_size, typename ArgsT, typename CodeT>
-INLINE CodeT _gen_value_leaf (
+INLINE CodeT&& _gen_value_leaf (
     CodeT&& code,
     const OffsetsAccessor& offsets_accessor,
     ArgsT&& name_provideing_args,
@@ -651,7 +600,7 @@ INLINE CodeT _gen_value_leaf (
 }
 
 template <bool is_fixed, bool in_array, StringLiteral type_name, lexer::SIZE type_size, LeafArgs ArgsT, typename CodeT>
-INLINE CodeT gen_value_leaf (
+INLINE CodeT&& gen_value_leaf (
     CodeT&& code,
     const OffsetsAccessor& offsets_accessor,
     const ArgsT& additional_args,
@@ -660,7 +609,7 @@ INLINE CodeT gen_value_leaf (
     return _gen_value_leaf<is_fixed, is_array_element<ArgsT>, in_array, type_name, type_size>(std::move(code), offsets_accessor, additional_args, array_lengths);
 }
 template <bool is_fixed, bool is_array_element, bool in_array, StringLiteral type_name, lexer::SIZE type_size, typename NameT, typename CodeT>
-INLINE CodeT gen_value_leaf (
+INLINE CodeT&& gen_value_leaf (
     CodeT&& code,
     const OffsetsAccessor& offsets_accessor,
     NameT&& name,
@@ -670,7 +619,7 @@ INLINE CodeT gen_value_leaf (
 }
 
 template <typename ArgsT, typename UniqueNameT, typename CodeT>
-INLINE CodeT gen_field_access_method_no_array (
+INLINE CodeT&& gen_field_access_method_no_array (
     CodeT&& code,
     const ArgsT& additional_args,
     const std::string_view& ctor_used,
@@ -697,11 +646,10 @@ INLINE CodeT gen_field_access_method_no_array (
 }
 
 template <typename TypeT, bool is_fixed, bool in_array, typename ArgsT, typename BaseNameT>
-struct TypeVisitor : lexer::TypeVisitorBase<TypeT, codegen::__UnknownStruct> {
+struct TypeVisitor : lexer::TypeVisitorBase<TypeT, codegen::__UnknownStruct&&, codegen::__UnknownStruct&&> {
     INLINE constexpr TypeVisitor (
         const lexer::Type* const& field,
         const ReadOnlyBuffer& ast_buffer,
-        codegen::__UnknownStruct&& code,
         const BaseNameT& base_name,
         const OffsetsAccessor& offsets_accessor,
         const std::span<SizeLeaf>& level_size_leafs,
@@ -709,9 +657,8 @@ struct TypeVisitor : lexer::TypeVisitorBase<TypeT, codegen::__UnknownStruct> {
         const ArgsT& additional_args,
         const ArrayLengths& array_lengths
     ) :
-    lexer::TypeVisitorBase<TypeT, codegen::__UnknownStruct>(field),
+    lexer::TypeVisitorBase<TypeT, codegen::__UnknownStruct&&, codegen::__UnknownStruct&&>(field),
     ast_buffer(ast_buffer),
-    code(std::move(code)),
     base_name(base_name),
     offsets_accessor(offsets_accessor),
     level_size_leafs(level_size_leafs),
@@ -720,40 +667,38 @@ struct TypeVisitor : lexer::TypeVisitorBase<TypeT, codegen::__UnknownStruct> {
     array_lengths(array_lengths)
     {}
 
-    const ReadOnlyBuffer& ast_buffer;
-    codegen::__UnknownStruct&& code;
-    const BaseNameT& base_name;
-    const OffsetsAccessor& offsets_accessor;
-    const std::span<SizeLeaf>& level_size_leafs;
+    const ReadOnlyBuffer ast_buffer;
+    const BaseNameT base_name;
+    const OffsetsAccessor offsets_accessor;
+    const std::span<SizeLeaf> level_size_leafs;
     uint16_t& current_size_leaf_idx;
-    const ArgsT& additional_args;
-    const ArrayLengths& array_lengths;
+    const ArgsT additional_args;
+    const ArrayLengths array_lengths;
     const uint8_t& array_depth = array_lengths.length;
     
 
     template <lexer::VALUE_FIELD_TYPE field_type, StringLiteral type_name>
-    INLINE codegen::__UnknownStruct on_simple () const {
+    INLINE codegen::__UnknownStruct&& on_simple (codegen::__UnknownStruct&& code) const {
         return gen_value_leaf<is_fixed, in_array, type_name, lexer::get_type_alignment<field_type>()>(std::move(code), offsets_accessor, additional_args, array_lengths);
     }
 
-    INLINE codegen::__UnknownStruct on_bool     () const override { return on_simple<lexer::VALUE_FIELD_TYPE::BOOL     ,"bool"     >(); }
-    INLINE codegen::__UnknownStruct on_uint8    () const override { return on_simple<lexer::VALUE_FIELD_TYPE::UINT8    , "uint8_t" >(); }
-    INLINE codegen::__UnknownStruct on_uint16   () const override { return on_simple<lexer::VALUE_FIELD_TYPE::UINT16   , "uint16_t">(); }
-    INLINE codegen::__UnknownStruct on_uint32   () const override { return on_simple<lexer::VALUE_FIELD_TYPE::UINT32   , "uint32_t">(); }
-    INLINE codegen::__UnknownStruct on_uint64   () const override { return on_simple<lexer::VALUE_FIELD_TYPE::UINT64   , "uint64_t">(); }
-    INLINE codegen::__UnknownStruct on_int8     () const override { return on_simple<lexer::VALUE_FIELD_TYPE::INT8     , "int8_t"  >(); }
-    INLINE codegen::__UnknownStruct on_int16    () const override { return on_simple<lexer::VALUE_FIELD_TYPE::INT16    , "int16_t" >(); }
-    INLINE codegen::__UnknownStruct on_int32    () const override { return on_simple<lexer::VALUE_FIELD_TYPE::INT32    , "int32_t" >(); }
-    INLINE codegen::__UnknownStruct on_int64    () const override { return on_simple<lexer::VALUE_FIELD_TYPE::INT64    , "int64_t" >(); }
-    INLINE codegen::__UnknownStruct on_float32  () const override { return on_simple<lexer::VALUE_FIELD_TYPE::FLOAT32  , "float"   >(); }
-    INLINE codegen::__UnknownStruct on_float64  () const override { return on_simple<lexer::VALUE_FIELD_TYPE::FLOAT64  , "double"  >(); }
+    INLINE codegen::__UnknownStruct&& on_bool     (codegen::__UnknownStruct&& code) const override { return on_simple<lexer::VALUE_FIELD_TYPE::BOOL     ,"bool"     >(std::move(code)); }
+    INLINE codegen::__UnknownStruct&& on_uint8    (codegen::__UnknownStruct&& code) const override { return on_simple<lexer::VALUE_FIELD_TYPE::UINT8    , "uint8_t" >(std::move(code)); }
+    INLINE codegen::__UnknownStruct&& on_uint16   (codegen::__UnknownStruct&& code) const override { return on_simple<lexer::VALUE_FIELD_TYPE::UINT16   , "uint16_t">(std::move(code)); }
+    INLINE codegen::__UnknownStruct&& on_uint32   (codegen::__UnknownStruct&& code) const override { return on_simple<lexer::VALUE_FIELD_TYPE::UINT32   , "uint32_t">(std::move(code)); }
+    INLINE codegen::__UnknownStruct&& on_uint64   (codegen::__UnknownStruct&& code) const override { return on_simple<lexer::VALUE_FIELD_TYPE::UINT64   , "uint64_t">(std::move(code)); }
+    INLINE codegen::__UnknownStruct&& on_int8     (codegen::__UnknownStruct&& code) const override { return on_simple<lexer::VALUE_FIELD_TYPE::INT8     , "int8_t"  >(std::move(code)); }
+    INLINE codegen::__UnknownStruct&& on_int16    (codegen::__UnknownStruct&& code) const override { return on_simple<lexer::VALUE_FIELD_TYPE::INT16    , "int16_t" >(std::move(code)); }
+    INLINE codegen::__UnknownStruct&& on_int32    (codegen::__UnknownStruct&& code) const override { return on_simple<lexer::VALUE_FIELD_TYPE::INT32    , "int32_t" >(std::move(code)); }
+    INLINE codegen::__UnknownStruct&& on_int64    (codegen::__UnknownStruct&& code) const override { return on_simple<lexer::VALUE_FIELD_TYPE::INT64    , "int64_t" >(std::move(code)); }
+    INLINE codegen::__UnknownStruct&& on_float32  (codegen::__UnknownStruct&& code) const override { return on_simple<lexer::VALUE_FIELD_TYPE::FLOAT32  , "float"   >(std::move(code)); }
+    INLINE codegen::__UnknownStruct&& on_float64  (codegen::__UnknownStruct&& code) const override { return on_simple<lexer::VALUE_FIELD_TYPE::FLOAT64  , "double"  >(std::move(code)); }
 
-    INLINE codegen::__UnknownStruct on_fixed_string (const lexer::FixedStringType* const fixed_string_type) const override {
-        uint32_t length = fixed_string_type->length;
-        auto size_type_str =  get_size_type_str(fixed_string_type->length_size);
-        // auto offset = offsets_accessor.next_offset<is_fixed>();
+    INLINE codegen::__UnknownStruct&& on_fixed_string (codegen::__UnknownStruct&& code, const lexer::FixedStringType* const fixed_string_type) const override {
+        const uint32_t length = fixed_string_type->length;
+        const std::string size_type_str =  get_size_type_str(fixed_string_type->length_size);
 
-        ArrayCtorStrs array_ctor_strs = make_array_ctor_strs(array_depth);
+        const ArrayCtorStrs array_ctor_strs = make_array_ctor_strs(array_depth);
 
         auto unique_name = get_unique_name<"String">(additional_args);
 
@@ -797,18 +742,18 @@ struct TypeVisitor : lexer::TypeVisitorBase<TypeT, codegen::__UnknownStruct> {
         return std::move(code);
     }
 
-    INLINE codegen::__UnknownStruct on_string (const lexer::StringType* const string_type) const override {
+    INLINE codegen::__UnknownStruct&& on_string (codegen::__UnknownStruct&& code, const lexer::StringType* const string_type) const override {
         if constexpr (in_array) {
             INTERNAL_ERROR("Variable length strings in arrays are not supported");
         } else {
-            lexer::SIZE size_size = string_type->size_size;
-            lexer::SIZE stored_size_size = string_type->stored_size_size;
-            auto size_type_str = get_size_type_str(size_size);
+            const lexer::SIZE size_size = string_type->size_size;
+            const lexer::SIZE stored_size_size = string_type->stored_size_size;
+            const std::string size_type_str = get_size_type_str(size_size);
             const Buffer::View<uint64_t> size_chain = offsets_accessor.next_var_offset();
 
-            ArrayCtorStrs array_ctor_strs = make_array_ctor_strs(array_depth);
+            const ArrayCtorStrs array_ctor_strs = make_array_ctor_strs(array_depth);
 
-            uint16_t size_leaf_idx = current_size_leaf_idx++;
+            const uint16_t size_leaf_idx = current_size_leaf_idx++;
             logger::debug("STRING size_leaf_idx: ", size_leaf_idx);
 
             auto unique_name = get_unique_name(additional_args);
@@ -832,7 +777,7 @@ struct TypeVisitor : lexer::TypeVisitorBase<TypeT, codegen::__UnknownStruct> {
             .method(size_type_str, "size");
             
             if constexpr (is_dynamic_variant_element<ArgsT>) {
-                uint64_t offset = offsets_accessor.next_fixed_offset();
+                const uint64_t offset = offsets_accessor.next_fixed_offset();
                 string_size_method = string_size_method
                 .line("return ", string_type->min_length, " + *reinterpret_cast<", get_size_type_str(stored_size_size), "*>(base + ", offset, ");");
             } else {
@@ -861,11 +806,11 @@ struct TypeVisitor : lexer::TypeVisitorBase<TypeT, codegen::__UnknownStruct> {
         }
     }
 
-    INLINE TypeVisitor::ResultT on_fixed_array (const lexer::ArrayType* const fixed_array_type) const override {
-        uint32_t length = fixed_array_type->length;
-        auto size_type_str = get_size_type_str(fixed_array_type->size_size);
+    INLINE TypeVisitor::ResultT on_fixed_array (codegen::__UnknownStruct&& code, const lexer::ArrayType* const fixed_array_type) const override {
+        const uint32_t length = fixed_array_type->length;
+        const std::string size_type_str = get_size_type_str(fixed_array_type->size_size);
 
-        ArrayCtorStrs array_ctor_strs = make_array_ctor_strs(array_depth);
+        const ArrayCtorStrs array_ctor_strs = make_array_ctor_strs(array_depth);
 
         uint16_t depth;
         if constexpr (std::is_same_v<ArgsT, GenFixedArrayLeafArgs>) {
@@ -899,16 +844,15 @@ struct TypeVisitor : lexer::TypeVisitorBase<TypeT, codegen::__UnknownStruct> {
         >{
             fixed_array_type->inner_type(),
             ast_buffer,
-            codegen::__UnknownStruct{std::move(array_struct)},
-            conditionally<is_dynamic_variant_element<ArgsT>>(unique_name, base_name),
+            estd::conditionally<is_dynamic_variant_element<ArgsT>>(unique_name, base_name),
             offsets_accessor,
             level_size_leafs,
             current_size_leaf_idx,
             GenFixedArrayLeafArgs{depth},
             ArrayLengths{new_array_lengths, static_cast<uint8_t>(array_depth + 1)}
-        }.visit();
+        }.visit(codegen::__UnknownStruct{std::move(array_struct)});
 
-        array_struct = ((decltype(array_struct))result.value)
+        array_struct = codegen::NestedStruct<codegen::__UnknownStruct>{std::move(result.value)}
             .method(codegen::Attributes("constexpr"), size_type_str, "length")
                 .line("return ", length, ";")
             .end()
@@ -943,15 +887,15 @@ struct TypeVisitor : lexer::TypeVisitorBase<TypeT, codegen::__UnknownStruct> {
     }
 
 
-    INLINE TypeVisitor::ResultT on_array (const lexer::ArrayType* const array_type) const override {
+    INLINE TypeVisitor::ResultT on_array (codegen::__UnknownStruct&& code, const lexer::ArrayType* const array_type) const override {
         if constexpr (in_array) {
             INTERNAL_ERROR("Dynamic array cant be nested");
         } else {
-            lexer::SIZE size_size = array_type->size_size;
-            lexer::SIZE stored_size_size = array_type->stored_size_size;
-            auto size_type_str = get_size_type_str(size_size);
+            const lexer::SIZE size_size = array_type->size_size;
+            const lexer::SIZE stored_size_size = array_type->stored_size_size;
+            const std::string size_type_str = get_size_type_str(size_size);
 
-            ArrayCtorStrs array_ctor_strs = make_array_ctor_strs(0);
+            const ArrayCtorStrs array_ctor_strs = make_array_ctor_strs(0);
 
             auto unique_name = get_unique_name(additional_args);
 
@@ -968,16 +912,15 @@ struct TypeVisitor : lexer::TypeVisitorBase<TypeT, codegen::__UnknownStruct> {
             >{
                 array_type->inner_type(),
                 ast_buffer,
-                codegen::__UnknownStruct{std::move(array_struct)},
-                conditionally<is_dynamic_variant_element<ArgsT>>(unique_name, base_name),
+                estd::conditionally<is_dynamic_variant_element<ArgsT>>(unique_name, base_name),
                 offsets_accessor,
                 level_size_leafs,
                 current_size_leaf_idx,
                 GenArrayLeafArgs{},
                 ArrayLengths{nullptr, 1}
-            }.visit();
+            }.visit(codegen::__UnknownStruct{std::move(array_struct)});
 
-            uint16_t size_leaf_idx = current_size_leaf_idx++;
+            const uint16_t size_leaf_idx = current_size_leaf_idx++;
             logger::debug("ARRAY size_leaf_idx:", size_leaf_idx);
             level_size_leafs[size_leaf_idx] = {
                 array_type->length,
@@ -986,7 +929,7 @@ struct TypeVisitor : lexer::TypeVisitorBase<TypeT, codegen::__UnknownStruct> {
                 stored_size_size
             };
 
-            array_struct = ((decltype(array_struct))result.value)
+            array_struct = codegen::NestedStruct<codegen::__UnknownStruct>{std::move(result.value)}
                 .method(size_type_str, "length")
                     .line("return size", size_leaf_idx, "(base);")
                 .end()
@@ -1006,26 +949,26 @@ struct TypeVisitor : lexer::TypeVisitorBase<TypeT, codegen::__UnknownStruct> {
         }
     }
 
-    INLINE TypeVisitor::ResultT on_fixed_variant (const lexer::FixedVariantType* const fixed_variant_type) const override {
-        uint16_t variant_count = fixed_variant_type->variant_count;
+    INLINE TypeVisitor::ResultT on_fixed_variant (codegen::__UnknownStruct&& code, const lexer::FixedVariantType* const fixed_variant_type) const override {
+        const uint16_t variant_count = fixed_variant_type->variant_count;
 
         auto unique_name = get_unique_name<"Variant">(additional_args);
 
-        ArrayCtorStrs array_ctor_strs = make_array_ctor_strs(array_depth);
+        const ArrayCtorStrs array_ctor_strs = make_array_ctor_strs(array_depth);
         
         auto&& variant_struct = code
         ._struct(unique_name);
 
         variant_struct = variant_struct
             .ctor(array_ctor_strs.ctor_args, array_ctor_strs.ctor_inits).end();
-        // auto id_leaf_offset = offsets_accessor.next_offset<is_fixed>();
+
         if (variant_count <= UINT8_MAX) {
             variant_struct = gen_value_leaf<is_fixed, is_array_element<ArgsT>, in_array, "uint8_t", lexer::SIZE::SIZE_1>(std::move(variant_struct), offsets_accessor, "id"_sl, array_lengths);
         } else {
             variant_struct = gen_value_leaf<is_fixed, is_array_element<ArgsT>, in_array, "uint16_t", lexer::SIZE::SIZE_2>(std::move(variant_struct), offsets_accessor, "id"_sl, array_lengths);
         }              
 
-        auto type = fixed_variant_type->first_variant();
+        const lexer::Type* type = fixed_variant_type->first_variant();
         uint64_t max_offset = 0;
 
         uint16_t variant_depth;
@@ -1038,14 +981,13 @@ struct TypeVisitor : lexer::TypeVisitorBase<TypeT, codegen::__UnknownStruct> {
         uint64_t max_size = 12345; // TODO. figure out how to store this when genrating offsets.
         
         for (uint16_t i = 0; i < variant_count; i++) {
-            auto& type_meta = fixed_variant_type->type_metas()[i];
-            auto& fixed_leaf_counts = type_meta.fixed_leaf_counts.counts;
-            constexpr auto var_leaf_counts = lexer::LeafCounts::zero().counts;
-            auto& variant_field_counts = type_meta.variant_field_counts.counts;
-            uint16_t total_fixed_leafs = fixed_leaf_counts.total();
-            uint16_t total_var_leafs = var_leaf_counts.total();
-            uint16_t level_variant_fields = variant_field_counts.total();
-            constexpr uint16_t total_size_leafs = 0;
+            const auto& type_meta = fixed_variant_type->type_metas()[i];
+            const auto fixed_leaf_counts = type_meta.fixed_leaf_counts.counts;
+            constexpr auto var_leaf_counts = lexer::LeafCounts::Counts::zero();
+            const auto variant_field_counts = type_meta.variant_field_counts.counts;
+            const uint16_t total_fixed_leafs = fixed_leaf_counts.total();
+            constexpr uint16_t total_var_leafs = var_leaf_counts.total();
+            const uint16_t level_variant_fields = variant_field_counts.total();
 
             // GenFixedVariantLeafArgs<in_array> gen_variant_leaf_args;
             // if constexpr (in_array) {
@@ -1054,7 +996,7 @@ struct TypeVisitor : lexer::TypeVisitorBase<TypeT, codegen::__UnknownStruct> {
             //     gen_variant_leaf_args = GenFixedVariantLeafArgs<false>{{i, variant_depth}};
             // }
             
-            lexer::TypeVisitorResult<lexer::Type, codegen::__UnknownStruct> result = TypeVisitor<
+            lexer::TypeVisitorResult<lexer::Type, codegen::__UnknownStruct&&> result = TypeVisitor<
                 lexer::Type,
                 is_fixed,
                 in_array,
@@ -1063,17 +1005,16 @@ struct TypeVisitor : lexer::TypeVisitorBase<TypeT, codegen::__UnknownStruct> {
             >{
                 type,
                 ast_buffer,
-                codegen::__UnknownStruct{std::move(variant_struct)},
-                conditionally<is_dynamic_variant_element<ArgsT>>(unique_name, base_name),
+                estd::conditionally<is_dynamic_variant_element<ArgsT>>(unique_name, base_name),
                 offsets_accessor,
                 std::span<SizeLeaf>{},
                 current_size_leaf_idx,
                 GenFixedVariantLeafArgs{i, variant_depth},
                 array_lengths
-            }.visit();
+            }.visit(codegen::__UnknownStruct{std::move(variant_struct)});
 
             type = result.next_type;
-            variant_struct = (decltype(variant_struct))result.value;
+            variant_struct = codegen::NestedStruct<codegen::__UnknownStruct>{std::move(result.value)};
         }
         
         variant_struct = variant_struct
@@ -1099,10 +1040,6 @@ struct TypeVisitor : lexer::TypeVisitorBase<TypeT, codegen::__UnknownStruct> {
                 .line(array_ctor_strs.el_ctor_used)
             .end();
         } else {
-            // code = code
-            // .method(unique_name, get_name(additional_args, unique_name))
-            //     .line(array_ctor_strs.ctor_used)
-            // .end();
             code = gen_field_access_method_no_array(std::move(code), additional_args, array_ctor_strs.ctor_used, unique_name);
         }
 
@@ -1112,31 +1049,31 @@ struct TypeVisitor : lexer::TypeVisitorBase<TypeT, codegen::__UnknownStruct> {
         };
     }
 
-    INLINE TypeVisitor::ResultT on_packed_variant (const lexer::PackedVariantType* const packed_variant_type) const override {
+    INLINE TypeVisitor::ResultT on_packed_variant (codegen::__UnknownStruct&& code, const lexer::PackedVariantType* const packed_variant_type) const override {
         INTERNAL_ERROR("Packed variant not supported");
     }
 
-    INLINE TypeVisitor::ResultT on_dynamic_variant (const lexer::DynamicVariantType* const dynamic_variant_type) const override {
+    INLINE TypeVisitor::ResultT on_dynamic_variant (codegen::__UnknownStruct&& code, const lexer::DynamicVariantType* const dynamic_variant_type) const override {
         if constexpr (in_array) {
             INTERNAL_ERROR("Dynamic array cant be nested");
         } else {
-            uint16_t variant_count = dynamic_variant_type->variant_count;
+            const uint16_t variant_count = dynamic_variant_type->variant_count;
 
             auto unique_name = get_unique_name<"DynamicVariant">(additional_args);
 
-            ArrayCtorStrs array_ctor_strs = make_array_ctor_strs(array_depth);
+            const ArrayCtorStrs array_ctor_strs = make_array_ctor_strs(array_depth);
             
             auto&& variant_struct = code
             ._struct(unique_name)
                 .ctor(array_ctor_strs.ctor_args, array_ctor_strs.ctor_inits).end();
-            //auto id_offset = offsets_accessor.next_offset<is_fixed>();
+            
             if (variant_count <= UINT8_MAX) {
                 variant_struct = gen_value_leaf<is_fixed, is_array_element<ArgsT>, in_array, "uint8_t", lexer::SIZE::SIZE_1>(std::move(variant_struct), offsets_accessor, "id"_sl, array_lengths);
             } else {
                 variant_struct = gen_value_leaf<is_fixed, is_array_element<ArgsT>, in_array, "uint16_t", lexer::SIZE::SIZE_2>(std::move(variant_struct), offsets_accessor, "id"_sl, array_lengths);
             }
 
-            uint16_t size_leaf_idx = current_size_leaf_idx++;
+            const uint16_t size_leaf_idx = current_size_leaf_idx++;
             logger::debug("ARRAY size_leaf_idx: ", size_leaf_idx);
             level_size_leafs[size_leaf_idx] = {
                 dynamic_variant_type->min_byte_size,
@@ -1167,7 +1104,7 @@ struct TypeVisitor : lexer::TypeVisitorBase<TypeT, codegen::__UnknownStruct> {
                 offset = std::string_view(offset_str_buf, offset_str_size);
             }
 
-            auto type = dynamic_variant_type->first_variant();
+            const lexer::Type* type = dynamic_variant_type->first_variant();
 
             uint16_t variant_depth;
             if constexpr (is_variant_element<ArgsT>) {
@@ -1179,14 +1116,14 @@ struct TypeVisitor : lexer::TypeVisitorBase<TypeT, codegen::__UnknownStruct> {
             uint64_t max_size = 12345; // TODO. figure out how to store this when genrating offsets.
             
             for (uint16_t i = 0; i < variant_count; i++) {
-                auto type_meta = dynamic_variant_type->type_metas()[i];
-                auto fixed_leaf_counts = type_meta.fixed_leaf_counts.counts;
-                auto var_leaf_counts = type_meta.var_leaf_counts.counts;
-                auto variant_field_counts = type_meta.variant_field_counts.counts;
-                uint16_t total_fixed_leafs = fixed_leaf_counts.total();
-                uint16_t total_var_leafs = var_leaf_counts.total();
-                uint16_t level_variant_fields = variant_field_counts.total();
-                uint16_t level_size_leafs_count = type_meta.level_size_leafs;
+                const auto& type_meta = dynamic_variant_type->type_metas()[i];
+                const auto fixed_leaf_counts = type_meta.fixed_leaf_counts.counts;
+                const auto var_leaf_counts = type_meta.var_leaf_counts.counts;
+                const auto variant_field_counts = type_meta.variant_field_counts.counts;
+                const auto level_size_leafs_count = type_meta.level_size_leafs;
+                const uint16_t total_fixed_leafs = fixed_leaf_counts.total();
+                const uint16_t total_var_leafs = var_leaf_counts.total();
+                const uint16_t level_variant_fields = variant_field_counts.total();
 
                 SizeLeaf level_size_leafs[level_size_leafs_count];
 
@@ -1197,7 +1134,7 @@ struct TypeVisitor : lexer::TypeVisitorBase<TypeT, codegen::__UnknownStruct> {
                 //     gen_variant_leaf_args = GenFixedVariantLeafArgs<false>{{i, variant_depth}};
                 // }
                 uint16_t current_size_leaf_idx = 0;
-                lexer::TypeVisitorResult<TypeT, codegen::__UnknownStruct> result = TypeVisitor<
+                lexer::TypeVisitorResult<TypeT, codegen::__UnknownStruct&&> result = TypeVisitor<
                     TypeT,
                     true,
                     in_array,
@@ -1206,8 +1143,7 @@ struct TypeVisitor : lexer::TypeVisitorBase<TypeT, codegen::__UnknownStruct> {
                 >{
                     type,
                     ast_buffer,
-                    codegen::__UnknownStruct{std::move(variant_struct)},
-                    conditionally<is_dynamic_variant_element<ArgsT>>(unique_name, base_name),
+                    estd::conditionally<is_dynamic_variant_element<ArgsT>>(unique_name, base_name),
                     offsets_accessor,
                     std::span<SizeLeaf>{level_size_leafs, level_size_leafs + level_size_leafs_count},
                     current_size_leaf_idx,
@@ -1216,9 +1152,9 @@ struct TypeVisitor : lexer::TypeVisitorBase<TypeT, codegen::__UnknownStruct> {
                         offset
                     },
                     array_lengths
-                }.visit();
+                }.visit(codegen::__UnknownStruct{std::move(variant_struct)});
                 type = (lexer::Type*)result.next_type;
-                variant_struct = (decltype(variant_struct))result.value;
+                variant_struct = codegen::NestedStruct<codegen::__UnknownStruct>{std::move(result.value)};
             }
 
             variant_struct = variant_struct
@@ -1238,28 +1174,12 @@ struct TypeVisitor : lexer::TypeVisitorBase<TypeT, codegen::__UnknownStruct> {
 
             if constexpr (is_array_element<ArgsT>) {
                 static_assert(false, "Dynamic array cant be array element");
-                // code = code
-                // .method("Variant", "get", codegen::Args("uint32_t idx"))
-                //     .line("/* unreachable */ return {base, base + ", offset, " + ", IdxCalcCodeGenerator<false, true>(array_lengths), " * ", max_size, std::string_view{array_ctor_strs.el_ctor_used.data() + 12, array_ctor_strs.el_ctor_used.length() - 12})
-                // .end();
             } else {
-                // auto&& variant_get_method = code
-                // .method(unique_name, get_name(additional_args, unique_name));
                 if constexpr (!in_array) {
-                    // code = code
-                    // .method(unique_name, get_name(additional_args, unique_name))
-                    //     .line(array_ctor_strs.ctor_used)
-                    // .end();
                     code = gen_field_access_method_no_array(std::move(code), additional_args, array_ctor_strs.ctor_used, unique_name);
-                    // variant_get_method = variant_get_method
-                    // .line("return {base, base + ", offset, std::string_view{array_ctor_strs.ctor_used.data() + 12, array_ctor_strs.ctor_used.length() - 12});
                 } else {
-                    static_assert(false, "Dynamic array cant bein array");
-                    // variant_get_method = variant_get_method
-                    // .line("/* unreachable */ return {base, base + ", offset, std::string_view{array_ctor_strs.ctor_used.data() + 12, array_ctor_strs.ctor_used.length() - 12}, " + ", IdxCalcCodeGenerator<false>(array_lengths), " * ", max_size);
+                    static_assert(false, "Dynamic array cant be in array");
                 }
-                // code = variant_get_method
-                // .end();
             }
 
             
@@ -1270,14 +1190,14 @@ struct TypeVisitor : lexer::TypeVisitorBase<TypeT, codegen::__UnknownStruct> {
         }
     }
 
-    INLINE codegen::__UnknownStruct on_identifier (const lexer::IdentifiedType* const identified_type) const override {
+    INLINE codegen::__UnknownStruct&& on_identifier (codegen::__UnknownStruct&& code, const lexer::IdentifiedType* const identified_type) const override {
         auto identifier = ast_buffer.get(identified_type->identifier_idx);
         if (identifier->keyword != lexer::KEYWORDS::STRUCT) {
             INTERNAL_ERROR("not implemented");
         }
         auto struct_type = identifier->data()->as_struct();
 
-        ArrayCtorStrs array_ctor_strs = make_array_ctor_strs(array_depth);
+        const ArrayCtorStrs array_ctor_strs = make_array_ctor_strs(array_depth);
 
         auto unique_name = get_unique_name(additional_args, [&struct_type]() { return struct_type->name; });
         
@@ -1295,7 +1215,7 @@ struct TypeVisitor : lexer::TypeVisitorBase<TypeT, codegen::__UnknownStruct> {
                 struct_depth = 0;
             }
 
-            lexer::TypeVisitorResult<lexer::StructField, codegen::__UnknownStruct> result = TypeVisitor<
+            lexer::TypeVisitorResult<lexer::StructField, codegen::__UnknownStruct&&> result = TypeVisitor<
                 lexer::StructField,
                 is_fixed,
                 in_array,
@@ -1304,17 +1224,16 @@ struct TypeVisitor : lexer::TypeVisitorBase<TypeT, codegen::__UnknownStruct> {
             >{
                 field_data->type(),
                 ast_buffer,
-                codegen::__UnknownStruct{std::move(struct_code)},
-                conditionally<is_dynamic_variant_element<ArgsT>>(unique_name, base_name),
+                estd::conditionally<is_dynamic_variant_element<ArgsT>>(unique_name, base_name),
                 offsets_accessor,
                 level_size_leafs,
                 current_size_leaf_idx,
                 GenStructLeafArgs{field_data->name, struct_depth},
                 array_lengths
-            }.visit();
+            }.visit(codegen::__UnknownStruct{std::move(struct_code)});
         
             field = result.next_type;
-            struct_code = (decltype(struct_code))result.value;
+            struct_code = codegen::NestedStruct<codegen::__UnknownStruct>{std::move(result.value)};
         }
 
         struct_code = struct_code
@@ -1362,18 +1281,18 @@ void generate (
     auto code = codegen::create_code(Buffer{_buffer})
     .line("#include \"lib/lib.hpp\"")
     .line("");
-    auto fixed_leaf_counts = target_struct->fixed_leaf_counts.counts;
-    auto var_leaf_counts = target_struct->var_leafs_count.counts;
-    auto variant_field_counts = target_struct->variant_field_counts.counts;
-    uint16_t total_fixed_leafs = fixed_leaf_counts.total();
-    uint16_t total_var_leafs = var_leaf_counts.total();
-    uint16_t level_variant_fields = variant_field_counts.total();
-    uint16_t total_variant_fixed_leafs = target_struct->total_variant_fixed_leafs;
-    uint16_t total_variant_var_leafs = target_struct->total_variant_var_leafs;
-    uint16_t total_leafs = total_fixed_leafs + total_var_leafs + total_variant_fixed_leafs  + total_variant_var_leafs;
-    uint16_t variant_base_idx = total_fixed_leafs + total_var_leafs;
-    uint16_t level_size_leafs_count = target_struct->level_size_leafs;
-    uint16_t total_variant_count = target_struct->total_variant_count;
+    const lexer::LeafCounts::Counts fixed_leaf_counts = target_struct->fixed_leaf_counts.counts;
+    const lexer::LeafCounts::Counts var_leaf_counts = target_struct->var_leafs_count.counts;
+    const lexer::LeafCounts::Counts variant_field_counts = target_struct->variant_field_counts.counts;
+    const uint16_t total_fixed_leafs = fixed_leaf_counts.total();
+    const uint16_t total_var_leafs = var_leaf_counts.total();
+    const uint16_t level_variant_fields = variant_field_counts.total();
+    const uint16_t total_variant_fixed_leafs = target_struct->total_variant_fixed_leafs;
+    const uint16_t total_variant_var_leafs = target_struct->total_variant_var_leafs;
+    const uint16_t total_leafs = total_fixed_leafs + total_var_leafs + total_variant_fixed_leafs  + total_variant_var_leafs;
+    const uint16_t variant_base_idx = total_fixed_leafs + total_var_leafs;
+    const uint16_t level_size_leafs_count = target_struct->level_size_leafs;
+    const uint16_t total_variant_count = target_struct->total_variant_count;
     print_leafs("fixed_leaf_counts", fixed_leaf_counts);
     print_leafs("var_leaf_counts", var_leaf_counts);
     print_leafs("variant_field_counts", variant_field_counts);
@@ -1384,7 +1303,7 @@ void generate (
     logger::debug("level_size_leafs: ", level_size_leafs_count);
     logger::debug("total_variant_count: ", total_variant_count);
 
-    std::string_view struct_name = target_struct->name;
+    const std::string_view struct_name = target_struct->name;
     logger::debug("fixed_offsets length: ", total_fixed_leafs + total_variant_fixed_leafs);
     uint64_t fixed_offsets[total_fixed_leafs + total_variant_fixed_leafs];
     logger::debug("var_offsets length: ", total_var_leafs + total_variant_var_leafs);
@@ -1481,22 +1400,21 @@ void generate (
         >{
             field_data->type(),
             ast_buffer,
-            codegen::__UnknownStruct{std::move(struct_code)},
             struct_name,
             offsets_accessor,
             level_size_leafs,
             current_size_leaf_idx,
             GenStructLeafArgs{name, 0},
             ArrayLengths{nullptr, 0}
-        }.visit();
+        }.visit(codegen::__UnknownStruct{std::move(struct_code)});
 
         field = result.next_type;
-        struct_code = (decltype(struct_code))result.value;
+        struct_code = std::remove_reference_t<decltype(struct_code)>::__Derived{std::move(result.value)};
         
     }
 
 
-    //var_offset_buffer.dispose();
+    var_offset_buffer.dispose();
 
     struct_code = struct_code
         ._private()

@@ -1,26 +1,66 @@
 #pragma once
 
-#include <concepts>
 #include <cstddef>
 #include <cstdint>
 #include <type_traits>
 
-template<typename T>
-inline constexpr bool is_char_ptr_v = std::is_same_v<T, char*> || std::is_same_v<T, const char*>;
-template<typename T>
-concept CharPtr = is_char_ptr_v<T>;
-
 template <typename T>
-constexpr std::size_t sizeof_v = std::is_empty_v<T> ? 0 : sizeof(T);
+constexpr size_t sizeof_v = std::is_empty_v<T> ? 0 : sizeof(T);
 
 class Empty {};
 
 namespace estd {
 
-template <class __Fn, class __Ret, class... __Args>
-concept invocable_r = requires (__Fn&& __fn, __Args&&... __args) {
-    { __fn(std::forward<__Args>(__args)...) } -> std::same_as<__Ret>;
+template <template <typename...> typename TemplateT, typename... T>
+struct type_template {
+    template <typename... U>
+    using type = TemplateT<T..., U...>;
 };
+template <template <typename> typename TemplateT, typename T>
+struct type_template<TemplateT, T> {
+    using type = TemplateT<T>;
+};
+template <template <typename> typename TemplateT>
+struct type_template<TemplateT> {
+    template <typename U>
+    using type = TemplateT<U>;
+};
+
+template <template <typename...> typename TemplateT, typename... T>
+struct meta : type_template<TemplateT, T...> {
+    template <typename... U>
+    using apply = meta<TemplateT, T..., U...>;
+};
+
+template <typename T>
+using is_same_meta = meta<std::is_same, T>;
+
+template <typename T>
+using is_any_t = std::true_type;
+
+template <template <typename...> typename... T>
+struct is_any_of {
+    template <typename U>
+    using type = std::disjunction<T<U>...>;
+};
+
+template <class __Fn, template <class> class __Ret, class... __Args>
+concept invocable_r = requires (__Fn&& __fn, __Args&&... __args) {
+    requires __Ret<decltype(__fn(std::forward<__Args>(__args)...))>::value;
+};
+
+template <bool condition, typename T>
+inline constexpr T&& conditionally (T&& t, auto) noexcept requires(condition) {
+    return std::forward<T>(t);
+}
+
+template <bool condition, typename T>
+inline constexpr T&& conditionally (auto, T&& t) noexcept requires(!condition) {
+    return std::forward<T>(t);
+}
+
+
+
 
 class const_copy_detail {
     template <typename T>
@@ -39,7 +79,6 @@ inline constexpr const auto const_copy (auto&& value) {
 }
 
 namespace std {
-    using ::estd::invocable_r;
 }
 
 template <uint64_t N>

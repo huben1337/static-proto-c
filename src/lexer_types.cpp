@@ -179,6 +179,8 @@ union LeafCounts {
         INLINE constexpr uint16_t total () const {
             return size8 + size16 + size32 + size64;
         }
+
+        static consteval Counts zero () { return {0, 0, 0, 0}; }
     } counts;
     uint64_t as_uint64;
 
@@ -193,7 +195,7 @@ union LeafCounts {
     INLINE constexpr uint32_t bytes () const { return counts.bytes(); }
     INLINE constexpr uint16_t total () const { return counts.total(); }
 
-    INLINE static consteval LeafCounts zero () { return {0, 0, 0, 0}; }
+    static consteval LeafCounts zero () { return {Counts::zero()}; }
 };
 
 struct IdentifiedDefinition {
@@ -516,185 +518,202 @@ struct TypeVisitorResult;
 template <typename TypeT>
 struct TypeVisitorResult<TypeT, void> {
     using ConstTypeT = const std::remove_const_t<TypeT>;
-    INLINE constexpr TypeVisitorResult (ConstTypeT*&& next_type) : next_type(std::forward<ConstTypeT*>(next_type)) {}
+    INLINE constexpr TypeVisitorResult (ConstTypeT*&& next_type) : next_type(std::move(next_type)) {}
     ConstTypeT* next_type;
 };
 
 template <typename TypeT, typename ValueT>
 struct TypeVisitorResult {
     using ConstTypeT = const std::remove_const_t<TypeT>;
-    INLINE constexpr TypeVisitorResult (ConstTypeT*&& next_type, ValueT&& value) : next_type(std::forward<ConstTypeT*>(next_type)), value(std::forward<ValueT>(value)) {}
+    INLINE constexpr TypeVisitorResult (ConstTypeT*&& next_type, ValueT value) requires(std::is_lvalue_reference_v<ValueT>) : next_type(std::move(next_type)), value(value) {}
+    INLINE constexpr TypeVisitorResult (ConstTypeT*&& next_type, ValueT& value) requires(!std::is_reference_v<ValueT> && std::is_const_v<ValueT>) : next_type(std::move(next_type)), value(value) {}
+    INLINE constexpr TypeVisitorResult (ConstTypeT*&& next_type, ValueT value) requires(std::is_rvalue_reference_v<ValueT>) : next_type(std::move(next_type)), value(std::move(value)) {}
+    INLINE constexpr TypeVisitorResult (ConstTypeT*&& next_type, ValueT&& value) requires(!std::is_reference_v<ValueT> && !std::is_const_v<ValueT>) : next_type(std::move(next_type)), value(std::move(value)) {}
     ConstTypeT* next_type;
     ValueT value;
 };
 
-template <typename TypeT, typename ValueT = void>
+template <typename T>
+struct TypeVisitorArg {
+    using type = T&&;
+};
+
+template <>
+struct TypeVisitorArg<void> {
+    using type = Empty;
+};
+
+template <typename TypeT, typename ValueT = void, typename ArgT = Empty>
 struct TypeVisitorBase {
     private:
     const Type* const type;
 
     public:
     static constexpr bool no_value = std::is_same_v<ValueT, void>;
+    static constexpr bool no_arg = std::is_same_v<ArgT, Empty>;
     using ConstTypeT = const std::remove_const_t<TypeT>;
     using ResultT = TypeVisitorResult<TypeT, ValueT>;
 
     INLINE constexpr TypeVisitorBase (const Type* const type) : type(type) {}
+
+    INLINE ResultT visit () const requires(no_arg) {
+        return visit(Empty{});
+    }
     
-    INLINE ResultT visit () const {
+    INLINE ResultT visit (ArgT arg) const {
         switch (type->type) {
             case FIELD_TYPE::BOOL: {
                 if constexpr (no_value) {
-                    on_bool();
+                    on_bool(std::forward<ArgT>(arg));
                     return {reinterpret_cast<ConstTypeT*>(type + 1)};
                 } else {
-                    return {reinterpret_cast<ConstTypeT*>(type + 1), on_bool()};
+                    return {reinterpret_cast<ConstTypeT*>(type + 1), on_bool(std::forward<ArgT>(arg))};
                 }
             }
             case FIELD_TYPE::UINT8: {
                 if constexpr (no_value) {
-                    on_uint8();
+                    on_uint8(std::forward<ArgT>(arg));
                     return {reinterpret_cast<ConstTypeT*>(type + 1)};
                 } else {
-                    return {reinterpret_cast<ConstTypeT*>(type + 1), on_uint8()};
+                    return {reinterpret_cast<ConstTypeT*>(type + 1), on_uint8(std::forward<ArgT>(arg))};
                 }
             }
             case FIELD_TYPE::UINT16: {
                 if constexpr (no_value) {
-                    on_uint16();
+                    on_uint16(std::forward<ArgT>(arg));
                     return {reinterpret_cast<ConstTypeT*>(type + 1)};
                 } else {
-                    return {reinterpret_cast<ConstTypeT*>(type + 1), on_uint16()};
+                    return {reinterpret_cast<ConstTypeT*>(type + 1), on_uint16(std::forward<ArgT>(arg))};
                 }
             }
             case FIELD_TYPE::UINT32: {
                 if constexpr (no_value) {
-                    on_uint32();
+                    on_uint32(std::forward<ArgT>(arg));
                     return {reinterpret_cast<ConstTypeT*>(type + 1)};
                 } else {
-                    return {reinterpret_cast<ConstTypeT*>(type + 1), on_uint32()};
+                    return {reinterpret_cast<ConstTypeT*>(type + 1), on_uint32(std::forward<ArgT>(arg))};
                 }
             }
             case FIELD_TYPE::UINT64: {
                 if constexpr (no_value) {
-                    on_uint64();
+                    on_uint64(std::forward<ArgT>(arg));
                     return {reinterpret_cast<ConstTypeT*>(type + 1)};
                 } else {
-                    return {reinterpret_cast<ConstTypeT*>(type + 1), on_uint64()};
+                    return {reinterpret_cast<ConstTypeT*>(type + 1), on_uint64(std::forward<ArgT>(arg))};
                 }
             }
             case FIELD_TYPE::INT8: {
                 if constexpr (no_value) {
-                    on_int8();
+                    on_int8(std::forward<ArgT>(arg));
                     return {reinterpret_cast<ConstTypeT*>(type + 1)};
                 } else {
-                    return {reinterpret_cast<ConstTypeT*>(type + 1), on_int8()};
+                    return {reinterpret_cast<ConstTypeT*>(type + 1), on_int8(std::forward<ArgT>(arg))};
                 }
             }
             case FIELD_TYPE::INT16: {
                 if constexpr (no_value) {
-                    on_int16();
+                    on_int16(std::forward<ArgT>(arg));
                     return {reinterpret_cast<ConstTypeT*>(type + 1)};
                 } else {
-                    return {reinterpret_cast<ConstTypeT*>(type + 1), on_int16()};
+                    return {reinterpret_cast<ConstTypeT*>(type + 1), on_int16(std::forward<ArgT>(arg))};
                 }
             }
             case FIELD_TYPE::INT32: {
                 if constexpr (no_value) {
-                    on_int32();
+                    on_int32(std::forward<ArgT>(arg));
                     return {reinterpret_cast<ConstTypeT*>(type + 1)};
                 } else {
-                    return {reinterpret_cast<ConstTypeT*>(type + 1), on_int32()};
+                    return {reinterpret_cast<ConstTypeT*>(type + 1), on_int32(std::forward<ArgT>(arg))};
                 }
             }
             case FIELD_TYPE::INT64: {
                 if constexpr (no_value) {
-                    on_int64();
+                    on_int64(std::forward<ArgT>(arg));
                     return {reinterpret_cast<ConstTypeT*>(type + 1)};
                 } else {
-                    return {reinterpret_cast<ConstTypeT*>(type + 1), on_int64()};
+                    return {reinterpret_cast<ConstTypeT*>(type + 1), on_int64(std::forward<ArgT>(arg))};
                 }
             }
             case FIELD_TYPE::FLOAT32: {
                 if constexpr (no_value) {
-                    on_float32();
+                    on_float32(std::forward<ArgT>(arg));
                     return {reinterpret_cast<ConstTypeT*>(type + 1)};
                 } else {
-                    return {reinterpret_cast<ConstTypeT*>(type + 1), on_float32()};
+                    return {reinterpret_cast<ConstTypeT*>(type + 1), on_float32(std::forward<ArgT>(arg))};
                 }
             }
             case FIELD_TYPE::FLOAT64: {
                 if constexpr (no_value) {
-                    on_float64();
+                    on_float64(std::forward<ArgT>(arg));
                     return {reinterpret_cast<ConstTypeT*>(type + 1)};
                 } else {
-                    return {reinterpret_cast<ConstTypeT*>(type + 1), on_float64()};
+                    return {reinterpret_cast<ConstTypeT*>(type + 1), on_float64(std::forward<ArgT>(arg))};
                 }
             }
             case FIELD_TYPE::STRING_FIXED: {
                 const FixedStringType* const fixed_string_type = type->as_fixed_string();
                 if constexpr (no_value) {
-                    on_fixed_string(fixed_string_type);
+                    on_fixed_string(Empty{}, fixed_string_type);
                     return {reinterpret_cast<ConstTypeT*>(fixed_string_type + 1)};
                 } else {
-                    return {reinterpret_cast<ConstTypeT*>(fixed_string_type + 1), on_fixed_string(fixed_string_type)};
+                    return {reinterpret_cast<ConstTypeT*>(fixed_string_type + 1), on_fixed_string(std::forward<ArgT>(arg), fixed_string_type)};
                 }
             }
             case FIELD_TYPE::STRING: {
                 const StringType* const string_type = type->as_string();
                 if constexpr (no_value) {
-                    on_string(string_type);
+                    on_string(Empty{}, string_type);
                     return {reinterpret_cast<ConstTypeT*>(string_type + 1)};
                 } else {
-                    return {reinterpret_cast<ConstTypeT*>(string_type + 1), on_string(string_type)};
+                    return {reinterpret_cast<ConstTypeT*>(string_type + 1), on_string(std::forward<ArgT>(arg), string_type)};
                 }
             }
             case FIELD_TYPE::ARRAY_FIXED: {
-                return on_fixed_array(type->as_array());
+                return on_fixed_array(std::forward<ArgT>(arg), type->as_array());
             }
             case FIELD_TYPE::ARRAY: {
-                return on_array(type->as_array());
+                return on_array(std::forward<ArgT>(arg), type->as_array());
             }
             case FIELD_TYPE::FIXED_VARIANT: {
-                return on_fixed_variant(type->as_fixed_variant());
+                return on_fixed_variant(std::forward<ArgT>(arg), type->as_fixed_variant());
             }
             case FIELD_TYPE::PACKED_VARIANT: {
-                return on_packed_variant(type->as_packed_variant());
+                return on_packed_variant(std::forward<ArgT>(arg), type->as_packed_variant());
             }
             case FIELD_TYPE::DYNAMIC_VARIANT: {
-                return on_dynamic_variant(type->as_dynamic_variant());
+                return on_dynamic_variant(std::forward<ArgT>(arg), type->as_dynamic_variant());
             }
             case FIELD_TYPE::IDENTIFIER: {
                 const IdentifiedType* const identifier_type = type->as_identifier();
                 if constexpr (no_value) {
-                    on_identifier(identifier_type);
+                    on_identifier(Empty{},identifier_type);
                     return {reinterpret_cast<ConstTypeT*>(identifier_type + 1)};
                 } else {
-                    return {reinterpret_cast<ConstTypeT*>(identifier_type + 1), on_identifier(identifier_type)};
+                    return {reinterpret_cast<ConstTypeT*>(identifier_type + 1), on_identifier(std::forward<ArgT>(arg), identifier_type)};
                 }
             }
         }
     }
-
-    INLINE virtual ValueT on_bool       () const = 0;
-    INLINE virtual ValueT on_uint8      () const = 0;
-    INLINE virtual ValueT on_uint16     () const = 0;
-    INLINE virtual ValueT on_uint32     () const = 0;
-    INLINE virtual ValueT on_uint64     () const = 0;
-    INLINE virtual ValueT on_int8       () const = 0;
-    INLINE virtual ValueT on_int16      () const = 0;
-    INLINE virtual ValueT on_int32      () const = 0;
-    INLINE virtual ValueT on_int64      () const = 0;
-    INLINE virtual ValueT on_float32    () const = 0;
-    INLINE virtual ValueT on_float64    () const = 0;
+    INLINE virtual ValueT on_bool    (ArgT) const = 0;
+    INLINE virtual ValueT on_uint8   (ArgT) const = 0;
+    INLINE virtual ValueT on_uint16  (ArgT) const = 0;
+    INLINE virtual ValueT on_uint32  (ArgT) const = 0;
+    INLINE virtual ValueT on_uint64  (ArgT) const = 0;
+    INLINE virtual ValueT on_int8    (ArgT) const = 0;
+    INLINE virtual ValueT on_int16   (ArgT) const = 0;
+    INLINE virtual ValueT on_int32   (ArgT) const = 0;
+    INLINE virtual ValueT on_int64   (ArgT) const = 0;
+    INLINE virtual ValueT on_float32 (ArgT) const = 0;
+    INLINE virtual ValueT on_float64 (ArgT) const = 0;
     
-    INLINE virtual ValueT on_fixed_string       (const lexer::FixedStringType*      ) const = 0;
-    INLINE virtual ValueT on_string             (const lexer::StringType*           ) const = 0;
-    INLINE virtual ResultT on_fixed_array       (const lexer::ArrayType*            ) const = 0;
-    INLINE virtual ResultT on_array             (const lexer::ArrayType*            ) const = 0;
-    INLINE virtual ResultT on_fixed_variant     (const lexer::FixedVariantType*     ) const = 0;
-    INLINE virtual ResultT on_packed_variant    (const lexer::PackedVariantType*    ) const = 0;
-    INLINE virtual ResultT on_dynamic_variant   (const lexer::DynamicVariantType*   ) const = 0;
-    INLINE virtual ValueT on_identifier         (const lexer::IdentifiedType*       ) const = 0;
+    INLINE virtual ValueT  on_fixed_string    (ArgT, const lexer::FixedStringType*      ) const = 0;
+    INLINE virtual ValueT  on_string          (ArgT, const lexer::StringType*           ) const = 0;
+    INLINE virtual ResultT on_fixed_array     (ArgT, const lexer::ArrayType*            ) const = 0;
+    INLINE virtual ResultT on_array           (ArgT, const lexer::ArrayType*            ) const = 0;
+    INLINE virtual ResultT on_fixed_variant   (ArgT, const lexer::FixedVariantType*     ) const = 0;
+    INLINE virtual ResultT on_packed_variant  (ArgT, const lexer::PackedVariantType*    ) const = 0;
+    INLINE virtual ResultT on_dynamic_variant (ArgT, const lexer::DynamicVariantType*   ) const = 0;
+    INLINE virtual ValueT  on_identifier      (ArgT, const lexer::IdentifiedType*       ) const = 0;
 };
 
 template <typename T, typename TypeMeta_T, typename U = const std::remove_const_t<T>>
