@@ -467,6 +467,15 @@ namespace _logger_internal_namespace {
         static INLINE void write (int8_t value) {
             write_int<is_first, is_last>(static_cast<int32_t>(value));
         }
+
+        template <bool is_first, bool is_last>
+        static INLINE void write (bool value) {
+            if (value) {
+                write<is_first, is_last>("true"_sl);
+            } else {
+                write<is_first, is_last>("false"_sl);
+            }
+        }
     
         template <typename... T, size_t... Indecies>
         requires (sizeof...(T) > 0)
@@ -474,17 +483,21 @@ namespace _logger_internal_namespace {
             (write<false, false>(std::forward<std::tuple_element_t<Indecies, std::tuple<T...>>>(std::get<Indecies>(values))), ...);
         }
     
-        template <StringLiteral value, bool has_buffered, bool buffered>
+        template <StringLiteral value, bool has_buffered, bool buffered, bool no_newline>
         static INLINE void _write_value () {
-            write<!has_buffered, !buffered>(value + "\n"_sl);
+            if constexpr (no_newline) {
+                write<!has_buffered, !buffered>(value + "\n"_sl);
+            } else {
+                write<!has_buffered, !buffered>(value);
+            }
         }
 
-        template <StringLiteral value, bool buffered>
+        template <StringLiteral value, bool buffered, bool no_newline = false>
         static INLINE void write_values () {
             if (buffer_dst == buffer) {
-                _write_value<value, false, buffered>();
+                _write_value<value, false, buffered, no_newline>();
             } else {
-                _write_value<value, true, buffered>();
+                _write_value<value, true, buffered, no_newline>();
             }
         }
     
@@ -547,11 +560,11 @@ namespace _logger_internal_namespace {
     
         template <bool buffered = false, StringLiteral first_value, typename... T>
         static INLINE void debug (T&&... values) {
-            //write_values<debug_prefix + first_value, buffered>(std::forward<T>(values)...);
+            write_values<debug_prefix + first_value, buffered>(std::forward<T>(values)...);
         }
         template <bool buffered = false, typename... T>
         static INLINE void debug (T&&... values) {
-            //write_values<debug_prefix, buffered>(std::forward<T>(values)...);
+            write_values<debug_prefix, buffered>(std::forward<T>(values)...);
         }
     
         template <bool buffered = false, StringLiteral first_value, typename... T>
