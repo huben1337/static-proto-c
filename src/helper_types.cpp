@@ -7,7 +7,17 @@
 template <typename T>
 constexpr size_t sizeof_v = std::is_empty_v<T> ? 0 : sizeof(T);
 
-class Empty {};
+struct Empty {
+    consteval Empty () {}
+    
+    consteval Empty (const Empty&) {}
+    consteval Empty (Empty&&) {}
+
+    Empty& operator= (const Empty&) = delete;
+    Empty& operator= (Empty&&) = delete;
+
+    constexpr ~Empty () {}
+};
 
 namespace estd {
 
