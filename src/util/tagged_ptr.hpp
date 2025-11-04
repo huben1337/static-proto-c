@@ -99,10 +99,3 @@ struct tagged_ptr {
         raw = (raw & PTR_MASK) | tag;
     }
 };
-
-
-struct A : ptr_tag<1> {
-    using  ptr_tag:: ptr_tag;
-};
-
-constexpr auto a = tagged_ptr<__uint128_t, A>{nullptr, A{0}}.ptr();
