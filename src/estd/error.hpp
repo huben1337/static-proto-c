@@ -12,7 +12,7 @@
 namespace estd {
 
     namespace {
-        Buffer error_buffer (BUFFER_INIT_STACK(128));
+        Buffer error_buffer = BUFFER_INIT_STACK(128);
     }
 
     template <bool use_exceptions, typename ...T>

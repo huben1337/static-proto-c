@@ -104,10 +104,6 @@ struct ClosedCodeBlock {
     }
 
     [[nodiscard]] constexpr const Buffer::index_t& size () const { return buffer.current_position(); }
-
-    constexpr void dispose () {
-        buffer.dispose();
-    }
 };
 
 template <typename Last, typename Derived>

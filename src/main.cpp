@@ -62,12 +62,10 @@ int main (int argc, const char** argv) {
     auto start_ts = std::chrono::high_resolution_clock::now();
 
     lexer::IdentifierMap identifier_map;
-    Buffer ast_buffer {BUFFER_INIT_STACK(4096)};
+    Buffer ast_buffer = BUFFER_INIT_STACK(4096);
     const auto *const target_struct = lexer::lex<false>(input_data, identifier_map, ast_buffer, {});
 
     decode_code::generate(target_struct, ReadOnlyBuffer{ast_buffer}, output_file.fd);
-
-    ast_buffer.dispose();
 
     if (close(output_file.fd) != 0) {
         logger::error("could not close output file");

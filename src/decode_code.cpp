@@ -1348,7 +1348,7 @@ void generate (
     const ReadOnlyBuffer& ast_buffer,
     const int output_fd
 ) {
-    auto code = codegen::create_code(Buffer{BUFFER_INIT_STACK(1 << 14)})
+    auto code = codegen::create_code(BUFFER_INIT_STACK(1 << 14))
     .line("#include \"lib/lib.hpp\"")
     .line("");
     const lexer::LeafCounts::Counts fixed_leaf_counts = target_struct->fixed_leaf_counts.counts;
@@ -1379,7 +1379,7 @@ void generate (
     logger::debug("idx_map length: ", total_leafs);
     uint16_t idx_map[total_leafs];
 
-    Buffer var_offset_buffer {BUFFER_INIT_STACK(sizeof(uint64_t) * 512)};
+    Buffer var_offset_buffer = BUFFER_INIT_STACK(sizeof(uint64_t) * 512);
 
     #define DO_OFFSET_GEN_BENCHMARK 0
     #if DO_OFFSET_GEN_BENCHMARK
@@ -1475,9 +1475,6 @@ void generate (
         
     }
 
-
-    var_offset_buffer.dispose();
-
     struct_code = struct_code
         ._private()
         .field("size_t", "base");
@@ -1498,7 +1495,6 @@ void generate (
     #endif
     #undef DO_WRITE_OUTPUT
 
-    code_done.dispose();
 }
 
 

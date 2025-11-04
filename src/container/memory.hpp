@@ -118,12 +118,6 @@ struct Memory : MemoryBase<U> {
     bool in_heap;
 
     public:
-    constexpr Memory (const Memory& other) = delete;
-    constexpr Memory& operator = (const Memory& other) = delete;
-
-    constexpr Memory (Memory&& other) = default;
-    constexpr Memory& operator = (Memory&& other) = default;
-
     template <typename T>
     using Index = MemoryBase<U>::template Index<T>;
 
@@ -155,9 +149,31 @@ struct Memory : MemoryBase<U> {
         static_assert(sizeof(AllocatedT) * N <= max_position, "capacity overflow");
     }
 
-    constexpr Memory (gsl::owner<AllocatedT*> data, U capacity) : capacity(capacity), _data(data), in_heap(false) {}
+    private:
+    constexpr Memory (AllocatedT* data, U capacity) : capacity(capacity), _data(data), in_heap(false) {}
 
-    constexpr void dispose () {
+    public:
+    static constexpr Memory from_stack (AllocatedT* data, U capacity) {
+        return Memory{data, capacity};
+    }
+
+    constexpr Memory (const Memory& other) = delete;
+    constexpr Memory& operator = (const Memory& other) = delete;
+
+    constexpr Memory (Memory&& other) noexcept
+    : capacity(other.capacity), position(other.position), _data(other._data), in_heap(other.in_heap) {
+        other.in_heap = false;
+    }
+    constexpr Memory& operator = (Memory&& other) noexcept {
+        capacity = other.capacity;
+        position = other.position;
+        _data = other._data;
+        in_heap = other.in_heap;
+        other.in_heap = false;
+    };
+
+
+    constexpr ~Memory () {
         if (in_heap) {
             std::free(_data);
             in_heap = false;
@@ -346,8 +362,9 @@ template <size_t SIZE>
 constexpr size_t MEMORY_INIT_STACK_MIN = SIZE < sizeof(max_align_t) ? sizeof(max_align_t) : SIZE;
 
 // NOLINTNEXTLINE(bugprone-macro-parentheses)
-#define MEMORY_INIT_STACK(ALLOC_TYPE, SIZE) static_cast<gsl::owner<ALLOC_TYPE*>>(__builtin_alloca_with_align(SIZE, alignof(ALLOC_TYPE) * 8)), SIZE
-#define BUFFER_INIT_STACK(SIZE) MEMORY_INIT_STACK(max_align_t, SIZE)
+#define MEMORY_INIT_STACK_ARGS(ALLOC_TYPE, SIZE) static_cast<ALLOC_TYPE*>(__builtin_alloca_with_align(SIZE, alignof(ALLOC_TYPE) * 8)), SIZE
+#define MEMORY_INIT_STACK(ALLOC_TYPE, SIZE) Memory<ALLOC_TYPE>::from_stack(MEMORY_INIT_STACK_ARGS(ALLOC_TYPE, SIZE))
+#define BUFFER_INIT_STACK(SIZE) Buffer::from_stack(MEMORY_INIT_STACK_ARGS(max_align_t, SIZE))
 
 template <typename ARRAY_TYPE, typename ELEMENT_TYPE, size_t LENGTH>
 constexpr size_t MEMORY_INIT_ARRAY_SIZE = (LENGTH * sizeof(ELEMENT_TYPE) + sizeof(ARRAY_TYPE) - 1) / sizeof(ARRAY_TYPE);
