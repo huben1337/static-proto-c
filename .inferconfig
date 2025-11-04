@@ -1,0 +1,5 @@
+{
+    "project-root": "./build/unix-make-clang/",
+    "results-dir": "./build/unix-make-clang/infer-out/",
+    "compilation-database": ["./build/unix-make-clang/compile_commands.json"]
+}

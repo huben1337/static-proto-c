@@ -42,8 +42,34 @@
                 "CMAKE_STRIP": "C:\\msys64\\clang64\\bin\\strip.exe"
             },
             "environment": {
-                "NINJA_PATH": "ninja.exe",
+                "NINJA_PATH": "C:\\msys64\\ucrt64\\bin\\ninja.exe",
                 "MAKE_PATH": "C:\\msys64\\clang64\\bin\\mingw32-make.exe"
+            }
+        },
+        {
+            "name": "gcc-base",
+            "hidden": true,
+            "cacheVariables": {
+                "CMAKE_C_COMPILER": "/usr/bin/gcc",
+                "CMAKE_CXX_COMPILER": "/usr/bin/g++",
+                "CMAKE_STRIP": "/usr/bin/strip"
+            },
+            "environment": {
+                "NINJA_PATH": "/usr/bin/ninja",
+                "MAKE_PATH": "/usr/bin/make"
+            }
+        },
+        {
+            "name": "clang-base",
+            "hidden": true,
+            "cacheVariables": {
+                "CMAKE_C_COMPILER": "/usr/bin/clang",
+                "CMAKE_CXX_COMPILER": "/usr/bin/clang++",
+                "CMAKE_STRIP": "/usr/bin/strip"
+            },
+            "environment": {
+                "NINJA_PATH": "/usr/bin/ninja",
+                "MAKE_PATH": "/usr/bin/make"
             }
         },
         {
@@ -63,24 +89,52 @@
             }
         },
         {
+            "name": "unix-make-base",
+            "hidden": true,
+            "generator": "Unix Makefiles",
+            "cacheVariables": {
+                "CMAKE_MAKE_PROGRAM": "$env{MAKE_PATH}"
+            }
+        },
+        {
             "name": "mingw-ninja-gcc",
-            "inherits": ["mingw-gcc-base", "ninja-base", "release-base"],
-            "binaryDir": "./.build/${presetName}"
+            "inherits": ["mingw-gcc-base", "ninja-base", "debug-base"],
+            "binaryDir": "./build/${presetName}"
         },
         {
             "name": "mingw-ninja-clang",
-            "inherits": ["mingw-clang-base", "ninja-base", "release-base"],
-            "binaryDir": "./.build/${presetName}"
+            "inherits": ["mingw-clang-base", "ninja-base", "debug-base"],
+            "binaryDir": "./build/${presetName}"
         },
         {
             "name": "mingw-make-gcc",
-            "inherits": ["mingw-gcc-base", "mingw-make-base", "release-base"],
-            "binaryDir": "./.build/${presetName}"
+            "inherits": ["mingw-gcc-base", "mingw-make-base", "debug-base"],
+            "binaryDir": "./build/${presetName}"
         },
         {
             "name": "mingw-make-clang",
-            "inherits": ["mingw-clang-base", "mingw-make-base", "release-base"],
-            "binaryDir": "./.build/${presetName}"
+            "inherits": ["mingw-clang-base", "mingw-make-base", "debug-base"],
+            "binaryDir": "./build/${presetName}"
+        },
+        {
+            "name": "unix-ninja-gcc",
+            "inherits": ["gcc-base", "ninja-base", "debug-base"],
+            "binaryDir": "./build/${presetName}"
+        },
+        {
+            "name": "unix-ninja-clang",
+            "inherits": ["clang-base", "ninja-base", "debug-base"],
+            "binaryDir": "./build/${presetName}"
+        },
+        {
+            "name": "unix-make-gcc",
+            "inherits": ["gcc-base", "unix-make-base", "debug-base"],
+            "binaryDir": "./build/${presetName}"
+        },
+        {
+            "name": "unix-make-clang",
+            "inherits": ["clang-base", "unix-make-base", "debug-base"],
+            "binaryDir": "./build/${presetName}"
         }
     ],
     "buildPresets": [
@@ -99,6 +153,22 @@
         {
             "name": "mingw-make-clang",
             "configurePreset": "mingw-make-clang"
+        },
+        {
+            "name": "unix-ninja-gcc",
+            "configurePreset": "unix-ninja-gcc"
+        },
+        {
+            "name": "unix-ninja-clang",
+            "configurePreset": "unix-ninja-clang"
+        },
+        {
+            "name": "unix-make-gcc",
+            "configurePreset": "unix-make-gcc"
+        },
+        {
+            "name": "unix-make-clang",
+            "configurePreset": "unix-make-clang"
         }
     ]
 }

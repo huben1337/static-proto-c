@@ -1,2 +1,64 @@
+---
 CompileFlags:
-  Add: [-std=gnu++23, -fconstexpr-depth=1000, -fconstexpr-steps=100000000]
+  # CompilationDatabase: "./build/unix-make-clang"
+  Add: [
+    -std=gnu++23,
+    -march=native,
+    -fconstexpr-depth=1000,
+    -fconstexpr-steps=100000000,
+    # -I/home/huben/Projects/static-proto-c/include/quickcpplib/include,
+    # -I/home/huben/Projects/static-proto-c/include/outcome/include,
+    # -I/home/huben/Projects/static-proto-c/include/llfio/include,
+    ]
+Diagnostics:
+  ClangTidy:
+    Add: [
+      # clang-analyzer-core*,
+      # clang-analyzer-cplusplus*,
+      # clang-analyzer-deadcode*,
+      # clang-analyzer-nullability*,
+      # clang-analyzer-optin*,
+      # clang-analyzer-security*,
+      # clang-analyzer-unix*,
+      bugprone*,
+      modernize*,
+      performance*,
+      readability*,
+      cppcoreguidelines-avoid-capturing-lambda-coroutines,
+      cppcoreguidelines-avoid-const-or-ref-data-members,
+      cppcoreguidelines-avoid-non-const-global-variables,
+      cppcoreguidelines-avoid-reference-coroutine-parameters,
+      cppcoreguidelines-interfaces-global-init,
+      cppcoreguidelines-misleading-capture-default-by-value,
+      cppcoreguidelines-missing-std-forward,
+      cppcoreguidelines-owning-memory,
+      cppcoreguidelines-prefer-member-initializer,
+      cppcoreguidelines-pro-type*,
+      cppcoreguidelines-rvalue-reference-param-not-moved,
+      cppcoreguidelines-slicing,
+      # cppcoreguidelines-special-member-functions,
+      # cppcoreguidelines-use-enum-class,
+      # fuchsia-statically-constructed-objects,
+      fuchsia-trailing-return,
+      google-default-arguments,
+      google-explicit-constructor,
+      google-global-names-in-headers,
+      google-runtime-int
+    ]
+    Remove: [
+      bugprone-easily-swappable-parameters,
+      modernize-use-auto,
+      modernize-use-default-member-init,
+      modernize-use-trailing-return-type,
+      modernize-use-designated-initializers,
+      modernize-avoid-c-arrays,
+      readability-identifier-length,
+      readability-magic-numbers,
+      readability-else-after-return,
+      readability-function-cognitive-complexity,
+      # cppcoreguidelines-pro-type-reinterpret-cast
+    ]
+    CheckOptions:
+      readability-braces-around-statements.ShortStatementLines: 1
+      readability-implicit-bool-conversion.UseUpperCaseLiteralSuffix: true
+      cppcoreguidelines-avoid-non-const-global-variables.AllowInternalLinkage: true
