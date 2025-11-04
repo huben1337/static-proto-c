@@ -1,6 +1,7 @@
 #pragma once
 
 #include <cerrno>
+#include <climits>
 #include <cstddef>
 #include <cstdint>
 #include <cstdio>
@@ -448,12 +449,13 @@ namespace logger_detail {
 
         template<bool is_first, bool is_last, std::signed_integral T>
         [[gnu::always_inline]] static void write (T value) {
+            using U = std::make_unsigned_t<T>;
             if (value == 0) {
                 write_char<is_first, is_last, '0'>();
             } else if (value < 0) {
-                write_nonzero<false, is_last, true>(static_cast<std::make_unsigned_t<T>>(-value));
+                write_nonzero<false, is_last, true>(U{0} - static_cast<U>(value));
             } else {
-                write_nonzero<is_first, is_last, false>(static_cast<std::make_unsigned_t<T>>(value));
+                write_nonzero<false, is_last, false>(static_cast<U>(value));
             }
         }
 
