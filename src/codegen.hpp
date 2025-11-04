@@ -54,11 +54,11 @@ struct is_attributes_t<Attributes<T...>> : std::true_type {};
 struct CodeData {
     constexpr CodeData (Buffer&& buffer, uint8_t indent) : buffer(std::move(buffer)), indent(indent) {}
 
-    CodeData (const CodeData& other) noexcept = delete;
-    CodeData& operator = (const CodeData& other) = delete;
+    CodeData (const CodeData&) noexcept = delete;
+    CodeData& operator = (const CodeData&) = delete;
 
-    constexpr CodeData (CodeData&& other) noexcept = default;
-    constexpr CodeData& operator = (CodeData&& other) = default;
+    constexpr CodeData (CodeData&&) noexcept = default;
+    constexpr CodeData& operator = (CodeData&&) = default;
 
     protected:
     Buffer buffer;

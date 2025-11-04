@@ -10,11 +10,11 @@ public:
     value_t value;
 
     constexpr ENUM_CLASS () = default;
-    constexpr ENUM_CLASS (const ENUM_CLASS& other) = default;
-    constexpr ENUM_CLASS (ENUM_CLASS&& other) = default;
+    constexpr ENUM_CLASS (const ENUM_CLASS&) = default;
+    constexpr ENUM_CLASS (ENUM_CLASS&&) = default;
 
-    constexpr ENUM_CLASS& operator = (const ENUM_CLASS& other) = default;
-    constexpr ENUM_CLASS& operator = (ENUM_CLASS&& other) = default;
+    constexpr ENUM_CLASS& operator = (const ENUM_CLASS&) = default;
+    constexpr ENUM_CLASS& operator = (ENUM_CLASS&&) = default;
 
     // NOLINTNEXTLINE(google-explicit-constructor)
     [[nodiscard]] constexpr operator value_t () const { return value; }
