@@ -324,8 +324,6 @@ inline std::conditional_t<expect_fixed, LexFixedTypeResult, LexTypeResult> add_v
         leafs_count_src++;
     }
 
-    type_meta_buffer.dispose();
-
     if constexpr (is_dynamic) {
         logger::debug("Lexer found DYNAMIC_VARIANT");
         buffer.get(created_variant_type.base)->type = DYNAMIC_VARIANT;
@@ -954,7 +952,7 @@ std::conditional_t<expect_fixed, LexFixedTypeResult, LexTypeResult> lex_type (ch
 
         auto created_variant_type = DynamicVariantType::create(buffer);
 
-        Buffer type_meta_buffer {BUFFER_INIT_STACK(sizeof(variant_type_meta_t<!expect_fixed>) * 8)}; // Disposed in [add_variant_type]
+        Buffer type_meta_buffer = BUFFER_INIT_STACK(sizeof(variant_type_meta_t<!expect_fixed>) * 8);
 
         auto types_start_idx = buffer.position_idx<uint8_t>();
 
