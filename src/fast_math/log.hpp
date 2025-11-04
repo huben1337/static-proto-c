@@ -2,6 +2,7 @@
 
 #include <cstddef>
 #include <cstdint>
+#include <gsl/util>
 #include <limits>
 #include <array>
 #include <type_traits>
@@ -59,8 +60,8 @@ namespace fast_math {
             constexpr uint8_t s = 8;
             constexpr size_t d = 1 << s;
             static_assert(d > std::numeric_limits<T>::digits - 1, "Error from compentsation ratio would be to big");
-            constexpr uint8_t m = static_cast<uint8_t>(d / ce::log2f<ce::Double{base}>);
-            uint8_t estimate = static_cast<uint16_t>(log2 * m) >> s;
+            constexpr uint8_t m = gsl::narrow_cast<uint8_t>(d / ce::log2f<ce::Double{base}>);
+            uint8_t estimate = gsl::narrow_cast<uint16_t>(log2 * m) >> s;
             constexpr auto next_pow_table = _make_next_pow_table<T, base>();
             return estimate + (value >= next_pow_table[estimate]);
         }

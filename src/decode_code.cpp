@@ -5,6 +5,7 @@
 #include <cstring>
 #include <cstdio>
 #include <gsl/pointers>
+#include <gsl/util>
 #include <span>
 #include <string>
 #include <array>
@@ -200,7 +201,7 @@ struct IdxCalcCodeGenerator : stringify::OverAllocatedGenerator<Buffer::index_t>
             Buffer::index_t size;
 
             if constexpr (last_is_direct) {
-                size = (array_lengths.length - 1) * (" + idx_"_sl.size() + " * "_sl.size() + 19) + "idx"_sl.size() + fast_math::sum_of_digits_unsafe(static_cast<uint8_t>(array_lengths.length - 1));
+                size = (array_lengths.length - 1) * (" + idx_"_sl.size() + " * "_sl.size() + 19) + "idx"_sl.size() + fast_math::sum_of_digits_unsafe(gsl::narrow_cast<uint8_t>(array_lengths.length - 1));
             } else {
                 size = array_lengths.length * " + idx_"_sl.size() + (array_lengths.length - 1) * (" * "_sl.size() + 19) + fast_math::sum_of_digits_unsafe(array_lengths.length);
             }
@@ -256,7 +257,7 @@ struct IdxCalcCodeGenerator : stringify::OverAllocatedGenerator<Buffer::index_t>
             }
         }
         done:;
-        const Buffer::index_t allocated_size = static_cast<Buffer::index_t>(dst - start);
+        const Buffer::index_t allocated_size = gsl::narrow_cast<Buffer::index_t>(dst - start);
         const Buffer::index_t over_allocation = estimated_size - allocated_size;
         return {dst, over_allocation};
     }
@@ -936,7 +937,7 @@ struct TypeVisitor : lexer::TypeVisitorBase<TypeT, codegen::UnknownStructBase, c
             level_size_leafs,
             current_size_leaf_idx,
             GenFixedArrayLeafArgs{depth},
-            ArrayLengths{new_array_lengths, static_cast<uint8_t>(array_depth + 1)},
+            ArrayLengths{new_array_lengths, gsl::narrow_cast<uint8_t>(array_depth + 1)},
             pack_sizes
         }.visit(codegen::UnknownStructBase{std::move(array_struct)});
 
@@ -1175,7 +1176,7 @@ struct TypeVisitor : lexer::TypeVisitorBase<TypeT, codegen::UnknownStructBase, c
                 size_t buf_size = generator.get_size();
                 char* buf = static_cast<char*>(alloca(buf_size));
                 char* end = generator.write(buf);
-                BSSERT(buf_size == end - buf, " ", buf_size, " == ", reinterpret_cast<uintptr_t>(end), " - ", reinterpret_cast<uintptr_t>(buf))
+                BSSERT(buf_size == end - buf, " ", buf_size, " == ", reinterpret_cast<uintptr_t>(end), " - ", reinterpret_cast<uintptr_t>(buf));
                 offset = {buf, buf_size};
             }
 

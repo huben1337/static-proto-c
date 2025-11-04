@@ -1287,7 +1287,7 @@ inline char* lex_enum_fields (
             */
 
             parse_negative_value: {
-                auto parsed = parse_uint<uint64_t, false, static_cast<uint64_t>(std::numeric_limits<int64_t>::min())>(YYCURSOR);
+                auto parsed = parse_uint<uint64_t, false, uint64_t{0} - static_cast<uint64_t>(std::numeric_limits<int64_t>::min())>(YYCURSOR);
                 YYCURSOR = parsed.cursor;
 
 

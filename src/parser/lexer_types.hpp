@@ -2,6 +2,7 @@
 
 #include <concepts>
 #include <cstdint>
+#include <gsl/util>
 #include <type_traits>
 #include <string_view>
 #include <utility>
@@ -62,14 +63,14 @@ struct SIZE : estd::ENUM_CLASS<uint8_t> {
 
     [[nodiscard]] consteval SIZE next_smaller () const {
         if (value != SIZE_0 && value != SIZE_1) {
-            return SIZE{static_cast<value_t>(value - 1)};
+            return SIZE{gsl::narrow_cast<value_t>(value - 1)};
         }
         throw;
     };
 
     [[nodiscard]] consteval SIZE next_bigger () const {
         if (value != SIZE_0 && value != SIZE_8) {
-            return SIZE{static_cast<value_t>(value + 1)};
+            return SIZE{gsl::narrow_cast<value_t>(value + 1)};
         }
         throw;
     };
@@ -164,12 +165,13 @@ template <FIELD_TYPE field_type>
 
 template <std::integral T>
 [[nodiscard]] constexpr T next_multiple (T value, SIZE base) {
-    T mask = (static_cast<T>(1) << base.value) - 1;
+    T mask = static_cast<T>(base.byte_size()) - 1;
     return (value + mask) & ~mask;
 }
 
 template <std::integral T>
-[[nodiscard]] constexpr T next_multiple (T value, T base) {
+[[nodiscard]] constexpr T next_multiple (T value, std::type_identity_t<T> base) {
+    static_warn("base must be a power of 2");
     T mask = base - 1;
     return (value + mask) & ~mask;
 }

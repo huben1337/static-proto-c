@@ -3,6 +3,7 @@
 #include <cstddef>
 #include <cstdint>
 #include <cstring>
+#include <gsl/util>
 #include <string_view>
 #include <tuple>
 #include <utility>
@@ -191,10 +192,10 @@ namespace stringify {
             const uint8_t i = fast_math::log_unsafe<10>(value);
             char* const end = dst + i + 1;
             dst += i;
-            *(dst--) = static_cast<char>('0' + (value % 10));
+            *(dst--) = gsl::narrow_cast<char>('0' + (value % 10));
             value /= 10;
             while (value > 0) {
-                *(dst--) = static_cast<char>('0' + (value % 10));
+                *(dst--) = gsl::narrow_cast<char>('0' + (value % 10));
                 value /= 10;
             }
             return end;

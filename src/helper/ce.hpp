@@ -5,6 +5,7 @@
 #include <bit>
 #include <numbers>
 #include <utility>
+#include <gsl/util>
 
 
 namespace ce {
@@ -49,7 +50,10 @@ namespace ce {
     constexpr size_t log2 = log<2, value>;
 
     template <size_t base, size_t exponent>
-    constexpr size_t pow = _pow<base, exponent>();
+    constexpr size_t pow = base * pow<base, exponent - 1>;
+
+    template <size_t base>
+    constexpr size_t pow<base, 0> = 1;
 
     namespace {
 
@@ -72,7 +76,7 @@ namespace ce {
         }
 
         template <size_t i>
-        constexpr double _log2f_coefficient = static_cast<double>(
+        constexpr double _log2f_coefficient = gsl::narrow_cast<double>(
             ((i % 2 == 0) ? 1.0L : -1.0L)
             / ((i + 1) * std::numbers::ln2_v<long double>)
         );

@@ -4,6 +4,7 @@
 #include <cstdint>
 #include <bit>
 #include <concepts>
+#include <gsl/util>
 #include <type_traits>
 #include <utility>
 
@@ -93,7 +94,7 @@ struct tagged_ptr {
     }
 
     [[nodiscard]] constexpr TagT tag () const {
-        return TagT{static_cast<TagT::value_t>(raw & TAG_MASK)};
+        return TagT{gsl::narrow_cast<TagT::value_t>(raw & TAG_MASK)};
     }
     constexpr void set_tag (TagT tag) {
         raw = (raw & PTR_MASK) | tag;
