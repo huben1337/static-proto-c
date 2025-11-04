@@ -10,10 +10,6 @@ namespace estd {
         template <typename... U>
         using type = TemplateT<T..., U...>;
     };
-    template <template <typename> typename TemplateT, typename T>
-    struct type_template<TemplateT, T> {
-        using type = TemplateT<T>;
-    };
     template <template <typename> typename TemplateT>
     struct type_template<TemplateT> {
         template <typename U>
