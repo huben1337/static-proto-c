@@ -366,7 +366,7 @@ constexpr size_t MEMORY_INIT_STACK_MIN = SIZE < sizeof(max_align_t) ? sizeof(max
 
 // NOLINTNEXTLINE(bugprone-macro-parentheses)
 #define MEMORY_INIT_STACK_ARGS(ALLOC_TYPE, SIZE) static_cast<ALLOC_TYPE*>(__builtin_alloca_with_align(SIZE, alignof(ALLOC_TYPE) * 8)), SIZE
-#define MEMORY_INIT_STACK(ALLOC_TYPE, SIZE) Memory<ALLOC_TYPE>::from_stack(MEMORY_INIT_STACK_ARGS(ALLOC_TYPE, SIZE))
+#define MEMORY_INIT_STACK(SIZE_TYPE, ALLOC_TYPE, SIZE) Memory<SIZE_TYPE, ALLOC_TYPE>::from_stack(MEMORY_INIT_STACK_ARGS(ALLOC_TYPE, SIZE))
 #define BUFFER_INIT_STACK(SIZE) Buffer::from_stack(MEMORY_INIT_STACK_ARGS(max_align_t, SIZE))
 
 template <typename ARRAY_TYPE, typename ELEMENT_TYPE, size_t LENGTH>
