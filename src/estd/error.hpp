@@ -11,8 +11,9 @@
 
 namespace estd {
 
+    using MsgBuf = Memory<size_t, char>;
     namespace {
-        Buffer error_buffer = BUFFER_INIT_STACK(128);
+        MsgBuf error_buffer = MEMORY_INIT_STACK(size_t, char, 128);
     }
 
     template <bool use_exceptions, typename ...T>
@@ -21,9 +22,9 @@ namespace estd {
 
     class error : public std::exception {
     private:
-        Buffer::View<const char> msg_view;
+        MsgBuf::View<const char> msg_view;
 
-        constexpr explicit error (Buffer::View<const char> msg_view) : msg_view(msg_view) {}
+        constexpr explicit error (MsgBuf::View<const char> msg_view) : msg_view(msg_view) {}
 
     public:
         error (const error&) = delete;
@@ -49,13 +50,13 @@ namespace estd {
     requires(use_exceptions)
     [[noreturn]] constexpr void throw_error (T&&... args) {
         size_t msg_size = (... + stringify::get_str_size(args)) + 1;
-        Buffer::Index<char> start_idx = error_buffer.next_multi_byte<char>(msg_size);
+        MsgBuf::Index<char> start_idx = error_buffer.next_multi_byte<char>(msg_size);
         char* dst = error_buffer.get(start_idx);
         ((
             dst = stringify::_write_string(dst, std::forward<T>(args), error_buffer)
         ), ...);
         *dst = '\0';
-        throw error{{start_idx, static_cast<Buffer::index_t>(msg_size)}};
+        throw error{{start_idx, msg_size}};
     }
 
     template <bool use_exceptions, typename ...T>
