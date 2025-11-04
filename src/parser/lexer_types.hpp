@@ -127,7 +127,20 @@ template <SIZE size>
 requires (size != SIZE::SIZE_0 && size != SIZE::SIZE_8)
 constexpr SIZE next_bigger_size = size_helper::next_bigger_size<size>;
 
-
+template <lexer::SIZE alignemnt, typename T>
+[[nodiscard]] constexpr auto& get_align_member (T& t) {
+    if constexpr (alignemnt == lexer::SIZE::SIZE_8) {
+        return t.align8;
+    } else if constexpr (alignemnt == lexer::SIZE::SIZE_4) {
+        return t.align4;
+    } else if constexpr (alignemnt == lexer::SIZE::SIZE_2) {
+        return t.align2;
+    } else if constexpr (alignemnt == lexer::SIZE::SIZE_1) {
+        return t.align1;
+    } else {
+        static_assert(false, "Invalid size");
+    }
+}
 
 template <FIELD_TYPE field_type>
 [[nodiscard]] consteval SIZE get_type_alignment () {
@@ -162,6 +175,18 @@ template <FIELD_TYPE field_type>
 [[nodiscard]] consteval uint64_t get_type_size () {
     return get_type_alignment<field_type>().byte_size();
 }
+
+template <std::integral T>
+[[nodiscard]] constexpr T last_multiple (T value, SIZE base) {
+    return value & ~(static_cast<T>(base.byte_size()) - 1);
+}
+
+template <std::integral T>
+[[nodiscard]] constexpr T last_multiple (T value, std::type_identity_t<T> base) {
+    static_warn("base must be a power of 2");
+    return value & ~(base - 1);
+}
+
 
 template <std::integral T>
 [[nodiscard]] constexpr T next_multiple (T value, SIZE base) {
