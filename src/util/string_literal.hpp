@@ -11,12 +11,15 @@
 
 template<size_t N>
 struct StringLiteral {
+    template <size_t>
+    friend class StringLiteral; // Gives + operator access to private ctor which it needs
 
     template <char... chars>
     consteval StringLiteral()
     : data{chars...}
     {}
 
+private:
     template<size_t L, size_t M, size_t ...Indecies1, size_t ...Indecies2>
     consteval StringLiteral(const char (&str1)[L], const char (&str2)[M], std::index_sequence<Indecies1...> /*unused*/, std::index_sequence<Indecies2...> /*unused*/)
     : data{str1[Indecies1]..., str2[Indecies2]...}
@@ -27,21 +30,49 @@ struct StringLiteral {
     : data{str[Indecies]...}
     {}
 
+public:
     // NOLINTNEXTLINE(google-explicit-constructor)
     consteval StringLiteral(const char (&str)[N])
     : StringLiteral{str, std::make_index_sequence<N - 1>{}}
-    {}
+    {
+        if(str[N - 1] != 0) throw; // Null termination expected
+    }
 
-    consteval explicit StringLiteral(const char _char)
-        : data{_char, '\0'}
+    consteval explicit StringLiteral(const char c)
+        : data{c, '\0'}
     {}
 
     char data[N];
 
     [[nodiscard]] consteval size_t size () const { return N - 1; }
 
-    [[nodiscard]] consteval char operator [] (size_t index) const {
+    [[nodiscard]] consteval const char& operator [] (size_t index) const {
         return data[index];
+    }
+
+private:
+    template <size_t M, size_t... Indecies>
+    requires (M == N)
+    [[nodiscard]] consteval bool equals (const StringLiteral<M>& other, std::index_sequence<Indecies...> /*unused*/) const {
+        return ((data[Indecies] == other.data[Indecies]) && ...);
+    }
+
+public:
+    template <size_t M>
+    requires (M == N)
+    [[nodiscard]] consteval bool operator == (const StringLiteral<M>& other) const {
+        return equals(other, std::make_index_sequence<N - 1>{});
+    }
+
+    template <size_t M>
+    [[nodiscard]] consteval bool operator == (const StringLiteral<M>& other) const { return false; }
+
+    [[nodiscard]] constexpr const char* begin () const {
+        return data;
+    }
+
+    [[nodiscard]] constexpr const char* end () const {
+        return data + size();
     }
 
     template <size_t start = 0, size_t end = N - 1>
@@ -50,14 +81,13 @@ struct StringLiteral {
         return {data + start, end - start};
     }
 
-    private:
+private:
     template <size_t ...Indecies>
     [[nodiscard]] consteval std::array<char, sizeof...(Indecies)> _to_array (std::index_sequence<Indecies...> /*unused*/) const {
         return {data[Indecies]...};
     }
 
-    public:
-
+public:
     template <size_t start = 0, size_t end = N - 1>
     [[nodiscard]] consteval std::array<char, N - 1> to_array () const {
         assert_range<start, end>();
@@ -75,9 +105,9 @@ struct StringLiteral {
         return StringLiteral<N + M - 1>{data, other.data, std::make_index_sequence<N - 1>{}, std::make_index_sequence<M - 1>{}};
     }
 
-    private:
+private:
     template <size_t start, size_t end>
-    static consteval auto assert_range () {
+    static consteval void assert_range () {
         static_assert(start < end, "start must be less than end");
         static_assert(start < N, "start must be less than string size");
         static_assert(end < N, "end must be less than string size");
