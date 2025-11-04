@@ -10,6 +10,7 @@
 #include "../container/memory.hpp"
 #include "./memory_helpers.hpp"
 #include "../estd/empty.hpp"
+#include "../estd/enum.hpp"
 
 namespace lexer {
 
@@ -44,26 +45,16 @@ namespace {
     struct size_helper;
 }
 
-struct SIZE {
-    using value_t = uint8_t;
-    constexpr SIZE () = default;
+struct SIZE : estd::ENUM_CLASS<uint8_t> {
+    friend struct size_helper;
 
-    private:
-    constexpr explicit SIZE (const value_t value) : value(value) {}
-
-    public:
-    value_t value;
-
-    constexpr SIZE (const SIZE& other) = default;
-    constexpr SIZE (SIZE&& other) = default;
-
-    constexpr SIZE& operator = (const SIZE& other) = default;
-    constexpr SIZE& operator = (SIZE&& other) = default;
-
-    // NOLINTNEXTLINE(google-explicit-constructor)
-    [[nodiscard]] constexpr operator value_t () const { return value; }
-
-    [[nodiscard]] explicit operator bool () const = delete;
+    using ENUM_CLASS::ENUM_CLASS;
+    
+    static const SIZE SIZE_1;
+    static const SIZE SIZE_2;
+    static const SIZE SIZE_4;
+    static const SIZE SIZE_8;
+    static const SIZE SIZE_0;
 
     [[nodiscard]] constexpr value_t byte_size () const {
         return value_t{1} << value;
@@ -82,15 +73,8 @@ struct SIZE {
         }
         throw;
     };
-
-    static const SIZE SIZE_1;
-    static const SIZE SIZE_2;
-    static const SIZE SIZE_4;
-    static const SIZE SIZE_8;
-    static const SIZE SIZE_0;
-
-    friend struct size_helper;
 };
+
 
 constexpr SIZE SIZE::SIZE_1{0};
 constexpr SIZE SIZE::SIZE_2{1};
@@ -270,6 +254,13 @@ union LeafCounts {
         ALIGN_MEMBER_GET_RT_ARG(uint16_t, )
         ALIGN_MEMBER_GET_RT_ARG(uint16_t, const)
 
+        [[nodiscard]] constexpr SIZE largest_align () const {
+            if (align8 != 0) return SIZE::SIZE_8;
+            if (align4 != 0) return SIZE::SIZE_4;
+            if (align2 != 0) return SIZE::SIZE_2;
+            return SIZE::SIZE_1;
+        }
+
         [[nodiscard]] static consteval Counts zero () { return {0, 0, 0, 0}; }
         [[nodiscard]] static constexpr Counts of (uint16_t value) { return {value, value, value, value}; }
     } counts;
@@ -302,6 +293,10 @@ union LeafCounts {
         } else {
             static_assert(false, "Invalid size");
         }
+    }
+
+    [[nodiscard]] constexpr SIZE largest_align () const {
+        return counts.largest_align();
     }
 };
 
@@ -854,8 +849,8 @@ struct TypeVisitorResult {
     constexpr TypeVisitorResult (ConstTypeT* next_type, const ValueT& value) requires(!value_is_ref) : next_type(next_type), value(value) {}
     constexpr TypeVisitorResult (ConstTypeT* next_type, ValueT&&      value) requires(!value_is_ref) : next_type(next_type), value(std::move(value)) {}
 
-    constexpr TypeVisitorResult (const TypeVisitorResult& other) = default;
-    constexpr TypeVisitorResult (TypeVisitorResult&& other) = default;
+    constexpr TypeVisitorResult (const TypeVisitorResult&) = default;
+    constexpr TypeVisitorResult (TypeVisitorResult&&) = default;
     
     ConstTypeT* next_type;
     ValueT value;
