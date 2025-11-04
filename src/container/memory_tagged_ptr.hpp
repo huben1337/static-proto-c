@@ -244,30 +244,18 @@ struct Memory : MemoryBase<U> {
     }
 
     template <typename T>
+    requires (sizeof(T) == 1)
     constexpr Index<T> next_idx () {
-        if  constexpr (sizeof(T) == 1) {
-            return next_single_byte<T>();
-        } else {
-            return next_multi_byte<T>(sizeof(T));
-        }
-    }
-
-    template <typename T>
-    constexpr T* get_next_single_byte () {
-        return get(next_single_byte<T>());
-    }
-
-    template <typename T>
-    constexpr T* get_next_single_byte_aligned () {
-        return get_aligned(next_single_byte<T>());
-    }
-
-    template <typename T>
-    constexpr Index<T> next_single_byte () {
         if (position == capacity) {
             grow();
         }
         return Index<T>{position++};
+    }
+
+    template <typename T>
+    requires (sizeof(T) > 1)
+    constexpr Index<T> next_idx () {
+        return next_multi_byte<T>(sizeof(T));
     }
 
     template <typename T>
