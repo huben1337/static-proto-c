@@ -157,8 +157,8 @@ struct Memory : MemoryBase<U> {
         return Memory{data, capacity};
     }
 
-    constexpr Memory (const Memory& other) = delete;
-    constexpr Memory& operator = (const Memory& other) = delete;
+    constexpr Memory (const Memory&) = delete;
+    constexpr Memory& operator = (const Memory&) = delete;
 
     constexpr Memory (Memory&& other) noexcept
     : capacity(other.capacity), position(other.position), _data(other._data), in_heap(other.in_heap) {
@@ -170,6 +170,7 @@ struct Memory : MemoryBase<U> {
         _data = other._data;
         in_heap = other.in_heap;
         other.in_heap = false;
+        return *this;
     };
 
 

@@ -162,8 +162,8 @@ struct Memory : MemoryBase<U> {
         return Memory{data, capacity};
     }
 
-    constexpr Memory (const Memory& other) = delete;
-    constexpr Memory& operator = (const Memory& other) = delete;
+    constexpr Memory (const Memory&) = delete;
+    constexpr Memory& operator = (const Memory&) = delete;
 
     constexpr Memory (Memory&& other) noexcept
     : capacity(other.capacity), position(other.position), tagged_data(other.tagged_data) {
@@ -174,6 +174,7 @@ struct Memory : MemoryBase<U> {
         position = other.position;
         tagged_data = other.tagged_data;
         other.tagged_data = {nullptr, tag_t{false}};
+        return *this;
     };
 
     constexpr ~Memory () {
