@@ -189,20 +189,20 @@ endif()
 add_custom_target(pp ALL DEPENDS ${PP_OUT_FILES})
 
 
-set(LIBURING_DIR ${CMAKE_SOURCE_DIR}/include/liburing)
-set(LIBURING_SRC_DIR ${LIBURING_DIR}/src)
-set(LIBURING_INCLUDE_DIR ${LIBURING_DIR}/include)
-set(LIBURING_LIB ${LIBURING_SRC_DIR}/liburing.a)
+# set(LIBURING_DIR ${CMAKE_SOURCE_DIR}/include/liburing)
+# set(LIBURING_SRC_DIR ${LIBURING_DIR}/src)
+# set(LIBURING_INCLUDE_DIR ${LIBURING_DIR}/include)
+# set(LIBURING_LIB ${LIBURING_SRC_DIR}/liburing.a)
 
 
-add_custom_command(
-  OUTPUT ${LIBURING_LIB}
-  COMMAND make library
-  WORKING_DIRECTORY ${LIBURING_DIR}
-  COMMENT "Building liburing static library"
-  VERBATIM
-)
-add_custom_target(liburing_static ALL DEPENDS ${LIBURING_LIB})
+# add_custom_command(
+#   OUTPUT ${LIBURING_LIB}
+#   COMMAND make library
+#   WORKING_DIRECTORY ${LIBURING_DIR}
+#   COMMENT "Building liburing static library"
+#   VERBATIM
+# )
+# add_custom_target(liburing_static ALL DEPENDS ${LIBURING_LIB})
 
 
 ############ TARGET ############
@@ -212,22 +212,22 @@ add_executable(spc ${MAIN_SRC})
 target_compile_features(spc PRIVATE cxx_std_23)
 set_target_properties(spc PROPERTIES LINK_SEARCH_START_STATIC ON)
 
-target_include_directories(
-  spc
-  BEFORE
-  PRIVATE
+# target_include_directories(
+  # spc
+  # BEFORE
+  # PRIVATE
   # ${LIBURING_INCLUDE_DIR}
   # ${INCLUDE_DIR}/llfio/include
   # ${INCLUDE_DIR}/outcome/include
   # ${QUICKCPPLIB_DIR}/quickcpplib/include
   # ${RE2C_OUTPUT_DIR}
   # ${SRC_DIR}
-)
+# )
 
 
 
-#target_link_libraries(spc PRIVATE llfio)
-target_link_libraries(spc PRIVATE ${LIBURING_LIB})
+# target_link_libraries(spc PRIVATE llfio)
+# target_link_libraries(spc PRIVATE ${LIBURING_LIB})
 
 
 
