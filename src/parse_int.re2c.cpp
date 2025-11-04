@@ -57,12 +57,12 @@ struct ParseNumberResult<T, true> {
 #define RETURN_VALUE_CHECKED(BASE, DIGITS)                                                              \
 if constexpr (max != std::numeric_limits<T>::max()) {                                                   \
     if (value > max) {                                                                                  \
-        show_syntax_error("value out of range", YYCURSOR - 2 - DIGITS, DIGITS);                         \
+        show_syntax_error("value out of range", YYCURSOR - 2 - (DIGITS), DIGITS);                       \
     }                                                                                                   \
 }                                                                                                       \
 if constexpr (min != std::numeric_limits<T>::min()) {                                                   \
     if (value < min) {                                                                                  \
-        show_syntax_error("value out of range", YYCURSOR - 2 - DIGITS, DIGITS);                         \
+        show_syntax_error("value out of range", YYCURSOR - 2 - (DIGITS), DIGITS);                       \
     }                                                                                                   \
 }                                                                                                       \
 if constexpr (get_digits) {                                                                             \
