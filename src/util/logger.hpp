@@ -35,14 +35,6 @@
 
 #endif
 
-
-#define BSSERT(EXPR, MSG, MORE...)                                                                                                              \
-/* NOLINTNEXTLINE(readability-simplify-boolean-expr) */                                                                                         \
-if (!(EXPR)) {                                                                                                                                  \
-    [[clang::noinline]] logger::error<false, "Assertion " #EXPR " failed at " __FILE__ ":" BOOST_PP_STRINGIZE(__LINE__) " with " MSG>(MORE);    \
-    std::exit(1);                                                                                                                               \
-}
-
 namespace escape_sequences {
     namespace colors {
         namespace basic {
@@ -582,3 +574,21 @@ namespace logger_detail {
 };
 
 using logger = logger_detail::logger;
+
+template<StringLiteral auto_msg, typename... ArgsT>
+[[noreturn, gnu::noinline, gnu::cold]] void bssert_fail (ArgsT... args) {
+    logger::error<false, auto_msg + " with "_sl>(args...);
+    std::exit(1);
+}
+
+template<StringLiteral auto_msg>
+[[noreturn, gnu::noinline, gnu::cold]] void bssert_fail () {
+    logger::error<false, auto_msg>();
+    std::exit(1);
+}
+
+#define BSSERT(EXPR, MORE...)                                                                       \
+/* NOLINTNEXTLINE(readability-simplify-boolean-expr) */                                             \
+if (!(EXPR)) {                                                                                      \
+    bssert_fail<"Assertion " #EXPR " failed at " __FILE__ ":" BOOST_PP_STRINGIZE(__LINE__)>(MORE);  \
+}
