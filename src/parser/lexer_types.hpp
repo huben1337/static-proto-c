@@ -1,6 +1,7 @@
 #pragma once
 
 #include <concepts>
+#include <cstddef>
 #include <cstdint>
 #include <gsl/util>
 #include <type_traits>
@@ -127,6 +128,53 @@ template <SIZE size>
 requires (size != SIZE::SIZE_0 && size != SIZE::SIZE_8)
 constexpr SIZE next_bigger_size = size_helper::next_bigger_size<size>;
 
+template <typename T>
+struct AlignMembersBase {
+    T align1;
+    T align2;
+    T align4;
+    T align8;
+
+    constexpr AlignMembersBase() = default;
+    constexpr AlignMembersBase (const T& align1, const T& align2, const T& align4, const T& align8)
+    : align1(align1), align2(align2), align4(align4), align8(align8) {}
+
+    #define ALIGN_MEMBER_GET_CT_ARG(RETURN_TYPE, CONST_ATTR)            \
+    template <lexer::SIZE size>                                         \
+    [[nodiscard]] constexpr CONST_ATTR RETURN_TYPE& get () CONST_ATTR { \
+        if constexpr (size == lexer::SIZE::SIZE_8) {                    \
+            return align8;                                              \
+        } else if constexpr (size == lexer::SIZE::SIZE_4) {             \
+            return align4;                                              \
+        } else if constexpr (size == lexer::SIZE::SIZE_2) {             \
+            return align2;                                              \
+        } else if constexpr (size == lexer::SIZE::SIZE_1) {             \
+            return align1;                                              \
+        } else {                                                        \
+            static_assert(false, "Invalid size");                       \
+        }                                                               \
+    }
+
+    #define ALIGN_MEMBER_GET_RT_ARG(RETURN_TYPE, CONST_ATTR)                            \
+    [[nodiscard]] constexpr CONST_ATTR RETURN_TYPE& get (lexer::SIZE size) CONST_ATTR { \
+        switch (size) {                                                                 \
+            case SIZE::SIZE_1: return align1;                                           \
+            case SIZE::SIZE_2: return align2;                                           \
+            case SIZE::SIZE_4: return align4;                                           \
+            case SIZE::SIZE_8: return align8;                                           \
+            default: std::unreachable();                                                \
+        }                                                                               \
+    }
+
+    ALIGN_MEMBER_GET_CT_ARG(T, )
+    ALIGN_MEMBER_GET_CT_ARG(T, const)
+    ALIGN_MEMBER_GET_RT_ARG(T, )
+    ALIGN_MEMBER_GET_RT_ARG(T, const)
+
+    #undef ALIGN_MEMBER_GET_CT_ARG
+    #undef ALIGN_MEMBER_GET_RT_ARG
+};
+
 template <lexer::SIZE alignemnt, typename T>
 [[nodiscard]] constexpr auto& get_align_member (T& t) {
     if constexpr (alignemnt == lexer::SIZE::SIZE_8) {
@@ -239,47 +287,12 @@ struct Range {
 
 union LeafCounts {
 
-    struct Counts {
-        uint16_t align1;
-        uint16_t align2;
-        uint16_t align4;
-        uint16_t align8;
+    struct Counts : AlignMembersBase<uint16_t> {
+        using AlignMembersBase::AlignMembersBase;
 
         [[nodiscard]] constexpr uint16_t total () const {
             return align1 + align2 + align4 + align8;
         }
-
-        #define ALIGN_MEMBER_GET_CT_ARG(RETURN_TYPE, CONST_ATTR)            \
-        template <lexer::SIZE size>                                         \
-        [[nodiscard]] constexpr CONST_ATTR RETURN_TYPE& get () CONST_ATTR { \
-            if constexpr (size == lexer::SIZE::SIZE_8) {                    \
-                return align8;                                              \
-            } else if constexpr (size == lexer::SIZE::SIZE_4) {             \
-                return align4;                                              \
-            } else if constexpr (size == lexer::SIZE::SIZE_2) {             \
-                return align2;                                              \
-            } else if constexpr (size == lexer::SIZE::SIZE_1) {             \
-                return align1;                                              \
-            } else {                                                        \
-                static_assert(false, "Invalid size");                       \
-            }                                                               \
-        }
-
-        #define ALIGN_MEMBER_GET_RT_ARG(RETURN_TYPE, CONST_ATTR)                            \
-        [[nodiscard]] constexpr CONST_ATTR RETURN_TYPE& get (lexer::SIZE size) CONST_ATTR { \
-            switch (size) {                                                                 \
-                case SIZE::SIZE_1: return align1;                                           \
-                case SIZE::SIZE_2: return align2;                                           \
-                case SIZE::SIZE_4: return align4;                                           \
-                case SIZE::SIZE_8: return align8;                                           \
-                default: std::unreachable();                                                \
-            }                                                                               \
-        }
-
-        ALIGN_MEMBER_GET_CT_ARG(uint16_t, )
-        ALIGN_MEMBER_GET_CT_ARG(uint16_t, const)
-        ALIGN_MEMBER_GET_RT_ARG(uint16_t, )
-        ALIGN_MEMBER_GET_RT_ARG(uint16_t, const)
 
         [[nodiscard]] constexpr SIZE largest_align () const {
             if (align8 != 0) return SIZE::SIZE_8;
@@ -292,6 +305,11 @@ union LeafCounts {
         [[nodiscard]] static constexpr Counts of (uint16_t value) { return {value, value, value, value}; }
     } counts;
     uint64_t as_uint64;
+
+    static_assert(offsetof(Counts, align1) == 0
+               && offsetof(Counts, align2) == 2
+               && offsetof(Counts, align4) == 4
+               && offsetof(Counts, align8) == 6);
 
     constexpr LeafCounts () = default;
     constexpr explicit LeafCounts (Counts counts) : counts(counts) {}
@@ -386,15 +404,9 @@ union LeafCounts {
 //     #undef COMPARE
 // }; */
 
-struct LeafSizes {
-    uint64_t align1;
-    uint64_t align2;
-    uint64_t align4;
-    uint64_t align8;
-
-    constexpr LeafSizes () = default;
-    constexpr LeafSizes (uint64_t align1, uint64_t align2, uint64_t align4, uint64_t align8) : align1(align1), align2(align2), align4(align4), align8(align8) {}
-    constexpr explicit LeafSizes (const LeafCounts::Counts& counts) : LeafSizes{counts.align1, counts.align2, counts.align4, counts.align8} {}
+struct LeafSizes : AlignMembersBase<uint64_t> {
+    using AlignMembersBase::AlignMembersBase;
+    constexpr explicit LeafSizes (const LeafCounts::Counts& counts) : AlignMembersBase{counts.align1, counts.align2, counts.align4, counts.align8} {}
 
     constexpr LeafSizes& operator += (const LeafSizes& other) {
         align1 += other.align1;
@@ -436,14 +448,6 @@ struct LeafSizes {
         if (align1 < other.align1) return true;
         return false;
     }
-
-    ALIGN_MEMBER_GET_CT_ARG(uint64_t, )
-    ALIGN_MEMBER_GET_CT_ARG(uint64_t, const)
-    ALIGN_MEMBER_GET_RT_ARG(uint64_t, )
-    ALIGN_MEMBER_GET_RT_ARG(uint64_t, const)
-
-    #undef ALIGN_MEMBER_GET_CT_ARG
-    #undef ALIGN_MEMBER_GET_RT_ARG
 
     [[nodiscard]] constexpr uint64_t total () const { return align1 + align2 + align4 + align8; }
 
