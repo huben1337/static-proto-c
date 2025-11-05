@@ -42,5 +42,14 @@ namespace estd {
 
     template <bool condition, typename T>
     using conditional_const_t = conditional_const<condition, T>::type;
+
+
+    template <typename T>
+    struct is_char_array : std::false_type {};
+    template <size_t N>
+    struct is_char_array<const char(&)[N]> : std::true_type {};
+
+    template <typename T>
+    constexpr bool is_char_array_v = is_char_array<T>::value;
 }
 
