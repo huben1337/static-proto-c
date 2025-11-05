@@ -125,15 +125,12 @@ consteval decltype(str) operator ""_sl () {
 }
 
 template <typename T>
-struct is_string_literal_t : std::false_type {};
+struct is_string_literal : std::false_type {};
 template <size_t N>
-struct is_string_literal_t<StringLiteral<N>> : std::true_type {};
+struct is_string_literal<StringLiteral<N>> : std::true_type {};
 
 template <typename T>
-constexpr bool is_string_literal_v = is_string_literal_t<T>::value;
-
-template <typename T>
-concept is_string_literal = is_string_literal_v<T>;
+constexpr bool is_string_literal_v = is_string_literal<T>::value;
 
 namespace string_literal {
     namespace {

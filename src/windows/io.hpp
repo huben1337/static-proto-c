@@ -59,7 +59,7 @@ template <
     DWORD _creation_disposition,
     DWORD _flags_and_attributes
 >
-requires(optional_nttp_or_satisfies<decltype(_file_name), is_string_literal_t>)
+requires(optional_nttp_or_satisfies<decltype(_file_name), is_string_literal>)
 class CreateFileParams {
     public:
     static constexpr auto file_name = _file_name;
