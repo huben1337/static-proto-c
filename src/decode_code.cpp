@@ -376,15 +376,15 @@ requires(!std::is_reference_v<F>)
 }
 
 [[nodiscard]] constexpr auto get_unique_name (const GenVariantLeafArgsBase& additional_args) {
-    return codegen::StringParts{"_"_sl, additional_args.variant_depth, "_"_sl, additional_args.variant_id};
+    return codegen::StringParts{"as_"_sl, additional_args.variant_depth, "_"_sl, additional_args.variant_id};
 }
 template <StringLiteral element_name>
 [[nodiscard]] constexpr auto get_unique_name (const GenVariantLeafArgsBase& additional_args) {
-    return codegen::StringParts{"_"_sl, additional_args.variant_depth, "_"_sl, additional_args.variant_id};
+    return codegen::StringParts{"as_"_sl, additional_args.variant_depth, "_"_sl, additional_args.variant_id};
 }
 template <typename F>
 [[nodiscard]] constexpr auto get_unique_name (const GenVariantLeafArgsBase& additional_args, F&& /*unused*/) {
-    return codegen::StringParts{"_"_sl, additional_args.variant_depth, "_"_sl, additional_args.variant_id};
+    return codegen::StringParts{"as_"_sl, additional_args.variant_depth, "_"_sl, additional_args.variant_id};
 }
 
 [[nodiscard]] constexpr const std::string_view& get_name (const GenStructLeafArgs& additional_args) {
