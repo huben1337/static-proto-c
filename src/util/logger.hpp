@@ -578,8 +578,8 @@ namespace logger_detail {
 using logger = logger_detail::logger;
 
 template<StringLiteral auto_msg, typename... ArgsT>
-[[noreturn, gnu::noinline, gnu::cold]] void bssert_fail (ArgsT... args) {
-    logger::error<false, auto_msg + " with "_sl>(args...);
+[[noreturn, gnu::noinline, gnu::cold]] void bssert_fail (ArgsT&&... args) {
+    logger::error<false, auto_msg + " with "_sl>(std::forward<ArgsT>(args)...);
     std::exit(1);
 }
 
