@@ -1,11 +1,16 @@
 #pragma once
 
+#include <sys/types.h>
 #include <bit>
 #include <cstdint>
-#include <ranges>
-#include <array>
+#include <gsl/util>
+#include <vector>
+#include <variant>
 
+#include "../estd/enum.hpp"
+#include "../estd/variant.hpp"
 #include "../parser/lexer_types.hpp"
+#include "../estd/ranges.hpp"
 #include "../estd/integral_pair.hpp"
 
 struct FixedLeaf : private estd::u48_u16_pair {
@@ -54,7 +59,7 @@ struct FixedOffset : private estd::u48_u16_pair {
     {}
 
     [[nodiscard]] constexpr lexer::SIZE get_pack_align () const {
-        return std::bit_cast<lexer::SIZE>(static_cast<uint8_t>(get_u16()));
+        return std::bit_cast<lexer::SIZE>(gsl::narrow_cast<uint8_t>(get_u16()));
     }
 
     constexpr void set_pack_align (lexer::SIZE value) { set_u16(value); }
@@ -70,12 +75,73 @@ struct FixedOffset : private estd::u48_u16_pair {
     }
 };
 
+struct VariantField {
+    struct Range : public estd::integral_range<uint16_t> {
+        constexpr Range () = default;
+        using integral_range::integral_range;
+
+        [[nodiscard]] static consteval Range empty () { return {0, 0}; }
+    };
+    Range align1;
+    Range align2;
+    Range align4;
+    Range align8;
+
+    lexer::LeafSizes sizes;
+};
 
 struct VariantLeafMeta {
-    using ranges_t = std::array<std::ranges::subrange<const FixedLeaf*>, 4>;
-
-    lexer::LeafCounts::Counts fixed_leaf_ends;
-    FixedLeaf* fixed_leafs;
+    lexer::LeafCounts::Counts fixed_leafs_ends;
+    uint16_t fixed_leafs_start;
+    estd::integral_range<uint16_t> variant_field_idxs;
     uint64_t required_space;
     lexer::LeafSizes used_spaces;
 };
+
+struct FieldTypeTag : estd::ENUM_CLASS<uint8_t> {
+    using ENUM_CLASS::ENUM_CLASS;
+    static const FieldTypeTag SIMPLE;
+    static const FieldTypeTag VARIANT_PACK;
+    static const FieldTypeTag ARRAY_PACK;
+};
+
+constexpr FieldTypeTag FieldTypeTag::SIMPLE{0};
+constexpr FieldTypeTag FieldTypeTag::VARIANT_PACK{1};
+constexpr FieldTypeTag FieldTypeTag::ARRAY_PACK{2};
+
+
+
+template <FieldTypeTag tag>
+using field_tag = estd::tag_template<FieldTypeTag, FieldTypeTag>::type<tag>;
+
+
+struct SimpleField {
+    // field_tag<FieldTypeTag::SIMPLE> tag;
+    lexer::SIZE alignment {};
+    uint16_t map_idx {};
+
+    constexpr SimpleField () = default;
+
+    constexpr SimpleField (lexer::SIZE alignment, uint16_t map_idx)
+    : alignment(alignment), map_idx(map_idx) {}
+};
+
+struct FieldPack {
+    // field_tag<FieldTypeTag::VARIANT_PACK> tag;
+    // lexer::SIZE alignment;
+    estd::integral_range<uint16_t> field_idxs;
+};
+
+struct QueuedField {
+
+    using info_t = std::variant<SimpleField, FieldPack>;
+
+    uint64_t size {};
+    info_t info;
+
+    constexpr QueuedField () = default;
+
+    constexpr QueuedField (uint64_t size, info_t info) : size(size), info(info) {}
+};
+
+using fields_t = std::vector<QueuedField>;
