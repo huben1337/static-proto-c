@@ -74,7 +74,8 @@ template <bool do_count>
     const FixedLeaf* const it_end = nums + counted_num_end;
     for (const FixedLeaf* it = nums; nums != it_end; it++) {
         uint64_t num = it->get_size();
-        if (num == 0 || num > target) continue;
+        if (num == 0) continue;
+        BSSERT(num <= target);
         solve_loop<true>(target, num, sum_chains);   
 
         if (sum_chains[target] != NO_CHAIN_VAL) {
@@ -84,7 +85,8 @@ template <bool do_count>
     const FixedLeaf* const rest_it_end = nums + num_count;
     for (const FixedLeaf* it = it_end; nums != rest_it_end; it++) {
         uint64_t num = it->get_size();
-        if (num == 0 || num > target) continue;
+        if (num == 0) continue;
+        BSSERT(num <= target);
         solve_loop<false>(target, num, sum_chains);   
 
         if (sum_chains[target] != NO_CHAIN_VAL) {
