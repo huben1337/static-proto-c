@@ -2,6 +2,7 @@
 
 #include <concepts>
 #include <cstdint>
+#include <limits>
 #include <string_view>
 #include <type_traits>
 #include <boost/unordered/unordered_flat_map.hpp>
@@ -111,21 +112,22 @@ inline T lex_range_argument (char* YYCURSOR, F on_fixed, G on_range, ArgsT&&... 
     }
 }
 
-template <std::unsigned_integral T>
+template <std::unsigned_integral T, T max = std::numeric_limits<T>::max()>
 inline ParseNumberResult<T> lex_attribute_value (char* YYCURSOR) {
     YYCURSOR = lex_symbol<'=', "Expected value assignment for attribute">(YYCURSOR);
-    return parse_uint_skip_white_space<T>(YYCURSOR);
+    return parse_uint_skip_white_space<T, false, max>(YYCURSOR);
 }
 
 struct VariantAttributes {
-    uint64_t max_wasted_bytes;
-    bool has_shared_id;
-    uint32_t shared_id;
+    using shared_id_t = uint32_t;
+    static constexpr shared_id_t NO_SHARED_ID = -1;
+    uint64_t max_wasted_bytes = 32;
+    shared_id_t shared_id = NO_SHARED_ID;
+
+    [[nodiscard]] constexpr bool has_shared_id () const { return shared_id != NO_SHARED_ID; };
 };
 
 inline LexResult<VariantAttributes> lex_variant_attributes (char* YYCURSOR) {
-    constexpr uint64_t max_wasted_bytes_default = 32;
-
 
     /*!local:re2c
         white_space* "["    { goto maybe_lex_attributes; }
@@ -133,14 +135,12 @@ inline LexResult<VariantAttributes> lex_variant_attributes (char* YYCURSOR) {
     */
 
     no_attributes: {
-        return {YYCURSOR, {max_wasted_bytes_default, false}};
+        return {YYCURSOR, {}};
     }
 
     maybe_lex_attributes: {
-        uint64_t max_wasted_bytes = max_wasted_bytes_default;
+        VariantAttributes attributes;
         bool has_max_wasted_bytes = false;
-        uint32_t shared_id;
-        bool has_shared_id = false;
 
         /*!local:re2c
             "[" { goto lex_attributes; }
@@ -159,17 +159,16 @@ inline LexResult<VariantAttributes> lex_variant_attributes (char* YYCURSOR) {
                 }
                 has_max_wasted_bytes = true;
                 auto parsed = lex_attribute_value<uint32_t>(YYCURSOR);
-                max_wasted_bytes = parsed.value;
+                attributes.max_wasted_bytes = parsed.value;
                 YYCURSOR = parsed.cursor;
                 goto attribute_end;
             }
             lex_shared_id: {
-                if (has_shared_id) {
+                if (attributes.has_shared_id()) {
                     show_syntax_error("conflicting attributes", YYCURSOR - 1);
                 }
-                has_shared_id = true;
-                auto parsed = lex_attribute_value<uint32_t>(YYCURSOR);
-                shared_id = parsed.value;
+                auto parsed = lex_attribute_value<uint32_t, VariantAttributes::NO_SHARED_ID - 1>(YYCURSOR);
+                attributes.shared_id = parsed.value;
                 YYCURSOR = parsed.cursor;
                 goto attribute_end;
             }
@@ -188,7 +187,7 @@ inline LexResult<VariantAttributes> lex_variant_attributes (char* YYCURSOR) {
             * { show_syntax_error("expected closing of attributes", YYCURSOR); }
         */
         done:
-        return {YYCURSOR, {max_wasted_bytes, has_shared_id, shared_id}};
+        return {YYCURSOR, attributes};
     }
 
 }
@@ -292,7 +291,7 @@ inline std::conditional_t<expect_fixed, LexFixedTypeResult, LexTypeResult> add_v
 ) {
     auto attribute_lex_result = lex_variant_attributes(YYCURSOR);
     YYCURSOR = attribute_lex_result.cursor;
-    auto [max_wasted_bytes, has_shared_id, shared_id] = attribute_lex_result.value;
+    auto [max_wasted_bytes, shared_id] = attribute_lex_result.value;
 
     auto types_end_idx = buffer.position_idx<uint8_t>();
 
@@ -618,6 +617,7 @@ template <bool expect_fixed, FIELD_TYPE field_type>
         return LexFixedTypeResult{
             YYCURSOR,
             LeafCounts::from_size<alignment>(),
+            0,
             0,
             0,
             0,
