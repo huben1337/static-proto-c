@@ -7,6 +7,7 @@
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
+#include <gsl/util>
 #include <string_view>
 #include <utility>
 #include <type_traits>
@@ -235,7 +236,8 @@ namespace logger_detail {
 
         struct ::pollfd stdout_poll_desc = {
             .fd = stdout_fd,
-            .events = POLLOUT
+            .events = POLLOUT,
+            .revents = 0
         };
 
         #endif
@@ -268,25 +270,29 @@ namespace logger_detail {
             size_t left = size;
             try_write:
             auto write_result = ::write(stdout_fd, src, left);
-            if (write_result != -1) {
-                if (write_result == left) return;
+            if (write_result >= 0) {
+                if (gsl::narrow_cast<size_t>(write_result) == left) return;
                 left -= write_result;
                 src += write_result;
                 goto try_write;
             }
-            if (errno == EAGAIN || errno == EWOULDBLOCK) {
-                auto poll_result = ::poll(&stdout_poll_desc, 1, 10000);
-                if (poll_result == 1) [[likely]] goto try_write;
-                if (poll_result == 0) {
-                    std::puts("[logger::_handled_write_stdout] poll timed out.");
-                } else if (poll_result == -1) {
-                    std::perror("[logger::_handled_write_stdout] poll failed.");
+            if (write_result == -1) {
+                if (errno == EAGAIN || errno == EWOULDBLOCK) {
+                    auto poll_result = ::poll(&stdout_poll_desc, 1, 10000);
+                    if (poll_result == 1) [[likely]] goto try_write;
+                    if (poll_result == 0) {
+                        std::puts("[logger::_handled_write_stdout] poll timed out.");
+                    } else if (poll_result == -1) {
+                        std::perror("[logger::_handled_write_stdout] poll failed.");
+                    } else {
+                        std::puts("[logger::_handled_write_stdout] poll unexpected result.");
+                    }
                 } else {
-                    std::puts("[logger::_handled_write_stdout] poll unexpected result.");
+                    std::perror("[logger::_handled_write_stdout] write failed.");
                 }
-                std::exit(1);
+            } else {
+                std::puts("[logger::_handled_write_stdout] write unexpected result.");
             }
-            std::perror("[logger::_handled_write_stdout] write failed.");
             std::exit(1);
 
             #endif
