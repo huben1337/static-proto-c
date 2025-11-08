@@ -52,7 +52,12 @@ struct ParseNumberResult<T, true> {
     size_t digits;
 };
 
-
+#define RETURN_ONLY_ZEROS()         \
+if constexpr (get_digits) {         \
+    return {YYCURSOR - 1, 0, 0};    \
+} else {                            \
+    return {YYCURSOR - 1, 0};       \
+}
 
 #define RETURN_VALUE_CHECKED(BASE, DIGITS)                                                              \
 if constexpr (max != std::numeric_limits<T>::max()) {                                                   \
@@ -85,7 +90,7 @@ template <std::unsigned_integral T, const T max, const T min, bool get_digits>
         /*!local:re2c
             [0]         { goto only_zeros;                  }
             [1]         { value = 1; goto not_only_zeros;   }
-            *           { return { YYCURSOR - 1, 0 };       }
+            *           { RETURN_ONLY_ZEROS()               }
         */
     }
     not_only_zeros:
@@ -171,7 +176,7 @@ template <std::signed_integral T, const T max, const T min, bool get_digits, boo
         /*!local:re2c
             [0]         { goto only_zeros;                                                                                                                                                                                                      }
             [1]         { if constexpr (is_negative) { return lex_trimmed_bin_digits_signed_negative<T, max, min, get_digits, 1>(-1, YYCURSOR); } else { return lex_trimmed_bin_digits_signed_positive<T, max, min, get_digits>(YYCURSOR); }    }
-            *           { return { YYCURSOR - 1, 0 };                                                                                                                                                                                           }
+            *           { RETURN_ONLY_ZEROS()                                                                                                                                                                                                   }
         */
     }
 }
@@ -185,7 +190,7 @@ template <std::unsigned_integral T, const T max, const T min, bool get_digits>
         /*!local:re2c
             [0]         { goto only_zeros;                              }
             [1-7]       { value = yych - '0';   goto not_only_zeros;    }
-            *           { return { YYCURSOR - 1, 0 };                   }
+            *           { RETURN_ONLY_ZEROS()                           }
         */
     }
     not_only_zeros:
@@ -241,7 +246,7 @@ template <std::signed_integral T, const T max, const T min, bool get_digits, boo
             [0]         { goto only_zeros;                                                                                                                                                                                                                                  }
             [1-3]       { if constexpr (is_negative) { return lex_trimmed_oct_digits_signed_negative<T, max, min, get_digits, false>(-yych + '0', YYCURSOR); } else { return lex_trimmed_oct_digits_signed_positive<T, max, min, get_digits>(yych - '0'     , YYCURSOR); }  }
             [3-7]       { if constexpr (is_negative) { return lex_trimmed_oct_digits_signed_negative<T, max, min, get_digits, true >(-yych + '0', YYCURSOR); } else { return lex_trimmed_oct_digits_signed_positive<T, max, min, get_digits>(yych - '0'     , YYCURSOR); }  }
-            *           { return { YYCURSOR - 1, 0 };                                                                                                                                                                                                                       }
+            *           { RETURN_ONLY_ZEROS()                                                                                                                                                                                                                               }
         */
     }
 }
@@ -262,7 +267,7 @@ template <std::unsigned_integral T, const T max, const T min, bool get_digits>
             [1-9]       { value = yych - '0';      goto not_only_zeros; }
             [a-f]       { value = yych - 'a' + 10; goto not_only_zeros; }
             [A-F]       { value = yych - 'A' + 10; goto not_only_zeros; }
-            *           { return { YYCURSOR - 1, 0 };                   }
+            *           { RETURN_ONLY_ZEROS()                           }
         */
     }
     not_only_zeros:
@@ -334,7 +339,7 @@ template <std::signed_integral T, const T max, const T min, bool get_digits, boo
             [8-9]       { if constexpr (is_negative) { return lex_trimmed_hex_digits_signed_negative<T, max, min, get_digits, true >(-yych + '0'     , YYCURSOR); } else { return lex_trimmed_hex_digits_signed_positive<T, max, min, get_digits>(yych - '0'     , YYCURSOR); } }
             [a-f]       { if constexpr (is_negative) { return lex_trimmed_hex_digits_signed_negative<T, max, min, get_digits, true >(-yych + 'a' - 10, YYCURSOR); } else { return lex_trimmed_hex_digits_signed_positive<T, max, min, get_digits>(yych - 'a' + 10, YYCURSOR); } }
             [A-F]       { if constexpr (is_negative) { return lex_trimmed_hex_digits_signed_negative<T, max, min, get_digits, true >(-yych + 'A' - 10, YYCURSOR); } else { return lex_trimmed_hex_digits_signed_positive<T, max, min, get_digits>(yych - 'A' + 10, YYCURSOR); } }
-            *           { return { YYCURSOR - 1, 0 };                                                                                                                                                                                                                           }
+            *           { RETURN_ONLY_ZEROS()                                                                                                                                                                                                                                   }
         */
     }
 }
