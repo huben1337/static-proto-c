@@ -28,7 +28,7 @@
 namespace {
 
 template <typename ReturnT, typename... ArgsT>
-consteval ReturnT result_of_ (ReturnT(func)(ArgsT...)) {}
+consteval ReturnT result_of_ (ReturnT(* /*unused*/)(ArgsT...)) {}
 template <typename T>
 using result_of_t = decltype(result_of_(std::declval<T>()));
 
@@ -51,6 +51,7 @@ auto sysconf_checked (decltype(_SC_PAGESIZE) name, BoundT&& bound = estd::empty{
 }
 
 struct ::sysinfo sysinfo_checked () {
+    //NOLINTNEXTLINE(cppcoreguidelines-pro-type-member-init)
     struct ::sysinfo info;
     auto sysinfo_result = ::sysinfo(&info);
     if (sysinfo_result != 0) {
