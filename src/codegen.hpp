@@ -78,7 +78,6 @@ struct CodeData {
         size_t size = (... + stringify::get_str_size(strs)) + indent_size;
         Buffer::Index<char> dst_idx = buffer.next_multi_byte<char>(size);
         char *dst = buffer.get(dst_idx);
-        char* dst_start = dst;
         dst = make_indent(indent_size, dst);
         ((
             dst = stringify::_write_string(dst, std::forward<T>(strs), buffer)
