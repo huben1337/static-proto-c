@@ -12,7 +12,7 @@
 template<size_t N>
 struct StringLiteral {
     template <size_t>
-    friend class StringLiteral; // Gives + operator access to private ctor which it needs
+    friend struct StringLiteral; // Gives + operator access to private ctor which it needs
 
     template <char... chars>
     consteval StringLiteral()
@@ -65,7 +65,7 @@ public:
     }
 
     template <size_t M>
-    [[nodiscard]] consteval bool operator == (const StringLiteral<M>& other) const { return false; }
+    [[nodiscard]] consteval bool operator == (const StringLiteral<M>& /*unused*/) const { return false; }
 
     [[nodiscard]] constexpr const char* begin () const {
         return data;
