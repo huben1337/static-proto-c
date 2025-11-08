@@ -277,16 +277,12 @@ inline std::conditional_t<expect_fixed, LexFixedTypeResult, LexTypeResult> add_v
     uint64_t inner_max_byte_size,
     Buffer& buffer,
 	Buffer&& type_meta_buffer,
-    IdentifierMap& identifier_map,
     __CreateExtendedResult<DynamicVariantType, Type> created_variant_type,
     Buffer::Index<uint8_t> types_start_idx,
-    LeafCounts level_fixed_leaf_counts,
     uint16_t variant_count,
     // uint16_t total_variant_count,
     uint16_t total_variant_fixed_leafs,
     uint16_t total_variant_var_leafs,
-    uint16_t level_total_var_leafs,
-    uint16_t level_variant_fields,
     SIZE max_alignment
 ) {
     auto attribute_lex_result = lex_variant_attributes(YYCURSOR);
@@ -338,11 +334,8 @@ inline std::conditional_t<expect_fixed, LexFixedTypeResult, LexTypeResult> add_v
 
     auto* const variant_type = buffer.get_aligned(created_variant_type.extended);
     // variant_type->max_fixed_leaf_sizes = inner_max_fixed_leaf_sizes;
-    variant_type->level_fixed_leaf_counts = level_fixed_leaf_counts;
     variant_type->variant_count = variant_count;
     variant_type->total_fixed_leafs = total_variant_fixed_leafs;
-    variant_type->max_alignment = max_alignment;
-
 
     // inner_max_byte_size = next_multiple(inner_max_byte_size, max_alignment);
     uint64_t max_byte_size = inner_max_byte_size;
@@ -413,7 +406,6 @@ inline std::conditional_t<expect_fixed, LexFixedTypeResult, LexTypeResult> add_v
         // Sets info specific to dynamic variants
         variant_type->min_byte_size = inner_min_byte_size;
         variant_type->total_var_leafs = total_variant_var_leafs;
-        variant_type->level_total_var_leafs = level_total_var_leafs;
         variant_type->stored_size_size = stored_size_size;
         variant_type->size_size = size_size;
     }
@@ -478,13 +470,10 @@ inline std::conditional_t<expect_fixed, LexFixedTypeResult, LexTypeResult> lex_v
     IdentifierMap& identifier_map,
     __CreateExtendedResult<DynamicVariantType, Type> created_variant_type,
     Buffer::Index<uint8_t> types_start_idx,
-    LeafCounts level_fixed_leaf_counts,
     uint16_t variant_count,
     //uint16_t inner_total_variant_count,
     uint16_t total_variant_fixed_leafs,
     uint16_t total_variant_var_leafs,
-    uint16_t level_total_var_leafs,
-    uint16_t level_variant_fields,
     SIZE max_alignment
 ) {
     while (true) {
@@ -499,14 +488,9 @@ inline std::conditional_t<expect_fixed, LexFixedTypeResult, LexTypeResult> lex_v
             *type_meta_buffer.get_next<DynamicVariantTypeMeta>() = {result.fixed_leaf_counts, result.var_leaf_counts, result.level_fixed_variants, /*result.variant_field_counts,*/ result.level_size_leafs};
             uint16_t inner_var_leafs = result.var_leaf_counts.total();
             total_variant_var_leafs += inner_var_leafs + result.total_variant_var_leafs;
-            level_total_var_leafs += inner_var_leafs;
         }
 
         total_variant_fixed_leafs += result.fixed_leaf_counts.total() + result.total_variant_fixed_leafs;
-
-        level_fixed_leaf_counts += result.fixed_leaf_counts;
-
-        level_variant_fields += result.level_variant_fields;
 
         max_alignment = std::max(max_alignment, result.alignment);
         if constexpr (expect_fixed) {
@@ -534,13 +518,10 @@ inline std::conditional_t<expect_fixed, LexFixedTypeResult, LexTypeResult> lex_v
                         identifier_map,
                         created_variant_type,
                         types_start_idx,
-                        level_fixed_leaf_counts,
                         variant_count,
                         //variant_count + inner_total_variant_count,
                         total_variant_fixed_leafs,
                         total_variant_var_leafs,
-                        level_total_var_leafs,
-                        level_variant_fields,
                         max_alignment
                     );
                 }
@@ -551,16 +532,12 @@ inline std::conditional_t<expect_fixed, LexFixedTypeResult, LexTypeResult> lex_v
                         max_byte_size,
                         buffer,
                         std::move(type_meta_buffer),
-                        identifier_map,
                         created_variant_type,
                         types_start_idx,
-                        level_fixed_leaf_counts,
                         variant_count,
                         //variant_count + inner_total_variant_count,
                         total_variant_fixed_leafs,
                         total_variant_var_leafs,
-                        level_total_var_leafs,
-                        level_variant_fields,
                         max_alignment
                     );
                 }
@@ -579,16 +556,12 @@ inline std::conditional_t<expect_fixed, LexFixedTypeResult, LexTypeResult> lex_v
                 max_byte_size,
                 buffer,
                 std::move(type_meta_buffer),
-                identifier_map,
                 created_variant_type,
                 types_start_idx,
-                level_fixed_leaf_counts,
                 variant_count,
                 //variant_count + inner_total_variant_count,
                 total_variant_fixed_leafs,
                 total_variant_var_leafs,
-                level_total_var_leafs,
-                level_variant_fields,
                 max_alignment
             );
         }
@@ -702,7 +675,6 @@ std::conditional_t<expect_fixed, LexFixedTypeResult, LexTypeResult> lex_type (ch
                     uint32_t delta = min_length - max_length;
 
                     LeafCounts fixed_leaf_counts;
-                    LeafCounts var_leaf_counts;
 
                     uint64_t min_byte_size;
                     uint64_t max_byte_size;
@@ -844,10 +816,8 @@ std::conditional_t<expect_fixed, LexFixedTypeResult, LexTypeResult> lex_type (ch
                     uint32_t delta = max_length - min_length;
 
                     LeafCounts fixed_leaf_counts;
-                    LeafCounts var_leaf_counts;
                     uint64_t min_byte_size;
                     uint64_t max_byte_size;
-                    uint16_t level_size_leafs;
                     SIZE alignment;
 
                     SIZE size_size;
@@ -965,11 +935,8 @@ std::conditional_t<expect_fixed, LexFixedTypeResult, LexTypeResult> lex_type (ch
             identifier_map,
             created_variant_type,
             types_start_idx,
-            LeafCounts::zero(),
             0,
             //0,
-            0,
-            0,
             0,
             0,
             SIZE::SIZE_1

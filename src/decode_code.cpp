@@ -288,14 +288,14 @@ struct GenVariantLeafArgsBase {
 };
 
 struct GenFixedVariantLeafArgs : GenVariantLeafArgsBase {
-    constexpr GenFixedVariantLeafArgs (GenVariantLeafArgsBase base)
+    constexpr explicit GenFixedVariantLeafArgs (GenVariantLeafArgsBase base)
     : GenVariantLeafArgsBase(base)
     {}
 };
 
 struct GenDynamicVariantLeafArgs : GenVariantLeafArgsBase {
     constexpr GenDynamicVariantLeafArgs (std::string_view offset, GenVariantLeafArgsBase base)
-    : offset(offset), GenVariantLeafArgsBase(base)
+    : GenVariantLeafArgsBase(base), offset(offset)
     {}
     std::string_view offset;
 };
@@ -1057,7 +1057,7 @@ struct TypeVisitor : lexer::TypeVisitorBase<TypeT, codegen::UnknownStructBase, c
         }              
 
         const lexer::Type* type = fixed_variant_type->first_variant();
-        uint64_t max_offset = 0;
+        // uint64_t max_offset = 0;
 
         uint16_t variant_depth;
         if constexpr (is_variant_element<ArgsT>) {
@@ -1066,7 +1066,7 @@ struct TypeVisitor : lexer::TypeVisitorBase<TypeT, codegen::UnknownStructBase, c
             variant_depth = 0;
         }
 
-        uint64_t max_size = 12345; // TODO. figure out how to store this when genrating offsets.
+        // uint64_t max_size = 12345; // TODO. figure out how to store this when genrating offsets.
         
         for (uint16_t i = 0; i < variant_count; i++) {
             // GenFixedVariantLeafArgs<in_array> gen_variant_leaf_args;
@@ -1132,7 +1132,7 @@ struct TypeVisitor : lexer::TypeVisitorBase<TypeT, codegen::UnknownStructBase, c
         };
     }
 
-    [[nodiscard]] TypeVisitor::ResultT on_packed_variant (codegen::UnknownStructBase&& code, const lexer::PackedVariantType* const packed_variant_type) const override {
+    [[nodiscard]] TypeVisitor::ResultT on_packed_variant (codegen::UnknownStructBase&&  /*unused*/, const lexer::PackedVariantType* const /*unused*/) const override {
         INTERNAL_ERROR("Packed variant not supported");
     }
 
@@ -1176,7 +1176,8 @@ struct TypeVisitor : lexer::TypeVisitorBase<TypeT, codegen::UnknownStructBase, c
                 size_t buf_size = generator.get_size();
                 char* buf = static_cast<char*>(alloca(buf_size));
                 char* end = generator.write(buf);
-                BSSERT(buf_size == end - buf, " ", buf_size, " == ", reinterpret_cast<uintptr_t>(end), " - ", reinterpret_cast<uintptr_t>(buf));
+                auto d = end - buf;
+                BSSERT(d >= 0 && buf_size == gsl::narrow_cast<size_t>(d), " ", buf_size, " == ", reinterpret_cast<uintptr_t>(end), " - ", reinterpret_cast<uintptr_t>(buf));
                 offset = {buf, buf_size};
             }
 
@@ -1189,7 +1190,7 @@ struct TypeVisitor : lexer::TypeVisitorBase<TypeT, codegen::UnknownStructBase, c
                 variant_depth = 0;
             }
 
-            uint64_t max_size = 12345; // TODO. figure out how to store this when genrating offsets.
+            // uint64_t max_size = 12345; // TODO. figure out how to store this when genrating offsets.
             
             for (uint16_t i = 0; i < variant_count; i++) {
                 const auto& type_meta = dynamic_variant_type->type_metas()[i];
@@ -1360,7 +1361,6 @@ void generate (
     const uint16_t total_variant_fixed_leafs = target_struct->total_variant_fixed_leafs;
     const uint16_t total_variant_var_leafs = target_struct->total_variant_var_leafs;
     const uint16_t total_leafs = total_fixed_leafs + total_var_leafs + total_variant_fixed_leafs  + total_variant_var_leafs;
-    const uint16_t variant_base_idx = total_fixed_leafs + total_var_leafs;
     const uint16_t level_size_leafs_count = target_struct->level_size_leafs;
     print_leafs("fixed_leaf_counts", fixed_leaf_counts);
     print_leafs("var_leaf_counts", var_leaf_counts);

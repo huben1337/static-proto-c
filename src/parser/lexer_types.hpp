@@ -249,7 +249,7 @@ template <std::integral T>
     return (value + mask) & ~mask;
 }
 
-[[nodiscard]] constexpr SIZE get_size_size (uint8_t size) {
+[[nodiscard]] constexpr SIZE get_size_size (uint8_t /*unused*/) {
     return SIZE::SIZE_1;
 }
 [[nodiscard]] constexpr SIZE get_size_size (uint16_t size) {
@@ -626,12 +626,9 @@ struct VariantTypeBase {
 
     LeafSizes pack_sizes;               // Maximum byte sizes of fixed sized leafs over all variants
     uint64_t min_byte_size;             // Minimum byte size of the variant (used for size getter)
-    LeafCounts level_fixed_leaf_counts; // Counts of non-nested fixed sized leafs
     uint16_t variant_count;             // Count of variants
     uint16_t total_fixed_leafs;         // Count of nested and non-nested fixed sized leafs
     uint16_t total_var_leafs;           // Count of nested and non-nested variable sized leafs
-    uint16_t level_total_var_leafs;     // Count of non-nested variable sized leafs
-    SIZE max_alignment;                 // Maximum alignment of all variants
     SIZE stored_size_size;              // Size of the stored size
     SIZE size_size;                     // Size of the size
 
