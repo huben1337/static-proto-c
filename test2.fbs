@@ -1,8 +1,15 @@
 struct A1 { a: string<10..100>; b: string<10..100>; }
-struct B1 { a: array<uint64, 100..200>; b: variant<A1, string<20..50>>; c: string<10..300>; }
+struct B1 { a: array<uint64, 100..200>; b: variant<A1, string<20..50>>   ; c: string<10..300>; }
 
-struct A2 { a: uint64; b: uint32; }
-struct B2 { a: uint64; b: uint32; }
-struct C2 { a: variant<A2, B2>; b: variant<A2, B2>; }
+struct A2 { a: uint32; b: uint32; c: uint16; d: uint8; e: uint32; f: uint8; g: uint8; }
+struct B2 { a: uint64; b: uint64; c: uint8; }
+struct A3 { a: variant<uint64, uint64>; b: uint64; }
+struct C2 { a: array<variant<A3, B2>, 1000>; b: array<A2, 1000..1001>; }
 
-target B1;
+struct D2 { a: int32; b: variant<int8>; }
+
+struct E2 { a: array<variant<int64, int32>, 1000>; }
+
+target C2;
+
+struct B3 { a: uint64; b: uint32; }
