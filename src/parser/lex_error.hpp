@@ -1,8 +1,9 @@
 #pragma once
 
 #include <cstddef>
-#include <string>
+
 #include <string_view>
+#include "../global.hpp"
 #include "../util/logger.hpp"
 
 #if IS_MINGW
@@ -19,30 +20,23 @@
 
 #define UNEXPECTED_INPUT(msg) show_syntax_error(msg, YYCURSOR);
 
-static const char* input_start = nullptr;
-static std::string input_file_path {"<unknown>"};
 
-[[noreturn]] static void show_syntax_error (const std::string_view& msg, const char *error, size_t error_squiggles = 0) {
-    if (input_start == nullptr) {
-        logger::error("[show_syntax_error] called before input_start set");
-    }
+[[noreturn]] static void show_syntax_error (const std::string_view& msg, const char* const error, const size_t error_squiggles = 0) {
+    BSSERT(global::input::start != nullptr, "[show_syntax_error] called before input_start set");
 
     const char *start = error;
     const char *end = error;
-    while (true) {
-        if (start == input_start) break;
-        if (*start == '\n') {
-            if (start == error) {
-                end++;
-            }
-            start++;
-            break;
+    for (; start != global::input::start; start--) {
+        if (*start != '\n') continue;
+        if (start == error) {
+            end++;
         }
-        start--;
+        start++;
+        break;
     }
 
     uint64_t line = 0;
-    for (const char* cursor = input_start; cursor < start; cursor++) {
+    for (const char* cursor = global::input::start; cursor < start; cursor++) {
         if (*cursor == '\n') {
             line++;
         }
@@ -55,7 +49,7 @@ static std::string input_file_path {"<unknown>"};
         if (c == '\n' || c == 0) break;
     }
     logger::debug("diff ", end - start, " bytes");
-    logger::log<true, true>("\n\033[97m", input_file_path, ":", line + 1, ":", column + 1, "\033[0m \033[91merror:\033[97m ", msg, "\033[0m\n  ", std::string_view{start, end}, "\n\033[", column + 2,"C\033[31m^");
+    logger::log<true, true>("\n\033[97m", global::input::file_path, ":", line + 1, ":", column + 1, "\033[0m \033[91merror:\033[97m ", msg, "\033[0m\n  ", std::string_view{start, end}, "\n\033[", column + 2,"C\033[31m^");
     for (size_t i = 0; i < error_squiggles; i++) {
         logger::log<true, true>("~");
     }
@@ -64,7 +58,7 @@ static std::string input_file_path {"<unknown>"};
     exit(1);
 }
 
-[[noreturn]] static void show_syntax_error (const std::string_view& msg, const char *error, const char* error_squiggle_end) {
+[[noreturn]] static void show_syntax_error (const std::string_view& msg, const char* const error, const char* const error_squiggle_end) {
     if (error_squiggle_end > error) {
         show_syntax_error(msg, error, error_squiggle_end - error);
     } else {

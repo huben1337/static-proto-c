@@ -1,4 +1,3 @@
-#include <stdexcept>
 #include <string>
 #include <chrono>
 
@@ -7,10 +6,10 @@
 #include <cstdarg>
 #endif
 
+#include "./global.hpp"
 #include "./fs.cpp"
 #include "./container/memory.hpp"
 #include "./parser/lexer.re2c.hpp"
-#include "parser/lex_error.hpp"
 #include "./decode_code.cpp"
 
 
@@ -33,7 +32,7 @@ int main (int argc, const char** argv) {
 
     input_file = fs::open_with_stat(input_path, O_RDONLY | O_BINARY);
     fs::assert_regular(input_path, input_file.stat);
-    input_file_path = fs::realpath(input_path);
+    global::input::file_path = fs::realpath(input_path);
     output_file = fs::open_with_stat(output_path, O_WRONLY | O_CREAT | O_TRUNC | O_BINARY, S_IRUSR | S_IWUSR);
     fs::assert_regular(output_path, output_file.stat);
 
@@ -52,7 +51,7 @@ int main (int argc, const char** argv) {
     }
     close(input_file.fd);
 
-    input_start = input_data;
+    global::input::start = input_data;
 
     logger::debug("Lexing input of length: ", input_file_size);
 
