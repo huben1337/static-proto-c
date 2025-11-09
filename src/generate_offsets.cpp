@@ -20,6 +20,7 @@
 #include "./container/memory.hpp"
 #include "./util/logger.hpp"
 #include "./helper/internal_error.hpp"
+#include "./helper/alloca.hpp"
 #include "./variant_optimizer/perfect_st.hpp"
 #include "helper/ce.hpp"
 #include "subset_sum_solving/subset_sum_perfect.hpp"
@@ -328,6 +329,8 @@ struct TypeVisitorState {
         const uint16_t& level_size_leafs_count,
         const uint16_t& var_leaf_base_idx
     ) const {
+        if (total_var_leafs == 0) return;
+        BSSERT(level_size_leafs_count > 0);
         uint64_t size_leafs[level_size_leafs_count];
         const auto* const& var_leaf_sizes = level_const_state.var_leaf_sizes;
         const auto& size_leafe_idxs = level_const_state.size_leafe_idxs;
@@ -640,13 +643,15 @@ struct TypeVisitor : public lexer::TypeVisitorBase<TypeT> {
         state.mutable_state->current_fixed_idx_base = level_fixed_idx_end;
         logger::debug("level fixed_idx range: ", level_fixed_idx_start, " - ", level_fixed_idx_end);
 
+        // Any type has at least one fixed leaf. Structs assert that too.
         FixedLeaf fixed_leafs_buffer[total_fixed_leafs];
         uint16_t fixed_leafs_buffer_base = 0;
 
         uint64_t max_used_space = 0;
+        // variant_count > 0 is asserted during lexing
         VariantLeafMeta variant_leaf_metas[variant_count];
 
-        VariantField variant_fields_buffer[fixed_variants_total];
+        ALLOCA_SAFE(variant_fields_buffer, VariantField, fixed_variants_total);
         uint16_t variant_field_buffer_base = 0;
 
         VariantField& variant_field = state.next_variant_field();
@@ -961,10 +966,11 @@ GenerateResult generate (
 ) {
     const uint16_t total_variant_fixed_leafs = target_struct->total_variant_fixed_leafs;
     
-    uint64_t var_leaf_sizes[total_var_leafs];
+    // uint64_t var_leaf_sizes[total_var_leafs];
     logger::debug("total var leafs: ", total_var_leafs);
-    uint16_t size_leafe_idxs[total_var_leafs];
-    VariantField variant_fields_buffer[level_fixed_variants];
+    ALLOCA_SAFE(var_leaf_sizes, uint64_t, total_var_leafs);
+    ALLOCA_SAFE(size_leafe_idxs, uint16_t, total_var_leafs);
+    ALLOCA_SAFE(variant_fields_buffer, VariantField, level_fixed_variants);
 
     TypeVisitorState::MutableState mutable_state {
         std::move(var_offset_buffer),

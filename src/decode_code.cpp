@@ -1,5 +1,5 @@
 #pragma once
-#include <alloca.h>
+
 #include <cstddef>
 #include <cstdint>
 #include <cstring>
@@ -20,6 +20,7 @@
 #include "./util/string_literal.hpp"
 #include "./util/logger.hpp"
 #include "./helper/internal_error.hpp"
+#include "./helper/alloca.hpp"
 #include "./estd/meta.hpp"
 #include "./fast_math/sum_of_digits.hpp"
 #include "./fast_math/log.hpp"
@@ -914,8 +915,9 @@ struct TypeVisitor : lexer::TypeVisitorBase<TypeT, codegen::UnknownStructBase, c
         ._struct(unique_name)
             .ctor(array_ctor_strs.ctor_args, array_ctor_strs.ctor_inits).end();
 
-        uint32_t new_array_lengths[array_depth];
+        uint32_t* new_array_lengths = nullptr;
         if (array_depth > 0) {
+            new_array_lengths = ALLOCA(uint32_t, array_depth);
             const uint8_t last_i = array_depth - 1;
             for (uint8_t i = 0; i < last_i; i++) {
                 new_array_lengths[i] = array_lengths.data[i];
@@ -1174,7 +1176,7 @@ struct TypeVisitor : lexer::TypeVisitorBase<TypeT, codegen::UnknownStructBase, c
                     size_chain
                 };
                 size_t buf_size = generator.get_size();
-                char* buf = static_cast<char*>(alloca(buf_size));
+                char* buf = ALLOCA(char, buf_size);
                 char* end = generator.write(buf);
                 auto d = end - buf;
                 BSSERT(d >= 0 && buf_size == gsl::narrow_cast<size_t>(d), " ", buf_size, " == ", reinterpret_cast<uintptr_t>(end), " - ", reinterpret_cast<uintptr_t>(buf));
@@ -1191,12 +1193,18 @@ struct TypeVisitor : lexer::TypeVisitorBase<TypeT, codegen::UnknownStructBase, c
             }
 
             // uint64_t max_size = 12345; // TODO. figure out how to store this when genrating offsets.
+            uint16_t max_level_size_leafs = 0;
+            for (uint16_t i = 0; i < variant_count; i++) {
+                max_level_size_leafs = std::max(
+                    dynamic_variant_type->type_metas()[i].level_size_leafs,
+                    max_level_size_leafs
+                );
+            }
+            ALLOCA_SAFE(sublevel_size_leafs_buffer, SizeLeaf, max_level_size_leafs);
             
             for (uint16_t i = 0; i < variant_count; i++) {
                 const auto& type_meta = dynamic_variant_type->type_metas()[i];
                 const auto level_size_leafs_count = type_meta.level_size_leafs;
-
-                SizeLeaf level_size_leafs[level_size_leafs_count];
 
                 // GenFixedVariantLeafArgs<in_array> gen_variant_leaf_args;
                 // if constexpr (in_array) {
@@ -1216,7 +1224,10 @@ struct TypeVisitor : lexer::TypeVisitorBase<TypeT, codegen::UnknownStructBase, c
                     ast_buffer,
                     estd::conditionally<is_dynamic_variant_element<ArgsT>>(unique_name, base_name),
                     offsets_accessor,
-                    std::span<SizeLeaf>{level_size_leafs, level_size_leafs + level_size_leafs_count},
+                    std::span<SizeLeaf>{
+                        sublevel_size_leafs_buffer,
+                        sublevel_size_leafs_buffer + level_size_leafs_count
+                    },
                     &current_size_leaf_idx,
                     GenDynamicVariantLeafArgs{
                         offset,
@@ -1373,42 +1384,16 @@ void generate (
 
     std::string_view struct_name = target_struct->name;
     logger::debug("fixed_offsets length: ", total_fixed_leafs + total_variant_fixed_leafs);
+    // Any struct and therfore target requires at least one member has
     FixedOffset fixed_offsets[total_fixed_leafs + total_variant_fixed_leafs];
     logger::debug("fixed_offsets ptr: ", size_t(fixed_offsets));
     logger::debug("var_offsets length: ", total_var_leafs + total_variant_var_leafs);
-    Buffer::View<uint64_t> var_offsets[total_var_leafs + total_variant_var_leafs];
+    ALLOCA_SAFE(var_offsets, Buffer::View<uint64_t>, total_var_leafs + total_variant_var_leafs);
     logger::debug("idx_map length: ", total_leafs);
+    // total_leafs has the fixed leaf count in its sum which is garunteed to be at least 1
     uint16_t idx_map[total_leafs];
 
     Buffer var_offset_buffer = BUFFER_INIT_STACK(sizeof(uint64_t) * 512);
-
-    #define DO_OFFSET_GEN_BENCHMARK 0
-    #if DO_OFFSET_GEN_BENCHMARK
-    for (size_t i = 0; i < 10'000'000; ++i) {
-        auto generate_offsets_result = generate_offsets::generate(
-            target_struct,
-            generate_offsets::TypeVisitorState::ConstState{
-                ast_buffer,
-                fixed_offsets,
-                var_offsets,
-                idx_map
-            },
-            std::move(var_offset_buffer),
-            fixed_leaf_counts,
-            var_leaf_counts,
-            variant_field_counts,
-            total_fixed_leafs,
-            total_var_leafs,
-            level_variant_fields,
-            level_size_leafs_count
-        );
-        var_offset_buffer = std::move(generate_offsets_result.var_offset_buffer);
-        var_offset_buffer.clear();
-    }
-    #endif
-    #undef DO_OFFSET_GEN_BENCHMARK
-    
-
     auto generate_offsets_result = generate_offsets::generate(
         target_struct,
         generate_offsets::TypeVisitorState::ConstState{
@@ -1429,7 +1414,7 @@ void generate (
 
     uint16_t current_map_idx = 0;
     uint16_t current_variant_field_idx = 0;
-    OffsetsAccessor offsets_accessor = {
+    OffsetsAccessor offsets_accessor {
         fixed_offsets,
         var_offsets,
         idx_map,
@@ -1439,11 +1424,13 @@ void generate (
         &current_variant_field_idx
     };
 
-    SizeLeaf _level_size_leafs[level_size_leafs_count];
+    ALLOCA_SAFE(level_size_leafs_buffer, SizeLeaf, level_size_leafs_count);
     uint16_t current_size_leaf_idx = 0;
 
-    std::span<SizeLeaf> level_size_leafs = {_level_size_leafs, _level_size_leafs + level_size_leafs_count};
-    
+    std::span<SizeLeaf> level_size_leafs {
+        level_size_leafs_buffer,
+        level_size_leafs_buffer + level_size_leafs_count
+    };
     
     auto&& struct_code = code
     ._struct(struct_name)
