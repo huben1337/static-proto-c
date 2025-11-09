@@ -42,16 +42,16 @@ int main (int argc, const char** argv) {
         return 1;
     }
 
-    char input_data[input_file_size + 1];
-    input_data[input_file_size] = 0;
-    auto read_result = read(input_file.fd, input_data, input_file_size);
+    char input_buffer[input_file_size + 1];
+    auto read_result = read(input_file.fd, input_buffer, input_file_size);
+    input_buffer[input_file_size] = 0;
     if (read_result != input_file_size) {
         logger::error("read size mismatch");
         return 1;
     }
     close(input_file.fd);
 
-    global::input::start = input_data;
+    global::input::start = input_buffer;
 
     logger::debug("Lexing input of length: ", input_file_size);
 
@@ -59,7 +59,7 @@ int main (int argc, const char** argv) {
 
     lexer::IdentifierMap identifier_map;
     Buffer ast_buffer = BUFFER_INIT_STACK(4096);
-    const auto *const target_struct = lexer::lex<false>(input_data, identifier_map, ast_buffer, {});
+    const auto *const target_struct = lexer::lex<false>(global::input::start, identifier_map, ast_buffer, {});
 
     decode_code::generate(target_struct, ReadOnlyBuffer{ast_buffer}, output_file.fd);
 

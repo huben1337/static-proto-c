@@ -41,13 +41,13 @@ struct ParseNumberResult;
 
 template <std::integral T>
 struct ParseNumberResult<T, false> {
-    char *cursor;
+    const char* cursor;
     T value;
 };
 
 template <std::integral T>
 struct ParseNumberResult<T, true> {
-    char *cursor;
+    const char* cursor;
     T value;
     size_t digits;
 };
@@ -79,7 +79,7 @@ if constexpr (get_digits) {                                                     
 
 
 template <std::unsigned_integral T, const T max, const T min, bool get_digits>
-[[gnu::always_inline]] inline ParseNumberResult<T, get_digits> lex_bin_digits_unsigned (char *YYCURSOR) {
+[[gnu::always_inline]] inline ParseNumberResult<T, get_digits> lex_bin_digits_unsigned (const char* YYCURSOR) {
     T value;
     /*!local:re2c
         [0]         { goto only_zeros;                                          }
@@ -106,7 +106,7 @@ template <std::unsigned_integral T, const T max, const T min, bool get_digits>
 }
 
 template <std::signed_integral T, const T max, const T min, bool get_digits, size_t digits>
-[[gnu::always_inline]] inline ParseNumberResult<T, get_digits> lex_trimmed_bin_digits_signed_negative_early_overflow (T value, char *YYCURSOR) {
+[[gnu::always_inline]] inline ParseNumberResult<T, get_digits> lex_trimmed_bin_digits_signed_negative_early_overflow (T value, const char* YYCURSOR) {
     constexpr size_t max_digits = ce::log2<max> + 1;
     #pragma unroll
     for (size_t i = digits; i < max_digits; i++) {
@@ -130,7 +130,7 @@ template <std::signed_integral T, const T max, const T min, bool get_digits, siz
 }
 
 template <std::signed_integral T, const T max, const T min, bool get_digits, size_t digits>
-[[gnu::always_inline]] inline ParseNumberResult<T, get_digits> lex_trimmed_bin_digits_signed_negative (T value, char *YYCURSOR) {
+[[gnu::always_inline]] inline ParseNumberResult<T, get_digits> lex_trimmed_bin_digits_signed_negative (T value, const char* YYCURSOR) {
     if constexpr (digits < ce::log2<max> + 1) {
         /*!local:re2c
             [0]         { value = value << 1;       return lex_trimmed_bin_digits_signed_negative<T, max, min, get_digits, digits + 1>(value, YYCURSOR);                }
@@ -152,7 +152,7 @@ template <std::signed_integral T, const T max, const T min, bool get_digits, siz
 }
 
 template <std::signed_integral T, const T max, const T min, bool get_digits>
-[[gnu::always_inline]] inline ParseNumberResult<T, get_digits> lex_trimmed_bin_digits_signed_positive (char *YYCURSOR) {
+[[gnu::always_inline]] inline ParseNumberResult<T, get_digits> lex_trimmed_bin_digits_signed_positive (const char* YYCURSOR) {
     T value = 1;
     #pragma unroll
     for (size_t i = 1; i < ce::log2<max> + 2; i++) {
@@ -166,7 +166,7 @@ template <std::signed_integral T, const T max, const T min, bool get_digits>
 }
 
 template <std::signed_integral T, const T max, const T min, bool get_digits, bool is_negative>
-[[gnu::always_inline]] inline ParseNumberResult<T, get_digits> lex_bin_digits_signed (char *YYCURSOR) {
+[[gnu::always_inline]] inline ParseNumberResult<T, get_digits> lex_bin_digits_signed (const char* YYCURSOR) {
     /*!local:re2c
         [0]         { goto only_zeros;                                                                                                                                                                                                      }
         [1]         { if constexpr (is_negative) { return lex_trimmed_bin_digits_signed_negative<T, max, min, get_digits, 1>(-1, YYCURSOR); } else { return lex_trimmed_bin_digits_signed_positive<T, max, min, get_digits>(YYCURSOR); }    }
@@ -183,7 +183,7 @@ template <std::signed_integral T, const T max, const T min, bool get_digits, boo
 
 
 template <std::unsigned_integral T, const T max, const T min, bool get_digits>
-[[gnu::always_inline]] inline ParseNumberResult<T, get_digits> lex_oct_digits_unsigned (char *YYCURSOR) {
+[[gnu::always_inline]] inline ParseNumberResult<T, get_digits> lex_oct_digits_unsigned (const char* YYCURSOR) {
     T value;
     // Octal always has a leading zero. So no need to make sure the number has at least one digit.
     only_zeros:{
@@ -205,7 +205,7 @@ template <std::unsigned_integral T, const T max, const T min, bool get_digits>
 }
 
 template <std::signed_integral T, const T max, const T min, bool get_digits, bool can_overflow_early>
-[[gnu::always_inline]] inline ParseNumberResult<T, get_digits> lex_trimmed_oct_digits_signed_negative (T value, char *YYCURSOR) {
+[[gnu::always_inline]] inline ParseNumberResult<T, get_digits> lex_trimmed_oct_digits_signed_negative (T value, const char* YYCURSOR) {
     constexpr size_t max_digits = ce::log<8, max> + (can_overflow_early ? 0 : 1);
     #pragma unroll
     for (size_t i = 0; i < ce::log<8, max> + (can_overflow_early ? 0 : 1); i++) {
@@ -228,7 +228,7 @@ template <std::signed_integral T, const T max, const T min, bool get_digits, boo
 }
 
 template <std::signed_integral T, const T max, const T min, bool get_digits>
-[[gnu::always_inline]] inline ParseNumberResult<T, get_digits> lex_trimmed_oct_digits_signed_positive (T value, char *YYCURSOR) {
+[[gnu::always_inline]] inline ParseNumberResult<T, get_digits> lex_trimmed_oct_digits_signed_positive (T value, const char* YYCURSOR) {
     #pragma unroll
     for (size_t i = 1; i < ce::log<8, max> + 2; i++) {
         /*!local:re2c
@@ -240,7 +240,7 @@ template <std::signed_integral T, const T max, const T min, bool get_digits>
 }
 
 template <std::signed_integral T, const T max, const T min, bool get_digits, bool is_negative>
-[[gnu::always_inline]] inline ParseNumberResult<T, get_digits> lex_oct_digits_signed (char *YYCURSOR) {
+[[gnu::always_inline]] inline ParseNumberResult<T, get_digits> lex_oct_digits_signed (const char* YYCURSOR) {
     only_zeros: {
         /*!local:re2c
             [0]         { goto only_zeros;                                                                                                                                                                                                                                  }
@@ -252,7 +252,7 @@ template <std::signed_integral T, const T max, const T min, bool get_digits, boo
 }
 
 template <std::unsigned_integral T, const T max, const T min, bool get_digits>
-[[gnu::always_inline]] inline ParseNumberResult<T, get_digits> lex_hex_digits_unsigned (char *YYCURSOR) {
+[[gnu::always_inline]] inline ParseNumberResult<T, get_digits> lex_hex_digits_unsigned (const char* YYCURSOR) {
     T value;
     /*!local:re2c
         [0]         { goto only_zeros; }
@@ -284,7 +284,7 @@ template <std::unsigned_integral T, const T max, const T min, bool get_digits>
 }
 
 template <std::signed_integral T, const T max, const T min, bool get_digits, bool can_overflow_early>
-[[gnu::always_inline]] inline ParseNumberResult<T, get_digits> lex_trimmed_hex_digits_signed_negative (T value, char *YYCURSOR) {
+[[gnu::always_inline]] inline ParseNumberResult<T, get_digits> lex_trimmed_hex_digits_signed_negative (T value, const char* YYCURSOR) {
     constexpr size_t max_digits = ce::log<16, max> + (can_overflow_early ? 0 : 1);
     #pragma unroll
     for (size_t i = 1; i < max_digits; i++) {
@@ -309,7 +309,7 @@ template <std::signed_integral T, const T max, const T min, bool get_digits, boo
 }
 
 template <std::signed_integral T, const T max, const T min, bool get_digits>
-[[gnu::always_inline]] inline ParseNumberResult<T, get_digits> lex_trimmed_hex_digits_signed_positive (T value, char *YYCURSOR) {
+[[gnu::always_inline]] inline ParseNumberResult<T, get_digits> lex_trimmed_hex_digits_signed_positive (T value, const char* YYCURSOR) {
     #pragma unroll
     for (size_t i = 1; i < ce::log<16, max> + 2; i++) {
         /*!local:re2c
@@ -323,7 +323,7 @@ template <std::signed_integral T, const T max, const T min, bool get_digits>
 }
 
 template <std::signed_integral T, const T max, const T min, bool get_digits, bool is_negative>
-[[gnu::always_inline]] inline ParseNumberResult<T, get_digits> lex_hex_digits_signed (char *YYCURSOR) {
+[[gnu::always_inline]] inline ParseNumberResult<T, get_digits> lex_hex_digits_signed (const char* YYCURSOR) {
     /*!local:re2c
         [0]         { goto only_zeros;                                                                                                                                                                                                                                      }
         [1-7]       { if constexpr (is_negative) { return lex_trimmed_hex_digits_signed_negative<T, max, min, get_digits, false>(-yych + '0'     , YYCURSOR); } else { return lex_trimmed_hex_digits_signed_positive<T, max, min, get_digits>(yych - '0'     , YYCURSOR); } }
@@ -345,7 +345,7 @@ template <std::signed_integral T, const T max, const T min, bool get_digits, boo
 }
 
 template <std::unsigned_integral T, const T max, const T min, bool get_digits>
-[[gnu::always_inline]] inline ParseNumberResult<T, get_digits> lex_dec_digits_unsigned (T value, char *YYCURSOR) {
+[[gnu::always_inline]] inline ParseNumberResult<T, get_digits> lex_dec_digits_unsigned (T value, const char* YYCURSOR) {
     constexpr size_t max_digits = ce::log10<max>;
     #pragma unroll
     for (size_t i = 1; i < max_digits; i++) {
@@ -366,7 +366,7 @@ template <std::unsigned_integral T, const T max, const T min, bool get_digits>
 }
 
 template <std::signed_integral T, const T max, const T min, bool get_digits>
-[[gnu::always_inline]] inline ParseNumberResult<T, get_digits> lex_dec_digits_signed_positive (T value, char *YYCURSOR) {
+[[gnu::always_inline]] inline ParseNumberResult<T, get_digits> lex_dec_digits_signed_positive (T value, const char* YYCURSOR) {
     constexpr size_t max_digits = ce::log10<max>;
     #pragma unroll
     for (size_t i = 1; i < max_digits; i++) {
@@ -387,7 +387,7 @@ template <std::signed_integral T, const T max, const T min, bool get_digits>
 }
 
 template <std::signed_integral T, const T max, const T min, bool get_digits>
-[[gnu::always_inline]] inline ParseNumberResult<T, get_digits> lex_dec_digits_signed_negative (T value, char *YYCURSOR) {
+[[gnu::always_inline]] inline ParseNumberResult<T, get_digits> lex_dec_digits_signed_negative (T value, const char* YYCURSOR) {
     constexpr size_t max_digits = ce::log10<max>;
     #pragma unroll
     for (size_t i = 1; i < max_digits; i++) {
@@ -409,7 +409,7 @@ template <std::signed_integral T, const T max, const T min, bool get_digits>
 
 
 template <std::unsigned_integral T, const T max, const T min, bool get_digits>
-[[gnu::always_inline]] inline ParseNumberResult<T, get_digits> lex_dec_digits_unsigned_ (T value, char *YYCURSOR) {
+[[gnu::always_inline]] inline ParseNumberResult<T, get_digits> lex_dec_digits_unsigned_ (T value, const char* YYCURSOR) {
     #pragma unroll
     for (size_t i = 1; i < ce::log10<max> + 2; i++) {
         /*!local:re2c
@@ -421,7 +421,7 @@ template <std::unsigned_integral T, const T max, const T min, bool get_digits>
 }
 
 template <std::unsigned_integral T, bool get_digits = false, const T max = std::numeric_limits<T>::max(), const T min = std::numeric_limits<T>::min()>
-inline ParseNumberResult<T, get_digits> parse_uint (char *YYCURSOR) {
+inline ParseNumberResult<T, get_digits> parse_uint (const char* YYCURSOR) {
     /*!local:re2c
         "0b"        { return lex_bin_digits_unsigned<T, max, min, get_digits>(YYCURSOR);                }
         "0"         { return lex_oct_digits_unsigned<T, max, min, get_digits>(YYCURSOR);                }
@@ -432,7 +432,7 @@ inline ParseNumberResult<T, get_digits> parse_uint (char *YYCURSOR) {
 }
 
 template <std::unsigned_integral T, bool get_digits = false, const T max = std::numeric_limits<T>::max(), const T min = std::numeric_limits<T>::min()>
-inline ParseNumberResult<T, get_digits> parse_uint_skip_white_space (char *YYCURSOR) {
+inline ParseNumberResult<T, get_digits> parse_uint_skip_white_space (const char* YYCURSOR) {
     /*!local:re2c
         white_space* "0b"       { return lex_bin_digits_unsigned<T, max, min, get_digits>(YYCURSOR);                }
         white_space* "0"        { return lex_oct_digits_unsigned<T, max, min, get_digits>(YYCURSOR);                }
@@ -443,7 +443,7 @@ inline ParseNumberResult<T, get_digits> parse_uint_skip_white_space (char *YYCUR
 }
 
 template <std::unsigned_integral T, bool get_digits = false, const T max = std::numeric_limits<T>::max(), const T min = std::numeric_limits<T>::min()>
-inline ParseNumberResult<T, get_digits> parse_uint_skip_any_white_space (char *YYCURSOR) {
+inline ParseNumberResult<T, get_digits> parse_uint_skip_any_white_space (const char* YYCURSOR) {
     /*!local:re2c
         any_white_space* "0b"       { return lex_bin_digits_unsigned<T, max, min, get_digits>(YYCURSOR);                }
         any_white_space* "0"        { return lex_oct_digits_unsigned<T, max, min, get_digits>(YYCURSOR);                }
@@ -456,7 +456,7 @@ inline ParseNumberResult<T, get_digits> parse_uint_skip_any_white_space (char *Y
 
 
 template <std::signed_integral T, bool get_digits = false, const T max = std::numeric_limits<T>::max(), const T min = std::numeric_limits<T>::min()>
-inline ParseNumberResult<T, get_digits> parse_int (char *YYCURSOR) {
+inline ParseNumberResult<T, get_digits> parse_int (const char* YYCURSOR) {
     /*!local:re2c
         "-"         { goto minus_sign; }
         "0b"        { return lex_bin_digits_signed<T, max, min, get_digits, false>(YYCURSOR);                   }
@@ -477,7 +477,7 @@ inline ParseNumberResult<T, get_digits> parse_int (char *YYCURSOR) {
 }
 
 template <std::signed_integral T, bool get_digits = false, const T max = std::numeric_limits<T>::max(), const T min = std::numeric_limits<T>::min()>
-inline ParseNumberResult<T, get_digits> parse_int_skip_white_space (char *YYCURSOR) {
+inline ParseNumberResult<T, get_digits> parse_int_skip_white_space (const char* YYCURSOR) {
     /*!local:re2c
         white_space* "-"        { goto minus_sign; }
         white_space* "0b"       { return lex_bin_digits_signed<T, max, min, get_digits, false>(YYCURSOR);                   }
@@ -498,7 +498,7 @@ inline ParseNumberResult<T, get_digits> parse_int_skip_white_space (char *YYCURS
 }
 
 template <std::signed_integral T, bool get_digits = false, const T max = std::numeric_limits<T>::max(), const T min = std::numeric_limits<T>::min()>
-inline ParseNumberResult<T, get_digits> parse_int_skip_any_white_space (char *YYCURSOR) {
+inline ParseNumberResult<T, get_digits> parse_int_skip_any_white_space (const char* YYCURSOR) {
     /*!local:re2c
         any_white_space* "-"        { goto minus_sign; }
         any_white_space* "0b"       { return lex_bin_digits_signed<T, max, min, get_digits, false>(YYCURSOR);                   }

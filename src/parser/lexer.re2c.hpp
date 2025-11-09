@@ -21,7 +21,7 @@ namespace lexer {
 
 template <typename T>
 struct LexResult {
-    char *cursor;
+    const char *cursor;
     T value;
 };
 
@@ -54,12 +54,12 @@ struct LexResult {
     white_space = [ \t];
 */
 
-inline char* lex_argument_list_start (char* YYCURSOR) {
+inline const char* lex_argument_list_start (const char* YYCURSOR) {
     return lex_symbol<'<', "expected argument list">(YYCURSOR);
 }
 
 
-inline char* lex_argument_list_end (char* YYCURSOR) {
+inline const char* lex_argument_list_end (const char* YYCURSOR) {
     return lex_symbol<'>', "expected end of argument list">(YYCURSOR);
 }
 
@@ -71,14 +71,14 @@ template <
     typename G,
     typename... ArgsT
 >
-inline T lex_range_argument (char* YYCURSOR, F on_fixed, G on_range, ArgsT&&... args) {
+inline T lex_range_argument (const char* YYCURSOR, F on_fixed, G on_range, ArgsT&&... args) {
 
     auto parsed_0 = parse_uint_skip_white_space<uint32_t, true>(YYCURSOR);
     YYCURSOR = parsed_0.cursor;
     const char* const range_start = YYCURSOR - parsed_0.digits;
     auto min = parsed_0.value;
 
-    char* const cursor_after_min = YYCURSOR;
+    const char* const cursor_after_min = YYCURSOR;
 
     /*!local:re2c
         any_white_space* "." { goto maybe_range; }
@@ -113,7 +113,7 @@ inline T lex_range_argument (char* YYCURSOR, F on_fixed, G on_range, ArgsT&&... 
 }
 
 template <std::unsigned_integral T, T max = std::numeric_limits<T>::max()>
-inline ParseNumberResult<T> lex_attribute_value (char* YYCURSOR) {
+inline ParseNumberResult<T> lex_attribute_value (const char* YYCURSOR) {
     YYCURSOR = lex_symbol<'=', "Expected value assignment for attribute">(YYCURSOR);
     return parse_uint_skip_white_space<T, false, max>(YYCURSOR);
 }
@@ -127,7 +127,7 @@ struct VariantAttributes {
     [[nodiscard]] constexpr bool has_shared_id () const { return shared_id != NO_SHARED_ID; };
 };
 
-inline LexResult<VariantAttributes> lex_variant_attributes (char* YYCURSOR) {
+inline LexResult<VariantAttributes> lex_variant_attributes (const char* YYCURSOR) {
 
     /*!local:re2c
         white_space* "["    { goto maybe_lex_attributes; }
@@ -193,7 +193,7 @@ inline LexResult<VariantAttributes> lex_variant_attributes (char* YYCURSOR) {
 }
 
 
-inline LexResult<std::string_view> lex_identifier_name (char* YYCURSOR) {
+inline LexResult<std::string_view> lex_identifier_name (const char* YYCURSOR) {
     const char* start;
 
     /*!stags:re2c format = 'const char *@@;\n'; */
@@ -239,7 +239,7 @@ inline void add_identifier (IdentifierMap &identifier_map, std::string_view name
 
 
 struct LexTypeResult {
-    char* cursor;
+    const char* cursor;
     LeafCounts fixed_leaf_counts;
     LeafCounts var_leaf_counts;
     //LeafCounts variant_field_counts;
@@ -254,7 +254,7 @@ struct LexTypeResult {
 };
 
 struct LexFixedTypeResult {
-    char* cursor;
+    const char* cursor;
     LeafCounts fixed_leaf_counts;
     //LeafCounts variant_field_counts;
     uint64_t byte_size;
@@ -268,11 +268,11 @@ template <bool is_dynamic>
 using variant_type_meta_t = std::conditional_t<is_dynamic, DynamicVariantTypeMeta, FixedVariantTypeMeta>;
 
 template <bool expect_fixed>
-std::conditional_t<expect_fixed, LexFixedTypeResult, LexTypeResult> lex_type (char* YYCURSOR, Buffer &buffer, IdentifierMap &identifier_map);
+std::conditional_t<expect_fixed, LexFixedTypeResult, LexTypeResult> lex_type (const char* YYCURSOR, Buffer &buffer, IdentifierMap &identifier_map);
 
 template <bool is_dynamic, bool expect_fixed>
 inline std::conditional_t<expect_fixed, LexFixedTypeResult, LexTypeResult> add_variant_type (
-    char* YYCURSOR,
+    const char* YYCURSOR,
     uint64_t inner_min_byte_size,
     uint64_t inner_max_byte_size,
     Buffer& buffer,
@@ -462,7 +462,7 @@ inline std::conditional_t<expect_fixed, LexFixedTypeResult, LexTypeResult> add_v
 
 template <bool is_dynamic, bool expect_fixed>
 inline std::conditional_t<expect_fixed, LexFixedTypeResult, LexTypeResult> lex_variant_types (
-    char* YYCURSOR,
+    const char* YYCURSOR,
     uint64_t min_byte_size,
     uint64_t max_byte_size,
     Buffer& buffer,
@@ -569,7 +569,7 @@ inline std::conditional_t<expect_fixed, LexFixedTypeResult, LexTypeResult> lex_v
 }
 
 template <bool expect_fixed, FIELD_TYPE field_type>
-[[nodiscard, gnu::always_inline]] inline std::conditional_t<expect_fixed, LexFixedTypeResult, LexTypeResult> add_simple_type (char* YYCURSOR, Buffer &buffer) {
+[[nodiscard, gnu::always_inline]] inline std::conditional_t<expect_fixed, LexFixedTypeResult, LexTypeResult> add_simple_type (const char* YYCURSOR, Buffer &buffer) {
     static_assert(
            field_type == FIELD_TYPE::BOOL
         || field_type == FIELD_TYPE::INT8
@@ -615,7 +615,7 @@ template <bool expect_fixed, FIELD_TYPE field_type>
 }
 
 template <bool expect_fixed>
-std::conditional_t<expect_fixed, LexFixedTypeResult, LexTypeResult> lex_type (char* YYCURSOR, Buffer &buffer, IdentifierMap &identifier_map) {
+std::conditional_t<expect_fixed, LexFixedTypeResult, LexTypeResult> lex_type (const char* YYCURSOR, Buffer &buffer, IdentifierMap &identifier_map) {
 
     const char* typename_start; // Only initialized for non-simple types
 
@@ -653,7 +653,7 @@ std::conditional_t<expect_fixed, LexFixedTypeResult, LexTypeResult> lex_type (ch
         if constexpr (!expect_fixed) {
             return lex_range_argument<LexTypeResult>(
                 YYCURSOR,
-                [](char* cursor, uint32_t length, Buffer& buffer)->LexTypeResult {
+                [](const char* cursor, uint32_t length, Buffer& buffer)->LexTypeResult {
                     FixedStringType::create(buffer, length);
 
                     return LexTypeResult{
@@ -671,7 +671,7 @@ std::conditional_t<expect_fixed, LexFixedTypeResult, LexTypeResult> lex_type (ch
                         SIZE::SIZE_1
                     };
                 },
-                [](char* cursor, uint32_t min_length, uint32_t max_length, Buffer& buffer)->LexTypeResult {
+                [](const char* cursor, uint32_t min_length, uint32_t max_length, Buffer& buffer)->LexTypeResult {
                     uint32_t delta = min_length - max_length;
 
                     LeafCounts fixed_leaf_counts;
@@ -735,7 +735,7 @@ std::conditional_t<expect_fixed, LexFixedTypeResult, LexTypeResult> lex_type (ch
         } else {
             return lex_range_argument<LexFixedTypeResult, false, true>(
                 YYCURSOR,
-                [](char* cursor, uint32_t length, Buffer& buffer)->LexFixedTypeResult {
+                [](const char* cursor, uint32_t length, Buffer& buffer)->LexFixedTypeResult {
                     FixedStringType::create(buffer, length);
 
                     return LexFixedTypeResult{
@@ -749,7 +749,7 @@ std::conditional_t<expect_fixed, LexFixedTypeResult, LexTypeResult> lex_type (ch
                         SIZE::SIZE_1
                     };
                 },
-                [typename_start] [[noreturn]] (char* cursor)->LexFixedTypeResult {
+                [typename_start] [[noreturn]] (const char* cursor)->LexFixedTypeResult {
                     show_syntax_error("expected fixed size string", typename_start, cursor - 1);
                 },
                 buffer
@@ -775,7 +775,7 @@ std::conditional_t<expect_fixed, LexFixedTypeResult, LexTypeResult> lex_type (ch
             return lex_range_argument<LexTypeResult>(
                 YYCURSOR,
                 [](
-                    char* cursor,
+                    const char* cursor,
                     uint32_t length,
                     LexFixedTypeResult&& result,
                     Type* base,
@@ -805,7 +805,7 @@ std::conditional_t<expect_fixed, LexFixedTypeResult, LexTypeResult> lex_type (ch
                     };
                 },
                 [](
-                    char* cursor,
+                    const char* cursor,
                     uint32_t min_length,
                     uint32_t max_length,
                     LexFixedTypeResult&& result,
@@ -884,7 +884,7 @@ std::conditional_t<expect_fixed, LexFixedTypeResult, LexTypeResult> lex_type (ch
             return lex_range_argument<LexFixedTypeResult, false, true>(
                 YYCURSOR, 
                 [](
-                    char* cursor,
+                    const char* cursor,
                     uint32_t length,
                     LexFixedTypeResult&& result,
                     Type* base,
@@ -907,7 +907,7 @@ std::conditional_t<expect_fixed, LexFixedTypeResult, LexTypeResult> lex_type (ch
                         result.alignment
                     };
                 },
-                [typename_start] [[noreturn]] (char* cursor)->LexFixedTypeResult {
+                [typename_start] [[noreturn]] (const char* cursor)->LexFixedTypeResult {
                     show_syntax_error("expected fixed size array", typename_start, cursor - 1);
                 },
                 std::move(result),
@@ -944,7 +944,7 @@ std::conditional_t<expect_fixed, LexFixedTypeResult, LexTypeResult> lex_type (ch
     }
 
     identifier: {
-        char* const typename_end = YYCURSOR;
+        const char* const typename_end = YYCURSOR;
 
         auto identifier_idx_iter = identifier_map.find(std::string_view{typename_start, typename_end});
         if (identifier_idx_iter == identifier_map.end()) {
@@ -1032,8 +1032,8 @@ std::conditional_t<expect_fixed, LexFixedTypeResult, LexTypeResult> lex_type (ch
 }
 
 template <bool is_first_field>
-inline char* lex_struct_fields (
-    char* YYCURSOR,
+inline const char* lex_struct_fields (
+    const char* YYCURSOR,
     Buffer::Index<StructDefinition> definition_data_idx,
     IdentifierMap &identifier_map,
     Buffer &buffer,
@@ -1080,12 +1080,12 @@ inline char* lex_struct_fields (
     }
 
     name_start:
-    char* start = YYCURSOR - 1;
+    const char* start = YYCURSOR - 1;
     /*!local:re2c
         [a-zA-Z0-9_]*  { goto name_end; }
     */
     name_end:
-    char* end = YYCURSOR;
+    const char* end = YYCURSOR;
     size_t length = end - start;
     if constexpr (!is_first_field) {
         const StructField::Data* field = buffer.get(definition_data_idx)->first_field()->data();
@@ -1148,8 +1148,8 @@ inline char* lex_struct_fields (
 
 }
 
-inline char* lex_struct(
-    char* YYCURSOR,
+inline const char* lex_struct(
+    const char* YYCURSOR,
     Buffer::Index<StructDefinition> definition_data_idx,
     IdentifierMap &identifier_map,
     Buffer &buffer
@@ -1179,8 +1179,8 @@ inline char* lex_struct(
 
 
 template <bool is_signed>
-inline char* lex_enum_fields (
-    char* YYCURSOR,
+inline const char* lex_enum_fields (
+    const char* YYCURSOR,
     Buffer::Index<EnumDefinition> definition_data_idx,
     uint16_t field_count,
     EnumField::Value value,
@@ -1216,7 +1216,7 @@ inline char* lex_enum_fields (
         }
 
         name_start:
-        char* start = YYCURSOR - 1;
+        const char* start = YYCURSOR - 1;
         /*!local:re2c
             [a-zA-Z0-9_]*  { goto name_end; }
         */
@@ -1320,8 +1320,8 @@ inline char* lex_enum_fields (
     }
 }
 
-inline char* lex_enum (
-    char* YYCURSOR,
+inline const char* lex_enum (
+    const char* YYCURSOR,
     Buffer::Index<EnumDefinition> definition_data_idx,
     IdentifierMap &identifier_map,
     Buffer &buffer
@@ -1332,7 +1332,7 @@ inline char* lex_enum (
 
 
 template <bool target_defined>
-inline const StructDefinition* lex (char* YYCURSOR, IdentifierMap &identifier_map, Buffer &buffer, std::conditional_t<target_defined, const StructDefinition*, estd::empty> target) {
+inline const StructDefinition* lex (const char* YYCURSOR, IdentifierMap &identifier_map, Buffer &buffer, std::conditional_t<target_defined, const StructDefinition*, estd::empty> target) {
     loop: {
     /*!local:re2c
 

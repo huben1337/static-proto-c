@@ -53,7 +53,7 @@ constexpr auto lex_symbol_error = "expected symbol: "_sl + StringLiteral{symbol}
  *          or triggers an error if the symbol is not found.
  */
 template <char symbol, StringLiteral error_message = lex_symbol_error<symbol>>
-inline char *lex_symbol (char *YYCURSOR) {
+inline const char* lex_symbol (const char* YYCURSOR) {
     loop:
     switch (*YYCURSOR) {
         case 0:
@@ -85,7 +85,7 @@ inline char *lex_symbol (char *YYCURSOR) {
  *          or triggers an error if the symbol is not found.
  */
 template <char symbol, StringLiteral error_message = lex_symbol_error<symbol>>
-inline char *lex_same_line_symbol (char *YYCURSOR) {
+inline const char* lex_same_line_symbol (const char* YYCURSOR) {
     loop:
     switch (*YYCURSOR) {
         case 0:
@@ -113,7 +113,7 @@ inline char *lex_same_line_symbol (char *YYCURSOR) {
  *          white space characters, or the same position if no white space
  *          was found.
  */
-inline char *skip_white_space (char *YYCURSOR) {
+inline const char* skip_white_space (const char* YYCURSOR) {
     /*!local:re2c
         white_space* { return YYCURSOR; }
     */
@@ -132,14 +132,14 @@ inline char *skip_white_space (char *YYCURSOR) {
  *          white space characters, or the same position if no white space
  *          was found.
  */
-inline char *skip_any_white_space (char *YYCURSOR) {
+inline const char* skip_any_white_space (const char* YYCURSOR) {
     /*!local:re2c
         any_white_space* { return YYCURSOR; }
     */
     std::unreachable();
 }
 
-inline char *lex_white_space (char *YYCURSOR) {
+inline const char* lex_white_space (const char* YYCURSOR) {
     /*!local:re2c
         white_space+ { return YYCURSOR; }
         * { UNEXPECTED_INPUT("expected white space"); }
@@ -147,7 +147,7 @@ inline char *lex_white_space (char *YYCURSOR) {
     std::unreachable();
 }
 
-inline char *lex_any_white_space (char *YYCURSOR) {
+inline const char* lex_any_white_space (const char* YYCURSOR) {
     /*!local:re2c
         any_white_space+ { return YYCURSOR; }
         * { UNEXPECTED_INPUT("expected any white space"); }
