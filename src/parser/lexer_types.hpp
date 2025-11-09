@@ -62,18 +62,23 @@ struct SIZE : estd::ENUM_CLASS<uint8_t> {
         return value_t{1} << value;
     }
 
+private:
+    static void next_smaller_is_invalid_for_this_size () {}
+    static void next_bigger_is_invalid_for_this_size () {}
+
+public:
     [[nodiscard]] consteval SIZE next_smaller () const {
-        if (value != SIZE_0 && value != SIZE_1) {
-            return SIZE{gsl::narrow_cast<value_t>(value - 1)};
+        if (value == SIZE_0 || value == SIZE_1) {
+            next_smaller_is_invalid_for_this_size();
         }
-        throw;
+        return SIZE{gsl::narrow_cast<value_t>(value - 1)};
     };
 
     [[nodiscard]] consteval SIZE next_bigger () const {
-        if (value != SIZE_0 && value != SIZE_8) {
-            return SIZE{gsl::narrow_cast<value_t>(value + 1)};
+        if (value == SIZE_0 || value == SIZE_8) {
+            next_bigger_is_invalid_for_this_size();
         }
-        throw;
+        return SIZE{gsl::narrow_cast<value_t>(value + 1)};
     };
 };
 

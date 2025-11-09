@@ -2,6 +2,7 @@
 
 #include <cstddef>
 #include <array>
+#include <exception>
 #include <string_view>
 #include <utility>
 #include <type_traits>
@@ -30,12 +31,14 @@ private:
     : data{str[Indecies]...}
     {}
 
+    static void expected_null_terminated_char_array () {}
+
 public:
     // NOLINTNEXTLINE(google-explicit-constructor)
     consteval StringLiteral(const char (&str)[N])
     : StringLiteral{str, std::make_index_sequence<N - 1>{}}
     {
-        if(str[N - 1] != 0) throw; // Null termination expected
+        if(str[N - 1] != 0) expected_null_terminated_char_array();
     }
 
     consteval explicit StringLiteral(const char c)
@@ -164,3 +167,5 @@ namespace string_literal {
     template <auto value>
     constexpr auto from = _from<decltype(value), value>();
 }
+constexpr char b[] = {'a', 'b', '\0'};
+constexpr auto a = StringLiteral{b};
