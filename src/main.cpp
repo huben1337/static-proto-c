@@ -31,18 +31,18 @@ int main (int argc, const char** argv) {
     #define O_BINARY 0
     #endif
 
-    try {
-        input_file = fs::open_with_stat(input_path, O_RDONLY | O_BINARY);
-        fs::throw_not_regular(input_path, input_file.stat);
-        input_file_path = fs::realpath(input_path);
-        output_file = fs::open_with_stat(output_path, O_WRONLY | O_CREAT | O_TRUNC | O_BINARY, S_IRUSR | S_IWUSR);
-        fs::throw_not_regular(output_path, output_file.stat);
-    } catch (std::runtime_error& err) {
-        logger::error(err.what());
+    input_file = fs::open_with_stat(input_path, O_RDONLY | O_BINARY);
+    fs::assert_regular(input_path, input_file.stat);
+    input_file_path = fs::realpath(input_path);
+    output_file = fs::open_with_stat(output_path, O_WRONLY | O_CREAT | O_TRUNC | O_BINARY, S_IRUSR | S_IWUSR);
+    fs::assert_regular(output_path, output_file.stat);
+
+    const auto input_file_size = input_file.stat.st_size;
+    if (input_file_size <= 0) {
+        logger::error("Input file had invalid size of: ", input_file_size);
         return 1;
     }
 
-    auto input_file_size = input_file.stat.st_size;
     char input_data[input_file_size + 1];
     input_data[input_file_size] = 0;
     auto read_result = read(input_file.fd, input_data, input_file_size);
@@ -50,10 +50,7 @@ int main (int argc, const char** argv) {
         logger::error("read size mismatch");
         return 1;
     }
-    if (close(input_file.fd) != 0) {
-        logger::error("could not close input file");
-        return 1;
-    }
+    close(input_file.fd);
 
     input_start = input_data;
 
