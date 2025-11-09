@@ -57,36 +57,6 @@ function(require_dir DIR)
   # endif()
 endfunction()
 
-
-# set(PP_OUT_DIR ${CMAKE_CURRENT_BINARY_DIR}/src)
-# 
-# set(PP_OUT_FILES)
-# 
-# file(GLOB_RECURSE PP_INPUT_FILES "${SRC_DIR}/*")
-# 
-# foreach(INPUT_FILE ${PP_INPUT_FILES})
-#   file(RELATIVE_PATH OUTPUT_FILE_RELATIVE ${SRC_DIR} ${INPUT_FILE})
-# 
-#   set(OUTPUT_FILE ${PP_OUT_DIR}/${OUTPUT_FILE_RELATIVE})
-# 
-#   cmake_path(GET ${OUTPUT_FILE} PARENT_PATH OUTPUT_FILE_DIR)
-# 
-#   require_dir(${OUTPUT_FILE_DIR})
-# 
-#   if (${INPUT_FILE} MATCHES "\.re2c\.(c|h|cpp|hpp)$")
-#     re2c_add_command(${INPUT_FILE} ${OUTPUT_FILE})
-#   else()
-#     non_pp_add_command(${INPUT_FILE} ${OUTPUT_FILE})
-#   endif()
-# 
-#   
-#   if (${INPUT_FILE} STREQUAL ${MAIN_FILE})
-#     set(MAIN_SRC ${OUTPUT_FILE})
-#   else()
-#     list(APPEND SRC_MIRROR_FILES ${OUTPUT_FILE})
-#   endif()
-# endforeach()
-
 set(PP_OUT_DIR ${CMAKE_CURRENT_BINARY_DIR}/src)
 
 set(PP_OUT_FILES "")
@@ -205,13 +175,6 @@ add_custom_target(pp ALL DEPENDS ${PP_OUT_FILES})
 # add_custom_target(liburing_static ALL DEPENDS ${LIBURING_LIB})
 
 
-############ TARGET ############
-message(STATUS "Main source file: ${MAIN_SRC}")
-add_executable(spc ${MAIN_SRC})
-
-target_compile_features(spc PRIVATE cxx_std_23)
-set_target_properties(spc PROPERTIES LINK_SEARCH_START_STATIC ON)
-
 # target_include_directories(
   # spc
   # BEFORE
@@ -229,7 +192,57 @@ set_target_properties(spc PROPERTIES LINK_SEARCH_START_STATIC ON)
 # target_link_libraries(spc PRIVATE llfio)
 # target_link_libraries(spc PRIVATE ${LIBURING_LIB})
 
+# SANITIZER OPTIONS
+set(SANITIZER_FLAG -fsanitize=address,undefined,leak,alignment)
 
+############ COMMON LINKER FLAGS ############
+add_link_options(${SANITIZER_FLAG})
+############ COMMON COMPILER FLAGS ############
+add_compile_options(
+  ############ C/C++ FLAGS ############
+  $<$<COMPILE_LANGUAGE:C,CXX>:${SANITIZER_FLAG}>
+  $<$<COMPILE_LANGUAGE:C,CXX>:-march=native>
+  $<$<COMPILE_LANGUAGE:C,CXX>:-O${OPTIMIZATION_LEVEL}>
+  $<$<COMPILE_LANGUAGE:C,CXX>:-Werror>
+  $<$<COMPILE_LANGUAGE:C,CXX>:-Wall>
+  $<$<COMPILE_LANGUAGE:C,CXX>:-Wextra>
+  $<$<COMPILE_LANGUAGE:C,CXX>:-Wpedantic>
+  $<$<COMPILE_LANGUAGE:C,CXX>:-Wno-gnu-case-range>
+  $<$<COMPILE_LANGUAGE:C,CXX>:-Wno-variadic-macros>
+  ############ C++ ############
+  $<$<COMPILE_LANGUAGE:C,CXX>:-fno-exceptions>
+  $<$<COMPILE_LANGUAGE:C,CXX>:-Wno-vla-cxx-extension>
+  $<$<COMPILE_LANGUAGE:CXX>:-fconstexpr-depth=${CONSTEXPR_DEPTH}>
+)
+
+############ COMPILER SPECIFIC FLAGS ############
+if (CMAKE_CXX_COMPILER_ID STREQUAL "Clang")
+  # using Clang
+  add_compile_options(
+    $<$<COMPILE_LANGUAGE:CXX>:-fconstexpr-steps=${CONSTEXPR_STEPS}>
+  )
+elseif (CMAKE_CXX_COMPILER_ID STREQUAL "GNU")
+  # using GCC
+elseif (CMAKE_CXX_COMPILER_ID STREQUAL "Intel")
+  # using Intel C++
+elseif (CMAKE_CXX_COMPILER_ID STREQUAL "MSVC")
+  # using Visual Studio C++
+endif()
+
+############ ENABLE COLOR ############
+set(CMAKE_COLOR_MAKEFILE ON)
+set(CMAKE_COLOR_DIAGNOSTICS ON)
+
+
+############ TARGET ############
+message(STATUS "Main source file: ${MAIN_SRC}")
+add_executable(spc ${MAIN_SRC})
+
+target_compile_features(spc PRIVATE cxx_std_23)
+set_target_properties(spc 
+ PROPERTIES LINK_SEARCH_START_STATIC ON
+ CXX_VISIBILITY_PRESET hidden
+)
 
 ############ LOG INCLUDES ############
 get_target_property(LIB_INCLUDES spc INCLUDE_DIRECTORIES)
@@ -246,24 +259,3 @@ if(CMAKE_BUILD_TYPE STREQUAL "Release" AND STRIP_RELEASE)
     COMMENT "Stripping symbols from $<TARGET_FILE:spc>"
   )
 endif()
-
-############ COMPILER COMMON FLAGS ############
-add_compile_options(-fsanitize=address)
-add_link_options(-fsanitize=address)
-set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -fsanitize=address -march=native -O${OPTIMIZATION_LEVEL} -fconstexpr-depth=${CONSTEXPR_DEPTH}") # -fno-pie --static 
-
-############ COMPILER SPECIFIC FLAGS ############
-if (CMAKE_CXX_COMPILER_ID STREQUAL "Clang")
-  # using Clang
-  set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -fconstexpr-steps=${CONSTEXPR_STEPS}")
-elseif (CMAKE_CXX_COMPILER_ID STREQUAL "GNU")
-  # using GCC
-elseif (CMAKE_CXX_COMPILER_ID STREQUAL "Intel")
-  # using Intel C++
-elseif (CMAKE_CXX_COMPILER_ID STREQUAL "MSVC")
-  # using Visual Studio C++
-endif()
-
-############ ENABLE COLOR ############
-set(CMAKE_COLOR_MAKEFILE ON)
-set(CMAKE_COLOR_DIAGNOSTICS ON)
