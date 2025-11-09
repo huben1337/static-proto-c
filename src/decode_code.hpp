@@ -12,7 +12,7 @@
 #include <string_view>
 #include <type_traits>
 #include <utility>
-//#include "generate_offsets.cpp"
+
 #include "./codegen.hpp"
 #include "./estd/concepts.hpp"
 #include "./parser/lexer_types.hpp"
@@ -25,7 +25,7 @@
 #include "./fast_math/sum_of_digits.hpp"
 #include "./fast_math/log.hpp"
 #include "./code_gen_stuff.hpp"
-#include "./generate_offsets.cpp"
+#include "./generate_offsets.hpp"
 #include "estd/empty.hpp"
 #include "variant_optimizer/data.hpp"
 

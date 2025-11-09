@@ -7,10 +7,10 @@
 #endif
 
 #include "./global.hpp"
-#include "./fs.cpp"
+#include "./fs.hpp"
 #include "./container/memory.hpp"
 #include "./parser/lexer.re2c.hpp"
-#include "./decode_code.cpp"
+#include "./decode_code.hpp"
 
 
 int main (int argc, const char** argv) {
