@@ -1,7 +1,6 @@
 #pragma once
 
 #include <cerrno>
-#include <climits>
 #include <cstddef>
 #include <cstdint>
 #include <cstdio>
@@ -248,7 +247,6 @@ namespace logger_detail {
         public:
 
         logger () = delete;
-        ~logger () = delete;
 
         template <StringLiteral name, StringLiteral color_code>
         static constexpr auto log_level = "\033["_sl + color_code + "m["_sl + name + "]\033[0m "_sl;
@@ -325,33 +323,32 @@ namespace logger_detail {
         static void write_string_view (const char* begin, size_t length) {
             if (buffer_dst == buffer) {
                 return write_string_view<true, is_last>(begin, length);
+            }
+            size_t free_space = buffer_end - buffer_dst;
+            if (free_space >= length) {
+                if constexpr (is_last) {
+                    std::memcpy(buffer_dst, begin, length);
+                    handled_write_buffer_stdout(buffer_dst - buffer + length);
+                    buffer_dst = buffer;
+                } else /* if constexpr (!is_last) */ {
+                    std::memcpy(buffer_dst, begin, length);
+                    buffer_dst += length;
+                }
             } else {
-                size_t free_space = buffer_end - buffer_dst;
-                if (free_space >= length) {
-                    if constexpr (is_last) {
-                        std::memcpy(buffer_dst, begin, length);
-                        handled_write_buffer_stdout(buffer_dst - buffer + length);
-                        buffer_dst = buffer;
-                    } else /* if constexpr (!is_last) */ {
-                        std::memcpy(buffer_dst, begin, length);
-                        buffer_dst += length;
-                    }
+                if constexpr (is_last) {
+                    handled_write_buffer_stdout(buffer_dst - buffer);
+                    buffer_dst = buffer;
+                    _handled_write_stdout(begin, length);
                 } else {
-                    if constexpr (is_last) {
-                        handled_write_buffer_stdout(buffer_dst - buffer);
+                    std::memcpy(buffer_dst, begin, free_space);
+                    handled_write_buffer_stdout(buffer_size);
+                    size_t remaining = length - free_space;
+                    if (remaining >= buffer_size) {
+                        _handled_write_stdout(begin + free_space, remaining);
                         buffer_dst = buffer;
-                        _handled_write_stdout(begin, length);
                     } else {
-                        std::memcpy(buffer_dst, begin, free_space);
-                        handled_write_buffer_stdout(buffer_size);
-                        size_t remaining = length - free_space;
-                        if (remaining >= buffer_size) {
-                            _handled_write_stdout(begin + free_space, remaining);
-                            buffer_dst = buffer;
-                        } else {
-                            std::memcpy(buffer, begin + free_space, remaining);
-                            buffer_dst = buffer + remaining;
-                        }
+                        std::memcpy(buffer, begin + free_space, remaining);
+                        buffer_dst = buffer + remaining;
                     }
                 }
             }
