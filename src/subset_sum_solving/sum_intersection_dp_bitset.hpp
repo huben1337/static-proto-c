@@ -68,7 +68,7 @@ inline void generate_bits (
     generate_bits_from_variant_fields  <lexer::SIZE::SIZE_2>(bits, bitset_words, target, variant_fields);
     it = generate_bits_from_fixed_leafs<lexer::SIZE::SIZE_2>(bits, bitset_words, target, fixed_leafs_buffer, it, meta);
     generate_bits_from_variant_fields  <lexer::SIZE::SIZE_1>(bits, bitset_words, target, variant_fields);
-    it = generate_bits_from_fixed_leafs<lexer::SIZE::SIZE_1>(bits, bitset_words, target, fixed_leafs_buffer, it, meta);
+    std::ignore = generate_bits_from_fixed_leafs<lexer::SIZE::SIZE_1>(bits, bitset_words, target, fixed_leafs_buffer, it, meta);
 }
 
 } // namespace sum_intersection_dp_bitset
