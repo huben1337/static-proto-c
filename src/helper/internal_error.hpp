@@ -6,5 +6,5 @@
 
 
 #define INTERNAL_ERROR(MSG, MORE...)    \
-logger::error<false, MSG>(MORE);        \
+console.error<false, MSG>(MORE);        \
 std::exit(1);

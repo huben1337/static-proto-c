@@ -62,7 +62,7 @@ namespace estd {
     template <bool use_exceptions, typename ...T>
     requires(!use_exceptions)
     [[noreturn]] constexpr void throw_error (T&&... args) noexcept {
-        logger::error(std::forward<T>(args)...);
+        console.error(std::forward<T>(args)...);
         std::exit(1);
     }
 }

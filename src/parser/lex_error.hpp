@@ -48,13 +48,13 @@
         const char c = *end;
         if (c == '\n' || c == 0) break;
     }
-    logger::debug("diff ", end - start, " bytes");
-    logger::log<true, true>("\n\033[97m", global::input::file_path, ":", line + 1, ":", column + 1, "\033[0m \033[91merror:\033[97m ", msg, "\033[0m\n  ", std::string_view{start, end}, "\n\033[", column + 2,"C\033[31m^");
+    console.debug("diff ", end - start, " bytes");
+    console.log<true, true>("\n\033[97m", global::input::file_path, ":", line + 1, ":", column + 1, "\033[0m \033[91merror:\033[97m ", msg, "\033[0m\n  ", std::string_view{start, end}, "\n\033[", column + 2,"C\033[31m^");
     for (size_t i = 0; i < error_squiggles; i++) {
-        logger::log<true, true>("~");
+        console.log<true, true>("~");
     }
-    logger::log<true, true>("\033[0m\n");
-    logger::flush();
+    console.log<true, true>("\033[0m\n");
+    console.flush();
     exit(1);
 }
 

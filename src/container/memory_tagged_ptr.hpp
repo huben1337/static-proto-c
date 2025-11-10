@@ -207,10 +207,7 @@ struct Memory : MemoryBase<U> {
     }
 
     constexpr void go_to (U position) {
-        if (position > this->position) {
-            logger::error("[Memory::go_to] cant go forward.");
-            exit(1);
-        }
+        BSSERT(position <= this->position, "[Memory::go_to] cant go forward.");
         this->position = position;
     }
 
@@ -273,7 +270,7 @@ struct Memory : MemoryBase<U> {
         U next = position;
         position += size;
         if (position < next) {
-            logger::error("[Memory::next_multi_byte] position overflow.");
+            console.error("[Memory::next_multi_byte] position overflow.");
             exit(1);
         }
         if (position >= capacity) {
@@ -285,7 +282,7 @@ struct Memory : MemoryBase<U> {
     [[gnu::always_inline]] constexpr void grow () {
         U new_capacity;
         if (position >= (max_position / grow_factor)) {
-            logger::warn("[Memory::grow] capped growth.");
+            console.warn("[Memory::grow] capped growth.");
             new_capacity = max_position;
         } else {
             new_capacity = position * grow_factor;

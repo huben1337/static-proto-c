@@ -70,7 +70,7 @@ constexpr lexer::LeafSizes find_perfect_variant_layout_st_check_target_loop (
         }
         constexpr uint8_t alignement_bytes = alignment.byte_size();
         // check the target
-        logger::debug("trying ", target, " @ ", alignement_bytes, " mo: ", min_offset);
+        console.debug("trying ", target, " @ ", alignement_bytes, " mo: ", min_offset);
         if (dp_bitset_base::bit_at(current_bits, target)) {
             layout.get<alignment>() = target;
             if (target == max_used_space) {
@@ -100,7 +100,7 @@ constexpr lexer::LeafSizes find_perfect_variant_layout_st_check_target_loop (
             }
         }
         if (target <= min_offset) {
-            logger::debug("could not find perfect layout at align", alignement_bytes);
+            console.debug("could not find perfect layout at align", alignement_bytes);
             return layout;
         }
         target -= alignement_bytes;
@@ -196,7 +196,7 @@ constexpr lexer::LeafSizes find_perfect_variant_layout_st_ (
             if (max_align8_space == 0) {
                 goto empty;
             }
-            logger::debug("alig8 min_offset: ", max_align8_space);
+            console.debug("alig8 min_offset: ", max_align8_space);
             min_offset = max_align8_space;
             // BSSERT(min_offset != max_used_space, "should be done in ez perfect layout");
         } else if constexpr (alignment == lexer::SIZE::SIZE_4) {
@@ -243,7 +243,7 @@ constexpr lexer::LeafSizes find_perfect_variant_layout_st_ (
         );
 
         empty: {
-            logger::debug("skipped empty align", alignement_bytes);
+            console.debug("skipped empty align", alignement_bytes);
             static_assert(alignment != lexer::SIZE::SIZE_1);
             return find_perfect_variant_layout_st_<alignment.next_smaller(), applied_all_variants>(
                 // max_fixed_leaf_sizes,

@@ -320,11 +320,11 @@ inline std::conditional_t<expect_fixed, LexFixedTypeResult, LexTypeResult> add_v
     }
 
     if constexpr (is_dynamic) {
-        logger::debug("Lexer found DYNAMIC_VARIANT");
+        console.debug("Lexer found DYNAMIC_VARIANT");
         buffer.get(created_variant_type.base)->type = DYNAMIC_VARIANT;
     } else {
         if ((inner_max_byte_size - inner_min_byte_size) > max_wasted_bytes) {
-            logger::debug("Packing variant to satisfy size requirements");
+            console.debug("Packing variant to satisfy size requirements");
             buffer.get(created_variant_type.base)->type = PACKED_VARIANT;
         } else {
             buffer.get(created_variant_type.base)->type = FIXED_VARIANT;
@@ -1357,7 +1357,7 @@ inline const StructDefinition* lex (const char* YYCURSOR, IdentifierMap &identif
         YYCURSOR = lex_struct(YYCURSOR, definition_data_idx, identifier_map, buffer);
         add_identifier(identifier_map, name_result.value, definition_idx);
         if constexpr (target_defined) {
-            logger::warn("no possible path from target to struct ", name_result.value, " can be created.");
+            console.warn("no possible path from target to struct ", name_result.value, " can be created.");
         }
         goto loop;
     }
@@ -1370,7 +1370,7 @@ inline const StructDefinition* lex (const char* YYCURSOR, IdentifierMap &identif
         YYCURSOR = lex_enum(YYCURSOR, definition_data_idx, identifier_map, buffer);
         add_identifier(identifier_map, name_result.value, definition_idx);
         if constexpr (target_defined) {
-            logger::warn("no possible path from target to enum ", name_result.value, " can be created.");
+            console.warn("no possible path from target to enum ", name_result.value, " can be created.");
         }
         goto loop;
     }

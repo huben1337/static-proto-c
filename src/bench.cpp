@@ -2,6 +2,7 @@
 #include <iostream>
 #include <chrono>
 #include <unistd.h>
+#include <string_view>
 #include <utility>
 #include "./util/logger.hpp"
 #include "./util/string_literal.hpp"
@@ -10,7 +11,7 @@
 struct CustomLogger {
     template<bool is_last, typename... Args>
     static void log(Args&&... args) {
-        logger::log<false, !is_last>(std::forward<Args>(args)...);
+        console.log<false, !is_last>(std::forward<Args>(args)...);
     }
 };
 
@@ -56,6 +57,11 @@ template <typename T, StringLiteral _name>
 struct BenchTarget {
     using target = T;
     static constexpr auto name = _name;
+
+    template <typename... ll_params>
+    void log (logger::writer<ll_params...> lw) const {
+        lw.template write<true, true>("BenchTarget<T = ", std::string_view{typeid(T).name()}.substr(2), ", _name = ", _name, ">{}");
+    }
 };
 
 
@@ -66,7 +72,7 @@ void multi_bench_detail (std::index_sequence<Indecies...> /*unused*/) {
         times[Indecies] = bench<typename decltype(Targets)::target, Indecies == sizeof...(Indecies) - 1>()
     ), ...);
     ((
-        logger::log<false, false, "\n"_sl + Targets.name>(": ", times[Indecies].count(), "ms")
+        console.log<false, false, "\n"_sl + Targets.name>(": ", times[Indecies].count(), "ms")
     ), ...);
 }
 
@@ -81,4 +87,8 @@ void bench () {
         BenchTarget<CustomLogger, "Logger">{},
         BenchTarget<NullLogger, "NullLogger">{}
     >();
+}
+
+int main () {
+    bench();
 }

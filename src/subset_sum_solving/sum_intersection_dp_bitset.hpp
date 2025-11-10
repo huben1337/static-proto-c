@@ -20,7 +20,7 @@ template <lexer::SIZE alignment>
     const FixedLeaf* const end = fixed_leafs_buffer + meta.fixed_leafs_ends.get<alignment>();
     for (; it != end; it++) {
         auto num = it->get_size();
-        logger::debug("[generate_bits] num: ", num);
+        console.debug("[generate_bits] num: ", num);
         if (num == 0) continue;
         BSSERT(num <= target);
         dp_bitset_base::apply_num_unsafe(num, bits, bitset_words);

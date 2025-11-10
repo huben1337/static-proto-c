@@ -725,7 +725,7 @@ struct EnumField {
                 value--;
             } else {
                 if (value == std::numeric_limits<uint64_t>::max()) {
-                    logger::error("[EnumValue::next] value would overflow");
+                    console.error("[EnumValue::next] value would overflow");
                 }
                 value++;
             }

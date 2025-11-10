@@ -69,7 +69,7 @@ template <
             FixedOffset& local_offset = fixed_offsets[i];
             const uint64_t size = local_offset.get_offset();
             local_offset.set_offset(offset);
-            //logger::debug("i: ", i, ", offset: ", offset, ", size: ", size);
+            //console.debug("i: ", i, ", offset: ", offset, ", size: ", size);
             offset += size;
         }
         if constexpr (has_variants) {
@@ -79,10 +79,10 @@ template <
                 const auto& variant_field = variant_fields_buffer[variant_field_i];
                 const VariantField::Range& variant_field_range = lexer::get_align_member<alignment>(variant_field);
                 const uint64_t size = variant_field.sizes.get<alignment>();
-                logger::debug("variant_field_i: ", variant_field_i, ", offset: ", offset, ", size: ", size);
+                console.debug("variant_field_i: ", variant_field_i, ", offset: ", offset, ", size: ", size);
                 for (uint16_t& i : variant_field_range) {
                     fixed_offsets[i].increment_offset(offset);
-                    logger::debug("adding variant field i: ", i, ", offset: ", offset, ", size: ", size);
+                    console.debug("adding variant field i: ", i, ", offset: ", offset, ", size: ", size);
                 }
                 offset += size;
 
@@ -124,7 +124,7 @@ template <
 }
 
 void print_leaf_counts (const std::string_view& name, const lexer::LeafCounts::Counts& counts) {
-    logger::debug(name, ": {8:", counts.align1, ", 16:", counts.align2, ", 32:", counts.align4, ", 64:", counts.align8, ", total:", counts.total(), "}");
+    console.debug(name, ": {8:", counts.align1, ", 16:", counts.align2, ", 32:", counts.align4, ", 64:", counts.align8, ", total:", counts.total(), "}");
 }
 
 struct TypeVisitorState {
@@ -253,7 +253,7 @@ struct TypeVisitorState {
         const uint16_t idx = positions.get<alignment>()++;
         if constexpr (!is_fixed) {
             auto v = level_mutable_state->current_size_leaf_idx;
-            logger::debug("size_leafe_idxs[", idx, "] = ", v);
+            console.debug("size_leafe_idxs[", idx, "] = ", v);
             level_const_state.size_leafe_idxs[idx] = v;
         }
         return idx;
@@ -278,7 +278,7 @@ struct TypeVisitorState {
     template <bool is_fixed, bool in_variant>
     void reserve (uint16_t idx, uint64_t size, lexer::SIZE alignment) const {
         if constexpr (is_fixed) {
-            logger::debug("setting fixed_offsets at: ", idx, ", size: ", size);
+            console.debug("setting fixed_offsets at: ", idx, ", size: ", size);
             const uint16_t map_idx = next_map_idx();
             if constexpr (in_variant) {
                 BSSERT(level_const_state.fixed_leafs != nullptr)
@@ -286,17 +286,17 @@ struct TypeVisitorState {
             } else {
                 const_state.fixed_offsets[idx] = {size, alignment};
             }
-            logger::debug("map_idx: ", map_idx, ", idx: ", idx, ", size: ", size);
+            console.debug("map_idx: ", map_idx, ", idx: ", idx, ", size: ", size);
             const_state.idx_map[map_idx] = idx;
         } else {
             if constexpr (in_variant) {
                 BSSERT(false, "EPIC FAIL")
             }
-            logger::debug("setting var_leaf_sizes at: ", idx, ", size: ", size, " in_variant: ", in_variant, " ptr: ", size_t(level_const_state.var_leaf_sizes + idx));
+            console.debug("setting var_leaf_sizes at: ", idx, ", size: ", size, " in_variant: ", in_variant, " ptr: ", size_t(level_const_state.var_leaf_sizes + idx));
             level_const_state.var_leaf_sizes[idx] = size;
             const uint16_t map_idx = next_map_idx();
             const uint16_t mapped_idx = idx + level_const_state.var_idx_base;
-            logger::debug("map_idx: ", map_idx, ", idx: ", idx, ", mapped_idx: ", mapped_idx, ", size: ", size);
+            console.debug("map_idx: ", map_idx, ", idx: ", idx, ", mapped_idx: ", mapped_idx, ", size: ", size);
             const_state.idx_map[map_idx] = mapped_idx;
         }
     }
@@ -335,10 +335,10 @@ struct TypeVisitorState {
         const auto* const& var_leaf_sizes = level_const_state.var_leaf_sizes;
         const auto& size_leafe_idxs = level_const_state.size_leafe_idxs;
         auto& var_offset_buffer = mutable_state->var_offset_buffer;
-        logger::debug("level_size_leafs_count: ", level_size_leafs_count);
+        console.debug("level_size_leafs_count: ", level_size_leafs_count);
         for (uint16_t i = 0; i < total_var_leafs; i++) {
             std::uninitialized_fill_n(size_leafs, level_size_leafs_count, 0);
-            logger::debug("Var leaf: i: ", i, ", size: ", var_leaf_sizes[i], " ptr: ", size_t(var_leaf_sizes + i));
+            console.debug("Var leaf: i: ", i, ", size: ", var_leaf_sizes[i], " ptr: ", size_t(var_leaf_sizes + i));
             uint16_t known_size_leafs = 0;
             for (uint16_t j = 0; j < i; j++) {
                 const uint16_t size_leaf_idx = size_leafe_idxs[j];
@@ -346,24 +346,24 @@ struct TypeVisitorState {
                 if (size_leaf == 0) {
                     known_size_leafs++;
                 }
-                logger::debug("loop 1: Size leaf #", size_leaf_idx, ": size: ", size_leaf, " added:", var_leaf_sizes[j]);
+                console.debug("loop 1: Size leaf #", size_leaf_idx, ": size: ", size_leaf, " added:", var_leaf_sizes[j]);
                 size_leaf += var_leaf_sizes[j];
             }
-            logger::log<true, true, logger::debug_prefix>("Dump var_leaf_sizes(): {");
+            console.log<true, true, logger::debug_prefix>("Dump var_leaf_sizes(): {");
             for (uint16_t j = 0; j < total_var_leafs - 1; j++) {
-                logger::log<true, true>(var_leaf_sizes[j], ", ");
+                console.log<true, true>(var_leaf_sizes[j], ", ");
             }
-            logger::log(var_leaf_sizes[total_var_leafs - 1], "}");
-            logger::debug("Size chain: Length: ", known_size_leafs);
+            console.log(var_leaf_sizes[total_var_leafs - 1], "}");
+            console.debug("Size chain: Length: ", known_size_leafs);
             // BSSERT(known_size_leafs <= level_size_leafs_count, "Too many size leafs");
             const Buffer::Index<uint64_t> size_chain_idx = var_offset_buffer.next_multi_byte<uint64_t>(sizeof(uint64_t) * known_size_leafs);
             uint64_t* const size_chain_data = var_offset_buffer.get_aligned(size_chain_idx);
             for (uint16_t size_leaf_idx = 0; size_leaf_idx < known_size_leafs; size_leaf_idx++) {
                 const uint64_t size = size_leafs[size_leaf_idx];
-                logger::debug("Size leaf #", size_leaf_idx, ": size: ", size);
+                console.debug("Size leaf #", size_leaf_idx, ": size: ", size);
                 size_chain_data[size_leaf_idx] = size;
             }
-            logger::debug("Writing var_offset: ", var_leaf_base_idx + i);
+            console.debug("Writing var_offset: ", var_leaf_base_idx + i);
             const_state.var_offsets[var_leaf_base_idx + i] = Buffer::View<uint64_t>{size_chain_idx, known_size_leafs};
         }
     }
@@ -408,7 +408,7 @@ template <lexer::SIZE alignment>
     lexer::LeafSizes& pacK_sizes,
     uint64_t outer_array_length
 ) {
-    logger::debug("[apply_layout] alignemnt: ", alignment.byte_size());
+    console.debug("[apply_layout] alignemnt: ", alignment.byte_size());
     VariantField::Range& leafs_range = lexer::get_align_member<alignment>(variant_field);
     leafs_range.from = ordered_idx;
     uint64_t max_offset = 0;
@@ -446,7 +446,7 @@ template <lexer::SIZE alignment>
         }
         const uint16_t copied_end = meta.fixed_leafs_ends.get<alignment>();
         const FixedLeaf* const it_end = fixed_leafs_buffer + copied_end;
-        // logger::debug("[apply_layout] alignemnt: ", alignment.byte_size(), " i: ", i, " start: ", size_t(it_start), " end: ", size_t(it_end), " copied: ", meta.fixed_leaf_ends.align4);
+        // console.debug("[apply_layout] alignemnt: ", alignment.byte_size(), " i: ", i, " start: ", size_t(it_start), " end: ", size_t(it_end), " copied: ", meta.fixed_leaf_ends.align4);
         for (const auto* it = it_start; it != it_end; it++) {
             const FixedLeaf leaf = *it;
             if constexpr (alignment != lexer::SIZE::SIZE_8) {
@@ -460,7 +460,7 @@ template <lexer::SIZE alignment>
             offset += leaf_size;
             required += leaf_size;
         }
-        // logger::debug("[apply_layout] alignemnt: ", alignment.byte_size(), " i: ", i);
+        // console.debug("[apply_layout] alignemnt: ", alignment.byte_size(), " i: ", i);
         uint64_t layout_space;
         if constexpr (alignment == lexer::SIZE::SIZE_8) {
             layout_space = layout.align8;
@@ -480,7 +480,7 @@ template <lexer::SIZE alignment>
 
             const auto used_space = meta.used_spaces.get<alignment>();
             if (layout_space > used_space) {
-                logger::debug("required_space: ", meta.required_space, ", layout_space: ", layout_space, ", used_space: ", used_space, ", required: ", required);
+                console.debug("required_space: ", meta.required_space, ", layout_space: ", layout_space, ", used_space: ", used_space, ", required: ", required);
                 uint64_t target = std::min<uint64_t>(layout_space - used_space, meta.required_space);
                 std::tie(ordered_idx, offset) = subset_sum_perfect::solve<alignment>(
                     target,
@@ -517,7 +517,7 @@ template <lexer::SIZE alignment>
 }
 
 void print_leaf_sizes (std::string_view name, lexer::LeafSizes sizes) {
-    logger::debug(name, ": {8: ", sizes.align8, ", 4: ", sizes.align4, ", 2: ", sizes.align2, ", 1: ", sizes.align1, "}");
+    console.debug(name, ": {8: ", sizes.align8, ", 4: ", sizes.align4, ", 2: ", sizes.align2, ", 1: ", sizes.align1, "}");
 }
 
 
@@ -552,7 +552,7 @@ struct TypeVisitor : public lexer::TypeVisitorBase<TypeT> {
 
     template <lexer::FIELD_TYPE field_type>
     void on_simple () const {
-        logger::debug("[on_simple] field_type: ", (uint8_t)field_type, " outer_array_length: ", outer_array_length, " is_fixed: ", is_fixed, " in_variant: ", in_variant);
+        console.debug("[on_simple] field_type: ", (uint8_t)field_type, " outer_array_length: ", outer_array_length, " is_fixed: ", is_fixed, " in_variant: ", in_variant);
         constexpr lexer::SIZE size = lexer::get_type_alignment<field_type>();
         state.reserve_next<is_fixed, in_variant, size>(size.byte_size() * outer_array_length);
     }
@@ -622,7 +622,7 @@ struct TypeVisitor : public lexer::TypeVisitorBase<TypeT> {
 
         const uint16_t variant_count = fixed_variant_type->variant_count;
 
-        logger::debug("[variant_id] outer_array_length: ", outer_array_length);
+        console.debug("[variant_id] outer_array_length: ", outer_array_length);
         if (variant_count <= UINT8_MAX) {
             state.reserve_next<is_fixed, in_variant, lexer::SIZE::SIZE_1>(outer_array_length);
         } else {
@@ -641,7 +641,7 @@ struct TypeVisitor : public lexer::TypeVisitorBase<TypeT> {
         const uint16_t level_fixed_idx_start = state.mutable_state->current_fixed_idx_base;
         const uint16_t level_fixed_idx_end = level_fixed_idx_start + total_fixed_leafs;
         state.mutable_state->current_fixed_idx_base = level_fixed_idx_end;
-        logger::debug("level fixed_idx range: ", level_fixed_idx_start, " - ", level_fixed_idx_end);
+        console.debug("level fixed_idx range: ", level_fixed_idx_start, " - ", level_fixed_idx_end);
 
         // Any type has at least one fixed leaf. Structs assert that too.
         FixedLeaf fixed_leafs_buffer[total_fixed_leafs];
@@ -760,14 +760,14 @@ struct TypeVisitor : public lexer::TypeVisitorBase<TypeT> {
         std::sort(variant_leaf_metas, variant_leaf_metas + variant_count, [](const VariantLeafMeta& a, const VariantLeafMeta& b) {
             return a.required_space > b.required_space;
         });
-        logger::debug(max_used_space, " ", variant_leaf_metas[0].required_space);
+        console.debug(max_used_space, " ", variant_leaf_metas[0].required_space);
         BSSERT(variant_leaf_metas[0].required_space == max_used_space, "Sorting of variants' leaf metadata invalid")
           
         // try perferect layout
         const auto layout = find_perfect_variant_layout_st(variant_leaf_metas, fixed_leafs_buffer, variant_fields_buffer, variant_count);
         print_leaf_sizes("layout", layout);
         if (layout.align1 != max_used_space) {
-            logger::warn("Could not find perfect layout for variant.");
+            console.warn("Could not find perfect layout for variant.");
         }
         uint16_t ordered_idx = level_fixed_idx_start;
 
@@ -791,7 +791,7 @@ struct TypeVisitor : public lexer::TypeVisitorBase<TypeT> {
 
         BSSERT(ordered_idx == level_fixed_idx_end);
         
-        logger::debug(
+        console.debug(
             "current_fixed_idx_base: ", state.mutable_state->current_fixed_idx_base,
             ", start_variant_idx: ", level_fixed_idx_start,
             ", end_variant_idx: ", level_fixed_idx_end
@@ -811,14 +811,14 @@ struct TypeVisitor : public lexer::TypeVisitorBase<TypeT> {
             INTERNAL_ERROR("Dynamic variant in array not supported");
         } else {
             const uint16_t variant_count = dynamic_variant_type->variant_count;
-            logger::debug("variant_count: ", variant_count);
-            logger::debug("max_alignment: ", dynamic_variant_type->max_alignment);
-            logger::debug("stored_size_size: ", dynamic_variant_type->stored_size_size, ", lexer::SIZE:SIZE_1: ", lexer::SIZE::SIZE_1);
-            logger::debug("size_size: ", dynamic_variant_type->size_size);
-            logger::debug("level_fixed_leafs: ", dynamic_variant_type->level_fixed_leaf_counts.total());
-            logger::debug("level_var_leafs: ", dynamic_variant_type->level_total_var_leafs);
+            console.debug("variant_count: ", variant_count);
+            console.debug("max_alignment: ", dynamic_variant_type->max_alignment);
+            console.debug("stored_size_size: ", dynamic_variant_type->stored_size_size, ", lexer::SIZE:SIZE_1: ", lexer::SIZE::SIZE_1);
+            console.debug("size_size: ", dynamic_variant_type->size_size);
+            console.debug("level_fixed_leafs: ", dynamic_variant_type->level_fixed_leaf_counts.total());
+            console.debug("level_var_leafs: ", dynamic_variant_type->level_total_var_leafs);
 
-            logger::debug("[variant_id] outer_array_length: ", outer_array_length);
+            console.debug("[variant_id] outer_array_length: ", outer_array_length);
             if (variant_count <= UINT8_MAX) {
                 state.reserve_next<is_fixed, in_variant, lexer::SIZE::SIZE_1>(outer_array_length);
             } else {
@@ -827,8 +827,8 @@ struct TypeVisitor : public lexer::TypeVisitorBase<TypeT> {
 
             const lexer::SIZE stored_size_size = dynamic_variant_type->stored_size_size;
             const uint16_t leaf_idx = state.next_idx<true, in_variant>(stored_size_size);
-            logger::debug("VARIANT size leaf_idx: ", leaf_idx);
-            logger::debug("DYNAMIC_VARIANT stored_size_size: ", stored_size_size);
+            console.debug("VARIANT size leaf_idx: ", leaf_idx);
+            console.debug("DYNAMIC_VARIANT stored_size_size: ", stored_size_size);
             state.const_state.fixed_offsets[leaf_idx] = stored_size_size.byte_size();
 
             const uint16_t map_idx = state.next_map_idx();
@@ -852,8 +852,8 @@ struct TypeVisitor : public lexer::TypeVisitorBase<TypeT> {
 
             lexer::LeafCounts::Counts level_fixed_leaf_positions = create_positions(level_fixed_leaf_counts, level_fixed_idx_start);
 
-            logger::debug("level fixed_idx range: [", level_fixed_idx_start, ", ", level_fixed_idx_end, ")");
-            logger::debug("level var_idx range: [", level_var_idx_start, ", ", level_var_idx_end, ")");
+            console.debug("level fixed_idx range: [", level_fixed_idx_start, ", ", level_fixed_idx_end, ")");
+            console.debug("level var_idx range: [", level_var_idx_start, ", ", level_var_idx_end, ")");
             uint64_t max_offset = 0;
             uint64_t min_offset = UINT64_MAX;
             
@@ -917,7 +917,7 @@ struct TypeVisitor : public lexer::TypeVisitorBase<TypeT> {
                 max_offset *= outer_array_length;
             }
 
-            logger::debug(
+            console.debug(
                 "current_fixed_idx_base: ", state.mutable_state->current_fixed_idx_base,
                 ", max_offset: ", max_offset,
                 ", start_variant_idx: ", level_fixed_idx_start,
@@ -967,7 +967,7 @@ GenerateResult generate (
     const uint16_t total_variant_fixed_leafs = target_struct->total_variant_fixed_leafs;
     
     // uint64_t var_leaf_sizes[total_var_leafs];
-    logger::debug("total var leafs: ", total_var_leafs);
+    console.debug("total var leafs: ", total_var_leafs);
     ALLOCA_SAFE(var_leaf_sizes, uint64_t, total_var_leafs);
     ALLOCA_SAFE(size_leafe_idxs, uint16_t, total_var_leafs);
     ALLOCA_SAFE(variant_fields_buffer, VariantField, level_fixed_variants);
@@ -1012,10 +1012,10 @@ GenerateResult generate (
     }
 
     for (uint16_t i = 0; i < total_fixed_leafs; i++) {
-        logger::debug("Fixed leaf: i: ", i, ", size: ", const_state.fixed_offsets[i].get_offset());
+        console.debug("Fixed leaf: i: ", i, ", size: ", const_state.fixed_offsets[i].get_offset());
     }
     for (uint16_t i = total_fixed_leafs; i < total_fixed_leafs + total_variant_fixed_leafs; i++) {
-        logger::debug("Variant leaf: i: ", i, ", size: ", const_state.fixed_offsets[i].get_offset());
+        console.debug("Variant leaf: i: ", i, ", size: ", const_state.fixed_offsets[i].get_offset());
     }
 
     uint64_t offset = 0;
@@ -1030,10 +1030,10 @@ GenerateResult generate (
     );
 
     for (uint16_t i = 0; i < total_fixed_leafs; i++) {
-        logger::debug("Fixed leaf: i: ", i, ", offset: ", const_state.fixed_offsets[i].get_offset());
+        console.debug("Fixed leaf: i: ", i, ", offset: ", const_state.fixed_offsets[i].get_offset());
     }
     for (uint16_t i = total_fixed_leafs; i < total_fixed_leafs + total_variant_fixed_leafs; i++) {
-        logger::debug("Variant leaf: i: ", i, ", offset: ", const_state.fixed_offsets[i].get_offset());
+        console.debug("Variant leaf: i: ", i, ", offset: ", const_state.fixed_offsets[i].get_offset());
     }
 
 

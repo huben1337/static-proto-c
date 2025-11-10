@@ -66,13 +66,13 @@ struct OffsetsAccessor {
 
     [[nodiscard]] uint16_t next_map_idx () const {
         uint16_t map_idx = (*current_map_idx)++;
-        logger::debug("next_map_idx: ", map_idx);
+        console.debug("next_map_idx: ", map_idx);
         return idx_map[map_idx];
     }
 
     [[nodiscard]] uint16_t next_variant_field_idx () const {
         uint16_t variant_field_idx = (*current_variant_field_idx)++;
-        logger::debug("next_variant_field_idx: ", variant_field_idx);
+        console.debug("next_variant_field_idx: ", variant_field_idx);
         return variant_field_idx;
     }
 
@@ -87,7 +87,7 @@ struct OffsetsAccessor {
     [[nodiscard]] Buffer::View<uint64_t> next_var_offset () const {
         auto idx = next_map_idx();
         auto offset = var_offsets[idx];
-        logger::debug("next_var_offset at: ", idx, ", start_idx: ", offset.start_idx.value, ", length: ", offset.length);
+        console.debug("next_var_offset at: ", idx, ", start_idx: ", offset.start_idx.value, ", length: ", offset.length);
         return offset;
     }
 };
@@ -706,7 +706,7 @@ requires(!std::is_reference_v<CodeT>)
     .method(unique_name, get_name(additional_args, unique_name));
     if constexpr (is_dynamic_variant_element<ArgsT>) {
         if (additional_args.offset.empty()) {
-            logger::debug("[gen_field_access_method_no_array] additional_args.offset is empty");
+            console.debug("[gen_field_access_method_no_array] additional_args.offset is empty");
             field_method = field_method
             .line(ctor_used);
         } else {
@@ -843,7 +843,7 @@ struct TypeVisitor : lexer::TypeVisitorBase<TypeT, codegen::UnknownStructBase, c
             const ArrayCtorStrs array_ctor_strs = make_array_ctor_strs(array_depth);
 
             const uint16_t size_leaf_idx = (*current_size_leaf_idx)++;
-            logger::debug("STRING size_leaf_idx: ", size_leaf_idx);
+            console.debug("STRING size_leaf_idx: ", size_leaf_idx);
 
             auto unique_name = get_unique_name(additional_args);
 
@@ -1011,7 +1011,7 @@ struct TypeVisitor : lexer::TypeVisitorBase<TypeT, codegen::UnknownStructBase, c
             }.visit(codegen::UnknownStructBase{std::move(array_struct)});
 
             const uint16_t size_leaf_idx = (*current_size_leaf_idx)++;
-            logger::debug("ARRAY size_leaf_idx:", size_leaf_idx);
+            console.debug("ARRAY size_leaf_idx:", size_leaf_idx);
             level_size_leafs[size_leaf_idx] = {
                 array_type->length,
                 offsets_accessor.next_map_idx(),
@@ -1159,7 +1159,7 @@ struct TypeVisitor : lexer::TypeVisitorBase<TypeT, codegen::UnknownStructBase, c
             }
 
             const uint16_t size_leaf_idx = (*current_size_leaf_idx)++;
-            logger::debug("ARRAY size_leaf_idx: ", size_leaf_idx);
+            console.debug("ARRAY size_leaf_idx: ", size_leaf_idx);
             level_size_leafs[size_leaf_idx] = {
                 dynamic_variant_type->min_byte_size,
                 offsets_accessor.next_map_idx(),
@@ -1249,7 +1249,7 @@ struct TypeVisitor : lexer::TypeVisitorBase<TypeT, codegen::UnknownStructBase, c
                 .field("uint32_t", codegen::StringParts{"idx_", i});
             }
             if constexpr (is_dynamic_variant_element<ArgsT>) {
-                logger::debug("Adding size leafs, variant_depth: ", additional_args.variant_depth);
+                console.debug("Adding size leafs, variant_depth: ", additional_args.variant_depth);
                 variant_struct = add_size_leafs(level_size_leafs, offsets_accessor.fixed_offsets, std::move(variant_struct));
             }
             code = variant_struct
@@ -1353,7 +1353,7 @@ struct TypeVisitor : lexer::TypeVisitorBase<TypeT, codegen::UnknownStructBase, c
 // current_size_leaf_idx only is needed for var size leafs
 
 void print_leafs (std::string_view name, lexer::LeafCounts::Counts counts) {
-    logger::debug(name, ": {8:", counts.align1, ", 16:", counts.align2, ", 32:", counts.align4, ", 64:", counts.align8, ", total:", counts.total(), "}");
+    console.debug(name, ": {8:", counts.align1, ", 16:", counts.align2, ", 32:", counts.align4, ", 64:", counts.align8, ", total:", counts.total(), "}");
 }
 
 void generate (
@@ -1375,21 +1375,21 @@ void generate (
     const uint16_t level_size_leafs_count = target_struct->level_size_leafs;
     print_leafs("fixed_leaf_counts", fixed_leaf_counts);
     print_leafs("var_leaf_counts", var_leaf_counts);
-    logger::debug("level_fixed_variants: ", level_fixed_variants);
-    logger::debug("level_variant_fields: ", target_struct->level_variant_fields, " vs ", level_fixed_variants);
-    logger::debug("total_variant_fixed_leafs: ", total_variant_fixed_leafs);
-    logger::debug("total_variant_var_leafs: ", total_variant_var_leafs);
-    logger::debug("total_leafs: ", total_leafs);
-    logger::debug("level_size_leafs: ", level_size_leafs_count);
+    console.debug("level_fixed_variants: ", level_fixed_variants);
+    console.debug("level_variant_fields: ", target_struct->level_variant_fields, " vs ", level_fixed_variants);
+    console.debug("total_variant_fixed_leafs: ", total_variant_fixed_leafs);
+    console.debug("total_variant_var_leafs: ", total_variant_var_leafs);
+    console.debug("total_leafs: ", total_leafs);
+    console.debug("level_size_leafs: ", level_size_leafs_count);
 
     std::string_view struct_name = target_struct->name;
-    logger::debug("fixed_offsets length: ", total_fixed_leafs + total_variant_fixed_leafs);
+    console.debug("fixed_offsets length: ", total_fixed_leafs + total_variant_fixed_leafs);
     // Any struct and therfore target requires at least one member has
     FixedOffset fixed_offsets[total_fixed_leafs + total_variant_fixed_leafs];
-    logger::debug("fixed_offsets ptr: ", size_t(fixed_offsets));
-    logger::debug("var_offsets length: ", total_var_leafs + total_variant_var_leafs);
+    console.debug("fixed_offsets ptr: ", size_t(fixed_offsets));
+    console.debug("var_offsets length: ", total_var_leafs + total_variant_var_leafs);
     ALLOCA_SAFE(var_offsets, Buffer::View<uint64_t>, total_var_leafs + total_variant_var_leafs);
-    logger::debug("idx_map length: ", total_leafs);
+    console.debug("idx_map length: ", total_leafs);
     // total_leafs has the fixed leaf count in its sum which is garunteed to be at least 1
     uint16_t idx_map[total_leafs];
 

@@ -42,7 +42,7 @@ requires (link_type == LINK_TYPE::FIXED_LEAF || link_type == LINK_TYPE::VARIANT_
         if (old_chain_entry.type != LINK_TYPE::EMPTY) {
             ChainLink& new_chain_entry = sum_chains[i + num];
             if (new_chain_entry.type == LINK_TYPE::EMPTY) {
-                // logger::debug("set sum_chains at: ", i + num, ", type: ", uint8_t(link_type));
+                // console.debug("set sum_chains at: ", i + num, ", type: ", uint8_t(link_type));
                 new_chain_entry = ChainLink{idx, link_type, alignment};
             }
         }

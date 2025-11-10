@@ -14,9 +14,9 @@
 
 
 int main (int argc, const char** argv) {
-    logger::debug("spc.exe");
+    console.debug("spc.exe");
     if (argc <= 2) {
-        logger::error("no output and/or input supplied");
+        console.error("no output and/or input supplied");
         return 1;
     }
 
@@ -38,7 +38,7 @@ int main (int argc, const char** argv) {
 
     const auto input_file_size = input_file.stat.st_size;
     if (input_file_size <= 0) {
-        logger::error("Input file had invalid size of: ", input_file_size);
+        console.error("Input file had invalid size of: ", input_file_size);
         return 1;
     }
 
@@ -46,14 +46,14 @@ int main (int argc, const char** argv) {
     auto read_result = read(input_file.fd, input_buffer, input_file_size);
     input_buffer[input_file_size] = 0;
     if (read_result != input_file_size) {
-        logger::error("read size mismatch");
+        console.error("read size mismatch");
         return 1;
     }
     close(input_file.fd);
 
     global::input::start = input_buffer;
 
-    logger::debug("Lexing input of length: ", input_file_size);
+    console.debug("Lexing input of length: ", input_file_size);
 
     auto start_ts = std::chrono::high_resolution_clock::now();
 
@@ -64,12 +64,12 @@ int main (int argc, const char** argv) {
     decode_code::generate(target_struct, ReadOnlyBuffer{ast_buffer}, output_file.fd);
 
     if (close(output_file.fd) != 0) {
-        logger::error("could not close output file");
+        console.error("could not close output file");
         return 1;
     };
 
     auto end_ts = std::chrono::high_resolution_clock::now();
     auto duration = std::chrono::duration_cast<std::chrono::milliseconds>(end_ts - start_ts);
-    logger::info("Time taken: ", duration.count(), " milliseconds");
+    console.info("Time taken: ", duration.count(), " milliseconds");
     return 0;
 }

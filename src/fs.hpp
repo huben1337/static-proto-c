@@ -25,7 +25,7 @@ inline char* realpath (const std::string& path, char* resolved_path) {
     char* res = ::realpath(path.data(), resolved_path);
     #endif
     if (res == nullptr) {
-        logger::error("could not get real path for: ", path, " ERRNO: ", errno);
+        console.error("could not get real path for: ", path, " ERRNO: ", errno);
         std::exit(1);
     }
     return res;
@@ -45,7 +45,7 @@ int set_nonblocking (int fd) {
     // NOLINTNEXTLINE(cppcoreguidelines-pro-type-vararg)
     int flags = fcntl(fd, F_GETFL);
     if (flags == -1) {
-        logger::error("fcntl could not get file flags, ERRNO: ", errno);
+        console.error("fcntl could not get file flags, ERRNO: ", errno);
     }
     return set_nonblocking(fd, flags);
 }
@@ -59,7 +59,7 @@ struct OpenWithStatsResult {
 inline struct stat get_stat (const std::string_view& path, int fd) {
     struct stat stat{};
     if (fstat(fd, &stat) != 0) {
-        logger::error("could not get file status for: ", path, " ERRNO: ", errno);
+        console.error("could not get file status for: ", path, " ERRNO: ", errno);
         std::exit(1);
     }
     return stat;
@@ -67,7 +67,7 @@ inline struct stat get_stat (const std::string_view& path, int fd) {
 
 inline void fail_negative_fd (const std::string_view& path, int fd)  {
     if (fd >= 0) return;
-    logger::error("could not open file: ", path, " ERRNO: ", errno);
+    console.error("could not open file: ", path, " ERRNO: ", errno);
     std::exit(1);
 }
 
@@ -92,7 +92,7 @@ inline OpenWithStatsResult open_with_stat (const std::string& path) {
 
 inline OpenWithStatsResult open_with_stat (const std::string& path, int flags) {
     if ((flags & O_CREAT) != 0) {
-        logger::warn("File will be created but creating flags are not set!");
+        console.warn("File will be created but creating flags are not set!");
     }
     // NOLINTNEXTLINE(cppcoreguidelines-pro-type-vararg)
     int fd = open(path.data(), flags);
@@ -111,7 +111,7 @@ inline OpenWithStatsResult open_with_stat (const std::string& path, int flags, u
 
 inline void assert_regular (const std::string_view& path, const struct stat& stat) {
     if (S_ISREG(stat.st_mode)) return;
-    logger::error("file ", path, " is not a regular file");
+    console.error("file ", path, " is not a regular file");
     std::exit(1);
 }
 
