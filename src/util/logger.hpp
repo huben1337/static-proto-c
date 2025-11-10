@@ -484,9 +484,9 @@ private:
     template <StringLiteral value, bool has_buffered, bool buffered, bool no_newline>
     [[gnu::always_inline]] void _write_value () {
         if constexpr (no_newline) {
-            write<!has_buffered, !buffered>(value + "\n"_sl);
-        } else {
             write<!has_buffered, !buffered>(value);
+        } else {
+            write<!has_buffered, !buffered>(value + "\n"_sl);
         }
     }
 
