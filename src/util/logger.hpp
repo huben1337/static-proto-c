@@ -13,6 +13,7 @@
 #include <limits>
 #include <concepts>
 #include <boost/preprocessor/stringize.hpp>
+#include <nameof.hpp>
 
 #include "../util/string_literal.hpp"
 #include "../fast_math/log.hpp"
@@ -181,50 +182,47 @@ namespace escape_sequences {
     } // namespace colors
 } // namespace escape_sequences
 
-template <typename T>
-static constexpr bool is_trially_loggable_v =
+namespace logger_detail {
+    template <bool outer_is_first_, bool outer_is_last_>
+    struct writer_params {
+        static constexpr bool outer_is_first = outer_is_first_;
+        static constexpr bool outer_is_last = outer_is_last_;
+    };
+
+    template <typename ParamsT>
+    class writer;
+}
+
+template <typename T> 
+concept trivially_loggable =
        std::is_same_v<std::string_view, T>
     || std::is_constructible_v<std::string_view, T> 
     || std::is_integral_v<T>
     || estd::is_char_array_v<T>
     || is_string_literal_v<T>;
 
+template <typename T>
+concept custom_loggable = requires (T t) {
+    { t.log(std::declval<logger_detail::writer<logger_detail::writer_params<false, false>>>()) } -> std::same_as<void>;
+    { t.log(std::declval<logger_detail::writer<logger_detail::writer_params<false, true >>>()) } -> std::same_as<void>;
+    { t.log(std::declval<logger_detail::writer<logger_detail::writer_params<true , false>>>()) } -> std::same_as<void>;
+    { t.log(std::declval<logger_detail::writer<logger_detail::writer_params<true , true >>>()) } -> std::same_as<void>;
+};
+
+
+template <typename T>
+concept loggable = trivially_loggable<T> || custom_loggable<T>;
 
 class logger : estd::unique_only {
-    template <bool outer_is_first_, bool outer_is_last_>
-    struct writer_params {
-        static constexpr bool outer_is_first = outer_is_first_;
-        static constexpr bool outer_is_last = outer_is_last_;
-    };
 public:
+    template <typename ParamsT>
+    friend class logger_detail::writer;
     /* Example implementation of loggable
-        `template <typename... ll_params>
-        void log (logger::ll<ll_params...> ll) const`
+    ```template <typename writer_params>
+        void log (const logger::writer<writer_params>& lw) const```
     */
     template <typename ParamsT>
-    class writer : estd::unique_only {
-    public:
-        friend class logger;
-    private:
-        static constexpr bool outer_is_first = ParamsT::outer_is_first;
-        static constexpr bool outer_is_last = ParamsT::outer_is_last;
-        logger& target;
-
-        [[gnu::always_inline]] constexpr explicit writer (logger& target) : target(target) {}
-
-    public:
-        template <bool is_first, bool is_last, typename FirstT, typename... RestT>
-        [[gnu::always_inline]] void write (FirstT&& first, RestT&&... rest) const {
-            constexpr bool has_rest = sizeof...(RestT) > 0;
-            target.write<
-                outer_is_first && is_first,
-                outer_is_last && is_last && !has_rest
-            >(std::forward<FirstT>(first));
-            if constexpr (has_rest) {
-                write<false, is_last>(std::forward<RestT>(rest)...);
-            }
-        }
-    };
+    using writer = logger_detail::writer<ParamsT>;
 
     static constexpr size_t buffer_size = 1 << 12;
     static constexpr size_t buffer_alignment = std::max(buffer_size, 4096UL);
@@ -384,9 +382,9 @@ private:
         return write_string_view<is_first, is_last>(static_cast<const char*>(value.data), N - 1);
     }
     template <bool is_first, bool is_last, typename T>
-    requires (!is_trially_loggable_v<std::remove_cvref_t<T>>)
+    requires (!trivially_loggable<std::remove_cvref_t<T>>)
     [[gnu::always_inline]] void write (const T& loggable) {
-        loggable.log(writer<writer_params<is_first, is_last>>{*this});
+        loggable.log(writer<logger_detail::writer_params<is_first, is_last>>{*this});
     }
 
     template <bool is_first, bool is_last, char C>
@@ -587,22 +585,79 @@ public:
     }
 };
 
+namespace logger_detail {
+    template <typename ParamsT>
+    class writer : estd::unique_only {
+    public:
+        friend class ::logger;
+    private:
+        static constexpr bool outer_is_first = ParamsT::outer_is_first;
+        static constexpr bool outer_is_last = ParamsT::outer_is_last;
+        logger& target;
+
+        [[gnu::always_inline]] constexpr explicit writer (logger& target) : target(target) {}
+
+    public:
+        template <bool is_first, bool is_last, typename FirstT, typename... RestT>
+        [[gnu::always_inline]] void write (FirstT&& first, RestT&&... rest) const {
+            constexpr bool has_rest = sizeof...(RestT) > 0;
+            target.write<
+                outer_is_first && is_first,
+                outer_is_last && is_last && !has_rest
+            >(std::forward<FirstT>(first));
+            if constexpr (has_rest) {
+                write<false, is_last>(std::forward<RestT>(rest)...);
+            }
+        }
+    };
+}
+
 static logger console{"/dev/stdout"};
 
 template <StringLiteral auto_msg, typename... ArgsT>
 [[noreturn, gnu::noinline, gnu::cold]] void bssert_fail (ArgsT&&... args) {
-    console.error<false, auto_msg + " with "_sl>(std::forward<ArgsT>(args)...);
+    if constexpr (sizeof...(ArgsT) > 0) {
+        console.error<false, auto_msg + " with "_sl>(std::forward<ArgsT>(args)...);
+    } else {
+        console.error<false, auto_msg>();
+    }
     std::exit(1);
 }
 
-template <StringLiteral auto_msg>
-[[noreturn, gnu::noinline, gnu::cold]] void bssert_fail () {
-    console.error<false, auto_msg>();
+#define BSSERT(EXPR, ...)                                                                                   \
+/* NOLINTNEXTLINE(readability-simplify-boolean-expr) */                                                     \
+if (!(EXPR)) {                                                                                              \
+    bssert_fail<"Assertion `" #EXPR "` at " __FILE__ ":" BOOST_PP_STRINGIZE(__LINE__) " failed">(__VA_ARGS__); \
+}
+
+template<StringLiteral auto_msg, StringLiteral op, typename T, typename U, typename... ArgsT>
+[[noreturn, gnu::noinline, gnu::cold]] void cssert_fail (T&& lhs, U&& rhs, ArgsT&&... args) {
+    console.log<true, true, logger::error_prefix + auto_msg>();
+    if constexpr (loggable<std::remove_cvref_t<T>>) {
+        console.log<true, true>(std::forward<T>(lhs), op);
+    } else {
+        static constexpr auto lhs_type_name = string_literal::from_([](){ return nameof::nameof_type<T>(); });
+        console.log<true, true, lhs_type_name + "{?}"_sl + op>();
+    }
+    if constexpr (loggable<std::remove_cvref_t<U>>) {
+        if constexpr (sizeof...(ArgsT) > 0) {
+            console.log<false, false>(std::forward<U>(rhs), "` and ", std::forward<ArgsT>(args)...);
+        } else {
+            console.log<true, false>(std::forward<U>(rhs), "`\n");
+        }
+    } else {
+        static constexpr auto rhs_type_name = string_literal::from_([](){ return nameof::nameof_type<U>(); });
+        if constexpr (sizeof...(ArgsT) > 0) {
+            console.log<false, false, rhs_type_name + "{?}` and "_sl>(std::forward<ArgsT>(args)...);
+        } else {
+            console.log<true, false, rhs_type_name + "{?}`\n"_sl>();
+        }
+    }
     std::exit(1);
 }
 
-#define BSSERT(EXPR, MORE...)                                                                       \
-/* NOLINTNEXTLINE(readability-simplify-boolean-expr) */                                             \
-if (!(EXPR)) {                                                                                      \
-    bssert_fail<"Assertion " #EXPR " failed at " __FILE__ ":" BOOST_PP_STRINGIZE(__LINE__)>(MORE);  \
+#define CSSERT(LHS, OP, RHS, ...)                                                                                                                              \
+/* NOLINTNEXTLINE(readability-simplify-boolean-expr) */                                                                                                        \
+if (!(LHS OP RHS)) {                                                                                                                                           \
+    cssert_fail<"Assertion `" #LHS " " #OP " " #RHS "` at " __FILE__ ":" BOOST_PP_STRINGIZE(__LINE__) " failed with `", " " #OP " ">(LHS, RHS, ##__VA_ARGS__); \
 }
