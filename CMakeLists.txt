@@ -233,6 +233,10 @@ endif()
 set(CMAKE_COLOR_MAKEFILE ON)
 set(CMAKE_COLOR_DIAGNOSTICS ON)
 
+############ EXTERNAL ############
+add_subdirectory(extern/nameof)
+
+
 
 ############ TARGET ############
 message(STATUS "Main source file: ${MAIN_SRC}")
@@ -243,6 +247,8 @@ set_target_properties(spc
  PROPERTIES LINK_SEARCH_START_STATIC ON
  CXX_VISIBILITY_PRESET hidden
 )
+
+target_link_libraries(spc PRIVATE nameof)
 
 ############ LOG INCLUDES ############
 get_target_property(LIB_INCLUDES spc INCLUDE_DIRECTORIES)
