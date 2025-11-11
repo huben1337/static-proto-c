@@ -1,11 +1,12 @@
 ---
 CompileFlags:
-  # CompilationDatabase: "./build/unix-make-clang"
+  CompilationDatabase: "./build/unix-make-clang"
   Add: [
-    -std=gnu++23,
-    -march=native,
-    -fconstexpr-depth=1000,
-    -fconstexpr-steps=100000000,
+    # -std=gnu++23,
+    # -march=native,
+    # -fconstexpr-depth=1000,
+    # -fconstexpr-steps=100000000,
+    # -I/home/huben/Projects/static-proto-c/extern/nameof/include,
     # -I/home/huben/Projects/static-proto-c/include/quickcpplib/include,
     # -I/home/huben/Projects/static-proto-c/include/outcome/include,
     # -I/home/huben/Projects/static-proto-c/include/llfio/include,
