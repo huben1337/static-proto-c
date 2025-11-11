@@ -2,11 +2,9 @@
 
 #include <cstddef>
 #include <array>
-#include <exception>
 #include <string_view>
 #include <utility>
 #include <type_traits>
-#include <concepts>
 #include "../helper/ce.hpp"
 #include "../estd/utility.hpp"
 
@@ -142,7 +140,8 @@ namespace string_literal {
             return {{((void)Indecies, c)..., '\0'}};
         }
 
-        template <std::integral T, T value>
+        template <auto value>
+        requires (std::is_integral_v<decltype(value)>)
         consteval auto _from () {
             constexpr size_t sign_size = value < 0;
             constexpr auto unsigned_value = sign_size ? -value : value;
@@ -156,16 +155,29 @@ namespace string_literal {
                 data[length - i - 1] = '0' + (v % 10);
                 v /= 10;
             }
-            data[length] = '\0';
-            return StringLiteral{data};
+            data[length] = 0;
+            return StringLiteral<length + 1>{data};
         }
     }
 
     template <char c, size_t N>
     constexpr StringLiteral<N + 1> of = _of<c, N>(std::make_index_sequence<N>{});
 
-    template <auto value>
-    constexpr auto from = _from<decltype(value), value>();
+    template <auto... values>
+    constexpr auto from = _from<values...>();
+
+    template <typename T>
+    requires (std::is_invocable_r_v<std::string_view, T>)
+    consteval auto from_ (T provider) {
+        constexpr std::string_view sv = provider();
+        constexpr const char* begin = sv.begin();
+        constexpr size_t length = sv.length();
+        constexpr size_t N = length + (begin[length] == 0 ? 0 : 1);
+        char data[N];
+        for (size_t i = 0; i < length; i++) {
+            data[i] = begin[i];
+        }
+        data[N - 1] = 0;
+        return StringLiteral<N>{data};
 }
-constexpr char b[] = {'a', 'b', '\0'};
-constexpr auto a = StringLiteral{b};
+}
