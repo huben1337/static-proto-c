@@ -9,6 +9,7 @@
 #include <utility>
 #include <boost/unordered/unordered_flat_map.hpp>
 
+#include "../base.hpp"
 #include "../container/memory.hpp"
 #include "./memory_helpers.hpp"
 #include "../estd/empty.hpp"
@@ -133,7 +134,7 @@ template <SIZE size>
 requires (size != SIZE::SIZE_0 && size != SIZE::SIZE_8)
 constexpr SIZE next_bigger_size = size_helper::next_bigger_size<size>;
 
-template <typename T>
+template<typename T, lexer::SIZE max_align = lexer::SIZE::SIZE_8>
 struct AlignMembersBase {
     T align1;
     T align2;
@@ -167,6 +168,120 @@ struct AlignMembersBase {
             case SIZE::SIZE_2: return align2;                                           \
             case SIZE::SIZE_4: return align4;                                           \
             case SIZE::SIZE_8: return align8;                                           \
+            default: std::unreachable();                                                \
+        }                                                                               \
+    }
+
+    ALIGN_MEMBER_GET_CT_ARG(T, )
+    ALIGN_MEMBER_GET_CT_ARG(T, const)
+    ALIGN_MEMBER_GET_RT_ARG(T, )
+    ALIGN_MEMBER_GET_RT_ARG(T, const)
+
+    #undef ALIGN_MEMBER_GET_CT_ARG
+    #undef ALIGN_MEMBER_GET_RT_ARG
+};
+template<typename T>
+struct AlignMembersBase<T, lexer::SIZE::SIZE_4> {
+    T align1;
+    T align2;
+    T align4;
+
+    constexpr AlignMembersBase() = default;
+    constexpr AlignMembersBase (const T& align1, const T& align2, const T& align4)
+    : align1(align1), align2(align2), align4(align4) {}
+
+    #define ALIGN_MEMBER_GET_CT_ARG(RETURN_TYPE, CONST_ATTR)            \
+    template <lexer::SIZE size>                                         \
+    [[nodiscard]] constexpr CONST_ATTR RETURN_TYPE& get () CONST_ATTR { \
+        if constexpr (size == lexer::SIZE::SIZE_4) {                    \
+            return align4;                                              \
+        } else if constexpr (size == lexer::SIZE::SIZE_2) {             \
+            return align2;                                              \
+        } else if constexpr (size == lexer::SIZE::SIZE_1) {             \
+            return align1;                                              \
+        } else {                                                        \
+            static_assert(false, "Invalid size");                       \
+        }                                                               \
+    }
+
+    #define ALIGN_MEMBER_GET_RT_ARG(RETURN_TYPE, CONST_ATTR)                            \
+    [[nodiscard]] constexpr CONST_ATTR RETURN_TYPE& get (lexer::SIZE size) CONST_ATTR { \
+        switch (size) {                                                                 \
+            case SIZE::SIZE_1: return align1;                                           \
+            case SIZE::SIZE_2: return align2;                                           \
+            case SIZE::SIZE_4: return align4;                                           \
+            default: std::unreachable();                                                \
+        }                                                                               \
+    }
+
+    ALIGN_MEMBER_GET_CT_ARG(T, )
+    ALIGN_MEMBER_GET_CT_ARG(T, const)
+    ALIGN_MEMBER_GET_RT_ARG(T, )
+    ALIGN_MEMBER_GET_RT_ARG(T, const)
+
+    #undef ALIGN_MEMBER_GET_CT_ARG
+    #undef ALIGN_MEMBER_GET_RT_ARG
+};
+template<typename T>
+struct AlignMembersBase<T, lexer::SIZE::SIZE_2> {
+    T align1;
+    T align2;
+
+    constexpr AlignMembersBase() = default;
+    constexpr AlignMembersBase (const T& align1, const T& align2)
+    : align1(align1), align2(align2) {}
+
+    #define ALIGN_MEMBER_GET_CT_ARG(RETURN_TYPE, CONST_ATTR)            \
+    template <lexer::SIZE size>                                         \
+    [[nodiscard]] constexpr CONST_ATTR RETURN_TYPE& get () CONST_ATTR { \
+        if constexpr (size == lexer::SIZE::SIZE_2) {                    \
+            return align2;                                              \
+        } else if constexpr (size == lexer::SIZE::SIZE_1) {             \
+            return align1;                                              \
+        } else {                                                        \
+            static_assert(false, "Invalid size");                       \
+        }                                                               \
+    }
+
+    #define ALIGN_MEMBER_GET_RT_ARG(RETURN_TYPE, CONST_ATTR)                            \
+    [[nodiscard]] constexpr CONST_ATTR RETURN_TYPE& get (lexer::SIZE size) CONST_ATTR { \
+        switch (size) {                                                                 \
+            case SIZE::SIZE_1: return align1;                                           \
+            case SIZE::SIZE_2: return align2;                                           \
+            default: std::unreachable();                                                \
+        }                                                                               \
+    }
+
+    ALIGN_MEMBER_GET_CT_ARG(T, )
+    ALIGN_MEMBER_GET_CT_ARG(T, const)
+    ALIGN_MEMBER_GET_RT_ARG(T, )
+    ALIGN_MEMBER_GET_RT_ARG(T, const)
+
+    #undef ALIGN_MEMBER_GET_CT_ARG
+    #undef ALIGN_MEMBER_GET_RT_ARG
+};
+template<typename T>
+struct AlignMembersBase<T, lexer::SIZE::SIZE_1> {
+    T align1;
+
+    constexpr AlignMembersBase() = default;
+    constexpr explicit AlignMembersBase (const T& align1)
+    : align1(align1) {}
+
+    #define ALIGN_MEMBER_GET_CT_ARG(RETURN_TYPE, CONST_ATTR)            \
+    template <lexer::SIZE size>                                         \
+    [[nodiscard]] constexpr CONST_ATTR RETURN_TYPE& get () CONST_ATTR { \
+        if constexpr (size == lexer::SIZE::SIZE_1) {                    \
+            return align1;                                              \
+        } else {                                                        \
+            static_assert(false, "Invalid size");                       \
+        }                                                               \
+    }
+
+    #define ALIGN_MEMBER_GET_RT_ARG(RETURN_TYPE, CONST_ATTR)                            \
+    [[nodiscard]] constexpr CONST_ATTR RETURN_TYPE& get (lexer::SIZE size) CONST_ATTR { \
+        switch (size) {                                                                 \
+            case SIZE::SIZE_1: return align1;                                           \
             default: std::unreachable();                                                \
         }                                                                               \
     }
