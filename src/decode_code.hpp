@@ -722,10 +722,9 @@ requires(!std::is_reference_v<CodeT>)
     return std::move(code);
 }
 
-template <typename TypeT, bool is_fixed, bool in_array, typename ArgsT, typename BaseNameT>
-struct TypeVisitor : lexer::TypeVisitorBase<TypeT, codegen::UnknownStructBase, codegen::UnknownStructBase&&> {
+template <typename NextTypeT, bool is_fixed, bool in_array, typename ArgsT, typename BaseNameT>
+struct TypeVisitor {
     constexpr TypeVisitor (
-        const lexer::Type* const& field,
         const ReadOnlyBuffer& ast_buffer,
         BaseNameT&& base_name,
         const OffsetsAccessor& offsets_accessor,
@@ -734,17 +733,18 @@ struct TypeVisitor : lexer::TypeVisitorBase<TypeT, codegen::UnknownStructBase, c
         const ArgsT& additional_args,
         const ArrayLengths& array_lengths,
         const lexer::LeafSizes& pack_sizes
-    ) :
-    lexer::TypeVisitorBase<TypeT, codegen::UnknownStructBase, codegen::UnknownStructBase&&>{field},
-    ast_buffer(ast_buffer),
-    base_name(std::forward<BaseNameT>(base_name)),
-    offsets_accessor(offsets_accessor),
-    level_size_leafs(level_size_leafs),
-    current_size_leaf_idx(current_size_leaf_idx),
-    additional_args(additional_args),
-    array_lengths(array_lengths),
-    pack_sizes(pack_sizes)
-    {}
+    )
+        : ast_buffer(ast_buffer),
+        base_name(std::forward<BaseNameT>(base_name)),
+        offsets_accessor(offsets_accessor),
+        level_size_leafs(level_size_leafs),
+        current_size_leaf_idx(current_size_leaf_idx),
+        additional_args(additional_args),
+        array_lengths(array_lengths),
+        pack_sizes(pack_sizes) {}
+
+    using next_type_t = NextTypeT;
+    using result_t = lexer::Type::VisitResult<next_type_t, codegen::UnknownStructBase>;
 
     ReadOnlyBuffer ast_buffer;
     std::remove_cvref_t<BaseNameT> base_name;
@@ -767,19 +767,19 @@ struct TypeVisitor : lexer::TypeVisitorBase<TypeT, codegen::UnknownStructBase, c
         }
     }
 
-    [[nodiscard]] codegen::UnknownStructBase on_bool    (codegen::UnknownStructBase&& code) const override { return on_simple<lexer::FIELD_TYPE::BOOL   , "bool"    >(std::move(code)); }
-    [[nodiscard]] codegen::UnknownStructBase on_uint8   (codegen::UnknownStructBase&& code) const override { return on_simple<lexer::FIELD_TYPE::UINT8  , "uint8_t" >(std::move(code)); }
-    [[nodiscard]] codegen::UnknownStructBase on_uint16  (codegen::UnknownStructBase&& code) const override { return on_simple<lexer::FIELD_TYPE::UINT16 , "uint16_t">(std::move(code)); }
-    [[nodiscard]] codegen::UnknownStructBase on_uint32  (codegen::UnknownStructBase&& code) const override { return on_simple<lexer::FIELD_TYPE::UINT32 , "uint32_t">(std::move(code)); }
-    [[nodiscard]] codegen::UnknownStructBase on_uint64  (codegen::UnknownStructBase&& code) const override { return on_simple<lexer::FIELD_TYPE::UINT64 , "uint64_t">(std::move(code)); }
-    [[nodiscard]] codegen::UnknownStructBase on_int8    (codegen::UnknownStructBase&& code) const override { return on_simple<lexer::FIELD_TYPE::INT8   , "int8_t"  >(std::move(code)); }
-    [[nodiscard]] codegen::UnknownStructBase on_int16   (codegen::UnknownStructBase&& code) const override { return on_simple<lexer::FIELD_TYPE::INT16  , "int16_t" >(std::move(code)); }
-    [[nodiscard]] codegen::UnknownStructBase on_int32   (codegen::UnknownStructBase&& code) const override { return on_simple<lexer::FIELD_TYPE::INT32  , "int32_t" >(std::move(code)); }
-    [[nodiscard]] codegen::UnknownStructBase on_int64   (codegen::UnknownStructBase&& code) const override { return on_simple<lexer::FIELD_TYPE::INT64  , "int64_t" >(std::move(code)); }
-    [[nodiscard]] codegen::UnknownStructBase on_float32 (codegen::UnknownStructBase&& code) const override { return on_simple<lexer::FIELD_TYPE::FLOAT32, "float"   >(std::move(code)); }
-    [[nodiscard]] codegen::UnknownStructBase on_float64 (codegen::UnknownStructBase&& code) const override { return on_simple<lexer::FIELD_TYPE::FLOAT64, "double"  >(std::move(code)); }
+    [[nodiscard]] codegen::UnknownStructBase on_bool    (codegen::UnknownStructBase&& code) const { return on_simple<lexer::FIELD_TYPE::BOOL   , "bool"    >(std::move(code)); }
+    [[nodiscard]] codegen::UnknownStructBase on_uint8   (codegen::UnknownStructBase&& code) const { return on_simple<lexer::FIELD_TYPE::UINT8  , "uint8_t" >(std::move(code)); }
+    [[nodiscard]] codegen::UnknownStructBase on_uint16  (codegen::UnknownStructBase&& code) const { return on_simple<lexer::FIELD_TYPE::UINT16 , "uint16_t">(std::move(code)); }
+    [[nodiscard]] codegen::UnknownStructBase on_uint32  (codegen::UnknownStructBase&& code) const { return on_simple<lexer::FIELD_TYPE::UINT32 , "uint32_t">(std::move(code)); }
+    [[nodiscard]] codegen::UnknownStructBase on_uint64  (codegen::UnknownStructBase&& code) const { return on_simple<lexer::FIELD_TYPE::UINT64 , "uint64_t">(std::move(code)); }
+    [[nodiscard]] codegen::UnknownStructBase on_int8    (codegen::UnknownStructBase&& code) const { return on_simple<lexer::FIELD_TYPE::INT8   , "int8_t"  >(std::move(code)); }
+    [[nodiscard]] codegen::UnknownStructBase on_int16   (codegen::UnknownStructBase&& code) const { return on_simple<lexer::FIELD_TYPE::INT16  , "int16_t" >(std::move(code)); }
+    [[nodiscard]] codegen::UnknownStructBase on_int32   (codegen::UnknownStructBase&& code) const { return on_simple<lexer::FIELD_TYPE::INT32  , "int32_t" >(std::move(code)); }
+    [[nodiscard]] codegen::UnknownStructBase on_int64   (codegen::UnknownStructBase&& code) const { return on_simple<lexer::FIELD_TYPE::INT64  , "int64_t" >(std::move(code)); }
+    [[nodiscard]] codegen::UnknownStructBase on_float32 (codegen::UnknownStructBase&& code) const { return on_simple<lexer::FIELD_TYPE::FLOAT32, "float"   >(std::move(code)); }
+    [[nodiscard]] codegen::UnknownStructBase on_float64 (codegen::UnknownStructBase&& code) const { return on_simple<lexer::FIELD_TYPE::FLOAT64, "double"  >(std::move(code)); }
 
-    [[nodiscard]] codegen::UnknownStructBase on_fixed_string (codegen::UnknownStructBase&& code, const lexer::FixedStringType* const fixed_string_type) const override {
+    [[nodiscard]] codegen::UnknownStructBase on_fixed_string (const lexer::FixedStringType* const fixed_string_type, codegen::UnknownStructBase&& code) const {
         const uint32_t length = fixed_string_type->length;
         const std::string size_type_str =  get_size_type_str(fixed_string_type->length_size);
 
@@ -831,7 +831,7 @@ struct TypeVisitor : lexer::TypeVisitorBase<TypeT, codegen::UnknownStructBase, c
         return std::move(code);
     }
 
-    [[nodiscard]] codegen::UnknownStructBase on_string (codegen::UnknownStructBase&& code, const lexer::StringType* const string_type) const override {
+    [[nodiscard]] codegen::UnknownStructBase on_string (const lexer::StringType* const string_type, codegen::UnknownStructBase&& code) const {
         if constexpr (in_array) {
             INTERNAL_ERROR("Variable length strings in arrays are not supported");
         } else {
@@ -895,7 +895,7 @@ struct TypeVisitor : lexer::TypeVisitorBase<TypeT, codegen::UnknownStructBase, c
         }
     }
 
-    [[nodiscard]] TypeVisitor::ResultT on_fixed_array (codegen::UnknownStructBase&& code, const lexer::ArrayType* const fixed_array_type) const override {
+    [[nodiscard]] result_t on_fixed_array (const lexer::ArrayType* const fixed_array_type, codegen::UnknownStructBase&& code) const {
         const uint32_t length = fixed_array_type->length;
         const std::string size_type_str = get_size_type_str(fixed_array_type->size_size);
 
@@ -925,14 +925,13 @@ struct TypeVisitor : lexer::TypeVisitorBase<TypeT, codegen::UnknownStructBase, c
             new_array_lengths[last_i] = length;
         }
 
-        typename TypeVisitor::ResultT result = TypeVisitor<
-            TypeT,
+        result_t result = fixed_array_type->inner_type()->visit(TypeVisitor<
+            next_type_t,
             is_fixed,
             true,
             GenFixedArrayLeafArgs,
             decltype(estd::conditionally<is_dynamic_variant_element<ArgsT>>(unique_name, base_name))
         >{
-            fixed_array_type->inner_type(),
             ast_buffer,
             estd::conditionally<is_dynamic_variant_element<ArgsT>>(unique_name, base_name),
             offsets_accessor,
@@ -941,7 +940,7 @@ struct TypeVisitor : lexer::TypeVisitorBase<TypeT, codegen::UnknownStructBase, c
             GenFixedArrayLeafArgs{depth},
             ArrayLengths{new_array_lengths, gsl::narrow_cast<uint8_t>(array_depth + 1)},
             pack_sizes
-        }.visit(codegen::UnknownStructBase{std::move(array_struct)});
+        }, codegen::UnknownStructBase{std::move(array_struct)});
 
         array_struct = codegen::NestedStruct<codegen::UnknownStructBase>{std::move(result.value)}
             .method(codegen::Attributes{"constexpr"}, size_type_str, "length")
@@ -976,7 +975,7 @@ struct TypeVisitor : lexer::TypeVisitorBase<TypeT, codegen::UnknownStructBase, c
     }
 
 
-    [[nodiscard]] TypeVisitor::ResultT on_array (codegen::UnknownStructBase&& code, const lexer::ArrayType* const array_type) const override {
+    [[nodiscard]] result_t on_array (const lexer::ArrayType* const array_type, codegen::UnknownStructBase&& code) const {
         if constexpr (in_array) {
             INTERNAL_ERROR("Dynamic array cant be nested");
         } else {
@@ -992,14 +991,13 @@ struct TypeVisitor : lexer::TypeVisitorBase<TypeT, codegen::UnknownStructBase, c
             ._struct(unique_name)
                 .ctor(array_ctor_strs.ctor_args, array_ctor_strs.ctor_inits).end();
 
-            typename TypeVisitor::ResultT result = TypeVisitor<
-                TypeT,
+            result_t result = array_type->inner_type()->visit(TypeVisitor<
+                next_type_t,
                 false,
                 true,
                 GenArrayLeafArgs,
                 decltype(estd::conditionally<is_dynamic_variant_element<ArgsT>>(unique_name, base_name))
             >{
-                array_type->inner_type(),
                 ast_buffer,
                 estd::conditionally<is_dynamic_variant_element<ArgsT>>(unique_name, base_name),
                 offsets_accessor,
@@ -1008,7 +1006,7 @@ struct TypeVisitor : lexer::TypeVisitorBase<TypeT, codegen::UnknownStructBase, c
                 GenArrayLeafArgs{},
                 ArrayLengths{nullptr, 1},
                 pack_sizes
-            }.visit(codegen::UnknownStructBase{std::move(array_struct)});
+            }, codegen::UnknownStructBase{std::move(array_struct)});
 
             const uint16_t size_leaf_idx = (*current_size_leaf_idx)++;
             console.debug("ARRAY size_leaf_idx:", size_leaf_idx);
@@ -1039,7 +1037,7 @@ struct TypeVisitor : lexer::TypeVisitorBase<TypeT, codegen::UnknownStructBase, c
         }
     }
 
-    [[nodiscard]] TypeVisitor::ResultT on_fixed_variant (codegen::UnknownStructBase&& code, lexer::FixedVariantType* const fixed_variant_type) const override {
+    [[nodiscard]] result_t on_fixed_variant (lexer::FixedVariantType* const fixed_variant_type, codegen::UnknownStructBase&& code) const {
         const uint16_t variant_count = fixed_variant_type->variant_count;
 
         auto unique_name = get_unique_name<"Variant">(additional_args);
@@ -1078,14 +1076,13 @@ struct TypeVisitor : lexer::TypeVisitorBase<TypeT, codegen::UnknownStructBase, c
             //     gen_variant_leaf_args = GenFixedVariantLeafArgs<false>{{i, variant_depth}};
             // }
             
-            lexer::TypeVisitorResult<lexer::Type, codegen::UnknownStructBase> result = TypeVisitor<
+            lexer::Type::VisitResult<lexer::Type, codegen::UnknownStructBase> result = type->visit(TypeVisitor<
                 lexer::Type,
                 is_fixed,
                 in_array,
                 GenFixedVariantLeafArgs,
                 decltype(estd::conditionally<is_dynamic_variant_element<ArgsT>>(unique_name, base_name))
             >{
-                type,
                 ast_buffer,
                 estd::conditionally<is_dynamic_variant_element<ArgsT>>(unique_name, base_name),
                 offsets_accessor,
@@ -1096,7 +1093,7 @@ struct TypeVisitor : lexer::TypeVisitorBase<TypeT, codegen::UnknownStructBase, c
                 },
                 array_lengths,
                 fixed_variant_type->pack_sizes
-            }.visit(codegen::UnknownStructBase{std::move(variant_struct)});
+            }, codegen::UnknownStructBase{std::move(variant_struct)});
 
             type = result.next_type;
             variant_struct = codegen::NestedStruct<codegen::UnknownStructBase>{std::move(result.value)};
@@ -1129,16 +1126,16 @@ struct TypeVisitor : lexer::TypeVisitorBase<TypeT, codegen::UnknownStructBase, c
         }
 
         return {
-            reinterpret_cast<TypeVisitor::ConstTypeT*>(type),
+            reinterpret_cast<const next_type_t*>(type),
             std::move(code)
         };
     }
 
-    [[nodiscard]] TypeVisitor::ResultT on_packed_variant (codegen::UnknownStructBase&&  /*unused*/, const lexer::PackedVariantType* const /*unused*/) const override {
+    [[nodiscard]] result_t on_packed_variant (const lexer::PackedVariantType* const /*unused*/, codegen::UnknownStructBase&&  /*unused*/) const {
         INTERNAL_ERROR("Packed variant not supported");
     }
 
-    [[nodiscard]] TypeVisitor::ResultT on_dynamic_variant (codegen::UnknownStructBase&& code, const lexer::DynamicVariantType* const dynamic_variant_type) const override {
+    [[nodiscard]] result_t on_dynamic_variant (const lexer::DynamicVariantType* const dynamic_variant_type, codegen::UnknownStructBase&& code) const {
         if constexpr (in_array) {
             INTERNAL_ERROR("Dynamic array cant be nested");
         } else {
@@ -1213,14 +1210,13 @@ struct TypeVisitor : lexer::TypeVisitorBase<TypeT, codegen::UnknownStructBase, c
                 //     gen_variant_leaf_args = GenFixedVariantLeafArgs<false>{{i, variant_depth}};
                 // }
                 uint16_t current_size_leaf_idx = 0;
-                lexer::TypeVisitorResult<TypeT, codegen::UnknownStructBase> result = TypeVisitor<
-                    TypeT,
+                result_t result = type->visit(TypeVisitor<
+                    next_type_t,
                     true,
                     in_array,
                     GenDynamicVariantLeafArgs,
                     decltype(estd::conditionally<is_dynamic_variant_element<ArgsT>>(unique_name, base_name))
                 >{
-                    type,
                     ast_buffer,
                     estd::conditionally<is_dynamic_variant_element<ArgsT>>(unique_name, base_name),
                     offsets_accessor,
@@ -1235,7 +1231,7 @@ struct TypeVisitor : lexer::TypeVisitorBase<TypeT, codegen::UnknownStructBase, c
                     },
                     array_lengths,
                     pack_sizes
-                }.visit(codegen::UnknownStructBase{std::move(variant_struct)});
+                }, codegen::UnknownStructBase{std::move(variant_struct)});
                 type = (lexer::Type*)result.next_type;
                 variant_struct = codegen::NestedStruct<codegen::UnknownStructBase>{std::move(result.value)};
             }
@@ -1267,13 +1263,13 @@ struct TypeVisitor : lexer::TypeVisitorBase<TypeT, codegen::UnknownStructBase, c
 
             
             return {
-                reinterpret_cast<typename TypeVisitor::ConstTypeT*>(type),
+                reinterpret_cast<const next_type_t*>(type),
                 std::move(code)
             };
         }
     }
 
-    [[nodiscard]] codegen::UnknownStructBase on_identifier (codegen::UnknownStructBase&& code, const lexer::IdentifiedType* const identified_type) const override {
+    [[nodiscard]] codegen::UnknownStructBase on_identifier (const lexer::IdentifiedType* const identified_type, codegen::UnknownStructBase&& code) const {
         const auto* const identifier = ast_buffer.get(identified_type->identifier_idx);
         if (identifier->keyword != lexer::KEYWORDS::STRUCT) {
             INTERNAL_ERROR("not implemented");
@@ -1298,14 +1294,13 @@ struct TypeVisitor : lexer::TypeVisitorBase<TypeT, codegen::UnknownStructBase, c
                 struct_depth = 0;
             }
 
-            lexer::TypeVisitorResult<lexer::StructField, codegen::UnknownStructBase> result = TypeVisitor<
+            lexer::Type::VisitResult<lexer::StructField, codegen::UnknownStructBase> result = field_data->type()->visit(TypeVisitor<
                 lexer::StructField,
                 is_fixed,
                 in_array,
                 GenStructLeafArgs,
                 decltype(estd::conditionally<is_dynamic_variant_element<ArgsT>>(unique_name, base_name))
             >{
-                field_data->type(),
                 ast_buffer,
                 estd::conditionally<is_dynamic_variant_element<ArgsT>>(unique_name, base_name),
                 offsets_accessor,
@@ -1314,7 +1309,7 @@ struct TypeVisitor : lexer::TypeVisitorBase<TypeT, codegen::UnknownStructBase, c
                 GenStructLeafArgs{field_data->name, struct_depth},
                 array_lengths,
                 pack_sizes
-            }.visit(codegen::UnknownStructBase{std::move(struct_code)});
+            }, codegen::UnknownStructBase{std::move(struct_code)});
         
             field = result.next_type;
             struct_code = codegen::NestedStruct<codegen::UnknownStructBase>{std::move(result.value)};
@@ -1440,14 +1435,13 @@ void generate (
     for (uint16_t i = 0; i < target_struct->field_count; i++) {
         const auto* const field_data = field->data();
         auto name = field_data->name;
-        auto result = TypeVisitor<
+        auto result = field_data->type()->visit(TypeVisitor<
             lexer::StructField,
             true,
             false,
             GenStructLeafArgs,
             decltype(std::forward<decltype(struct_name)>(struct_name))
         >{
-            field_data->type(),
             ast_buffer,
             std::forward<decltype(struct_name)>(struct_name),
             offsets_accessor,
@@ -1456,7 +1450,7 @@ void generate (
             GenStructLeafArgs{name, 0},
             ArrayLengths{nullptr, 0},
             lexer::LeafSizes::zero()
-        }.visit(codegen::UnknownStructBase{std::move(struct_code)});
+        }, codegen::UnknownStructBase{std::move(struct_code)});
 
         field = result.next_type;
         struct_code = std::remove_reference_t<decltype(struct_code)>::Derived_{std::move(result.value)};

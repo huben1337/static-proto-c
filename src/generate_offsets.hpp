@@ -521,28 +521,26 @@ void print_leaf_sizes (std::string_view name, lexer::LeafSizes sizes) {
 }
 
 
-template <typename TypeT, bool is_fixed, bool in_array, bool in_variant>
-struct TypeVisitor : public lexer::TypeVisitorBase<TypeT> {
-
-    constexpr TypeVisitor (
-        const lexer::Type* const& type,        
+template <typename NextTypeT, bool is_fixed, bool in_array, bool in_variant>
+struct TypeVisitor {
+    using next_type_t = NextTypeT;
+    using result_t = lexer::Type::VisitResult<next_type_t>;
+    
+    constexpr TypeVisitor (      
         const uint64_t& outer_array_length,
         const TypeVisitorState::ConstState& const_state,
         const TypeVisitorState::LevelConstState& level_const_state,
         const gsl::not_null<TypeVisitorState::MutableState*>& mutable_state,
         const gsl::not_null<TypeVisitorState::LevelMutableState*>& level_mutable_state
     ) :
-    lexer::TypeVisitorBase<TypeT>{type},
     state(const_state, level_const_state, mutable_state, level_mutable_state),
     outer_array_length(outer_array_length)
     {}
 
-    constexpr TypeVisitor (
-        const lexer::Type* const& type,        
+    constexpr TypeVisitor (      
         const uint64_t& outer_array_length,
         TypeVisitorState  state
     ) :
-    lexer::TypeVisitorBase<TypeT>{type},
     state(std::move(state)),
     outer_array_length(outer_array_length)
     {}
@@ -557,24 +555,24 @@ struct TypeVisitor : public lexer::TypeVisitorBase<TypeT> {
         state.reserve_next<is_fixed, in_variant, size>(size.byte_size() * outer_array_length);
     }
 
-    void on_bool     (estd::empty /*unused*/) const override { on_simple<lexer::FIELD_TYPE::BOOL   >(); }
-    void on_uint8    (estd::empty /*unused*/) const override { on_simple<lexer::FIELD_TYPE::UINT8  >(); }
-    void on_uint16   (estd::empty /*unused*/) const override { on_simple<lexer::FIELD_TYPE::UINT16 >(); }
-    void on_uint32   (estd::empty /*unused*/) const override { on_simple<lexer::FIELD_TYPE::UINT32 >(); }
-    void on_uint64   (estd::empty /*unused*/) const override { on_simple<lexer::FIELD_TYPE::UINT64 >(); }
-    void on_int8     (estd::empty /*unused*/) const override { on_simple<lexer::FIELD_TYPE::INT8   >(); }
-    void on_int16    (estd::empty /*unused*/) const override { on_simple<lexer::FIELD_TYPE::INT16  >(); }
-    void on_int32    (estd::empty /*unused*/) const override { on_simple<lexer::FIELD_TYPE::INT32  >(); }
-    void on_int64    (estd::empty /*unused*/) const override { on_simple<lexer::FIELD_TYPE::INT64  >(); }
-    void on_float32  (estd::empty /*unused*/) const override { on_simple<lexer::FIELD_TYPE::FLOAT32>(); }
-    void on_float64  (estd::empty /*unused*/) const override { on_simple<lexer::FIELD_TYPE::FLOAT64>(); }
+    void on_bool     () const { on_simple<lexer::FIELD_TYPE::BOOL   >(); }
+    void on_uint8    () const { on_simple<lexer::FIELD_TYPE::UINT8  >(); }
+    void on_uint16   () const { on_simple<lexer::FIELD_TYPE::UINT16 >(); }
+    void on_uint32   () const { on_simple<lexer::FIELD_TYPE::UINT32 >(); }
+    void on_uint64   () const { on_simple<lexer::FIELD_TYPE::UINT64 >(); }
+    void on_int8     () const { on_simple<lexer::FIELD_TYPE::INT8   >(); }
+    void on_int16    () const { on_simple<lexer::FIELD_TYPE::INT16  >(); }
+    void on_int32    () const { on_simple<lexer::FIELD_TYPE::INT32  >(); }
+    void on_int64    () const { on_simple<lexer::FIELD_TYPE::INT64  >(); }
+    void on_float32  () const { on_simple<lexer::FIELD_TYPE::FLOAT32>(); }
+    void on_float64  () const { on_simple<lexer::FIELD_TYPE::FLOAT64>(); }
 
-    void on_fixed_string (estd::empty /*unused*/, const lexer::FixedStringType* const fixed_string_type) const override {
+    void on_fixed_string (const lexer::FixedStringType* const fixed_string_type) const {
         const uint32_t length = fixed_string_type->length;
         state.reserve_next<is_fixed, in_variant, lexer::SIZE::SIZE_1>(outer_array_length * length);
     }
 
-    void on_string (estd::empty /*unused*/, const lexer::StringType* const string_type) const override {
+    void on_string (const lexer::StringType* const string_type) const {
         if constexpr (in_array) {
             INTERNAL_ERROR("Variable length strings in arrays not supported");
         } else {
@@ -585,36 +583,34 @@ struct TypeVisitor : public lexer::TypeVisitorBase<TypeT> {
         }
     }
 
-    [[nodiscard]] TypeVisitor::ResultT on_fixed_array (estd::empty /*unused*/, const lexer::ArrayType* const fixed_array_type) const override {
-        return TypeVisitor<TypeT, is_fixed, true, in_variant>{
-            fixed_array_type->inner_type(),
+    [[nodiscard]] result_t on_fixed_array (const lexer::ArrayType* const fixed_array_type) const {
+        return fixed_array_type->inner_type()->visit(TypeVisitor<next_type_t, is_fixed, true, in_variant>{
             fixed_array_type->length * outer_array_length,
             state
-        }.visit();
+        });
     }
 
 
-    [[nodiscard]] TypeVisitor::ResultT on_array (estd::empty /*unused*/, const lexer::ArrayType* const array_type) const override {
+    [[nodiscard]] result_t on_array (const lexer::ArrayType* const array_type) const {
         if constexpr (in_array) {
             INTERNAL_ERROR("Dynamic array cant be nested");
         } else {
             const lexer::SIZE stored_size_size = array_type->stored_size_size;
 
-            typename TypeVisitor::ResultT next_type = TypeVisitor<TypeT, false, true, in_variant>{
-                array_type->inner_type(),
+            result_t result = array_type->inner_type()->visit(TypeVisitor<next_type_t, false, true, in_variant>{
                 1,
                 state
-            }.visit();
+            });
 
             state.reserve_next<true, in_variant>(stored_size_size, stored_size_size.byte_size());
 
             state.level_mutable_state->current_size_leaf_idx++;
 
-            return next_type;
+            return result;
         }
     }
 
-    [[nodiscard]] TypeVisitor::ResultT on_fixed_variant (estd::empty /*unused*/, lexer::FixedVariantType* const fixed_variant_type) const override {
+    [[nodiscard]] result_t on_fixed_variant (lexer::FixedVariantType* const fixed_variant_type) const {
 
         if constexpr (in_array && !is_fixed) {
             INTERNAL_ERROR("Fixed variants in variabl sized arrays not supported yet");
@@ -675,8 +671,7 @@ struct TypeVisitor : public lexer::TypeVisitorBase<TypeT> {
             variant_field_buffer_base += fixed_variant_count;
             const uint16_t variant_fields_end = variant_field_buffer_base;
 
-            type = TypeVisitor<lexer::Type, is_fixed, in_array, true>{
-                type,
+            type = type->visit(TypeVisitor<lexer::Type, is_fixed, in_array, true>{
                 1,
                 state.const_state,
                 TypeVisitorState::LevelConstState{
@@ -688,7 +683,7 @@ struct TypeVisitor : public lexer::TypeVisitorBase<TypeT> {
                 },
                 state.mutable_state,
                 &level_mutable_state
-            }.visit().next_type;
+            }).next_type;
 
             
 
@@ -753,7 +748,7 @@ struct TypeVisitor : public lexer::TypeVisitorBase<TypeT> {
                 
             }
             #undef CASE
-            return typename TypeVisitor::ResultT{reinterpret_cast<TypeVisitor::ConstTypeT*>(type)};
+            return typename result_t{reinterpret_cast<ConstTypeT*>(type)};
         }
         #endif
 
@@ -798,14 +793,14 @@ struct TypeVisitor : public lexer::TypeVisitorBase<TypeT> {
         );
 
         fixed_variant_done:
-        return typename TypeVisitor::ResultT{reinterpret_cast<TypeVisitor::ConstTypeT*>(type)};
+        return result_t{reinterpret_cast<const next_type_t*>(type)};
     }
 
-    [[nodiscard]] TypeVisitor::ResultT on_packed_variant (estd::empty /*unused*/, const lexer::PackedVariantType* const  /*unused*/) const override {
+    [[nodiscard]] result_t on_packed_variant (const lexer::PackedVariantType* const  /*unused*/) const {
         INTERNAL_ERROR("Packed variant not supported yet");
     }
 
-    [[nodiscard]] TypeVisitor::ResultT on_dynamic_variant (estd::empty /*unused*/, const lexer::DynamicVariantType* const /*unused*/) const override {
+    [[nodiscard]] result_t on_dynamic_variant (const lexer::DynamicVariantType* const /*unused*/) const {
         INTERNAL_ERROR("Dynamic variant not supported yet");
         /* if constexpr (in_array) {
             INTERNAL_ERROR("Dynamic variant in array not supported");
@@ -924,11 +919,11 @@ struct TypeVisitor : public lexer::TypeVisitorBase<TypeT> {
                 ", end_variant_idx: ", level_fixed_idx_end
             );
             
-            return typename TypeVisitor::ResultT(reinterpret_cast<TypeVisitor::ConstTypeT*>(type));
+            return typename result_t(reinterpret_cast<ConstTypeT*>(type));
         } */
     }
 
-    void on_identifier (estd::empty /*unused*/, const lexer::IdentifiedType* const identified_type) const override {
+    void on_identifier (const lexer::IdentifiedType* const identified_type) const {
         const auto* const identifier = state.const_state.ast_buffer.get(identified_type->identifier_idx);
         if (identifier->keyword != lexer::KEYWORDS::STRUCT) {
             INTERNAL_ERROR("expected struct");
@@ -939,11 +934,10 @@ struct TypeVisitor : public lexer::TypeVisitorBase<TypeT> {
         for (uint16_t i = 0; i < struct_type->field_count; i++) {
             const auto* const field_data = field->data();
 
-            field = TypeVisitor<lexer::StructField, is_fixed, in_array, in_variant>{
-                field_data->type(),
+            field = field_data->type()->visit(TypeVisitor<lexer::StructField, is_fixed, in_array, in_variant>{
                 outer_array_length,
                 state
-            }.visit().next_type;
+            }).next_type;
         }
     }
 };
@@ -1004,11 +998,10 @@ GenerateResult generate (
     for (uint16_t i = 0; i < target_struct->field_count; i++) {
         const auto *const field_data = field->data();
 
-        field = TypeVisitor<lexer::StructField, true, false, false>{
-            field_data->type(),
+        field = field_data->type()->visit(TypeVisitor<lexer::StructField, true, false, false>{
             1,
             visitor_state
-        }.visit().next_type;
+        }).next_type;
     }
 
     for (uint16_t i = 0; i < total_fixed_leafs; i++) {
