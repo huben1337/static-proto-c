@@ -22,6 +22,7 @@ public:
     [[nodiscard]] explicit operator bool () const = delete;
 protected:
     constexpr explicit ENUM_CLASS (const value_t value) : value(value) {}
+    constexpr ~ENUM_CLASS () = default;
 };
 
 }
