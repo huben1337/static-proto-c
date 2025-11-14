@@ -405,7 +405,7 @@ template <lexer::SIZE alignment>
     uint16_t* const idx_map,
     VariantLeafMeta* const variant_leaf_metas,
     uint16_t ordered_idx,
-    lexer::LeafSizes& pacK_sizes,
+    lexer::LeafSizes& pack_sizes,
     uint64_t outer_array_length
 ) {
     console.debug("[apply_layout] alignemnt: ", alignment.byte_size());
@@ -502,7 +502,7 @@ template <lexer::SIZE alignment>
         max_offset = std::max(offset, max_offset);
     }
     leafs_range.to = ordered_idx;
-    pacK_sizes.get<alignment>() = max_offset;
+    pack_sizes.get<alignment>() = max_offset;
     variant_field.sizes.get<alignment>() = max_offset * outer_array_length;
     return ordered_idx;
 }
@@ -610,7 +610,7 @@ struct TypeVisitor {
         }
     }
 
-    [[nodiscard]] result_t on_fixed_variant (lexer::FixedVariantType* const fixed_variant_type) const {
+    void on_fixed_variant (lexer::FixedVariantType* const fixed_variant_type) const {
 
         if constexpr (in_array && !is_fixed) {
             INTERNAL_ERROR("Fixed variants in variabl sized arrays not supported yet");
@@ -784,6 +784,8 @@ struct TypeVisitor {
         variant_field.align2 = VariantField::Range::empty();
         variant_field.align1 = VariantField::Range::empty();
 
+        fixed_variant_done:
+
         BSSERT(ordered_idx == level_fixed_idx_end);
         
         console.debug(
@@ -791,16 +793,13 @@ struct TypeVisitor {
             ", start_variant_idx: ", level_fixed_idx_start,
             ", end_variant_idx: ", level_fixed_idx_end
         );
-
-        fixed_variant_done:
-        return result_t{reinterpret_cast<const next_type_t*>(type)};
     }
 
-    [[nodiscard]] result_t on_packed_variant (const lexer::PackedVariantType* const  /*unused*/) const {
+    void on_packed_variant (const lexer::PackedVariantType* const  /*unused*/) const {
         INTERNAL_ERROR("Packed variant not supported yet");
     }
 
-    [[nodiscard]] result_t on_dynamic_variant (const lexer::DynamicVariantType* const /*unused*/) const {
+    void on_dynamic_variant (const lexer::DynamicVariantType* const /*unused*/) const {
         INTERNAL_ERROR("Dynamic variant not supported yet");
         /* if constexpr (in_array) {
             INTERNAL_ERROR("Dynamic variant in array not supported");

@@ -1037,7 +1037,7 @@ struct TypeVisitor {
         }
     }
 
-    [[nodiscard]] result_t on_fixed_variant (lexer::FixedVariantType* const fixed_variant_type, codegen::UnknownStructBase&& code) const {
+    [[nodiscard]] codegen::UnknownStructBase on_fixed_variant (const lexer::FixedVariantType* const fixed_variant_type, codegen::UnknownStructBase&& code) const {
         const uint16_t variant_count = fixed_variant_type->variant_count;
 
         auto unique_name = get_unique_name<"Variant">(additional_args);
@@ -1125,17 +1125,14 @@ struct TypeVisitor {
             code = gen_field_access_method_no_array(std::move(code), additional_args, array_ctor_strs.ctor_used, unique_name);
         }
 
-        return {
-            reinterpret_cast<const next_type_t*>(type),
-            std::move(code)
-        };
+        return std::move(code);
     }
 
-    [[nodiscard]] result_t on_packed_variant (const lexer::PackedVariantType* const /*unused*/, codegen::UnknownStructBase&&  /*unused*/) const {
+    [[nodiscard]] codegen::UnknownStructBase on_packed_variant (const lexer::PackedVariantType* const /*unused*/, codegen::UnknownStructBase&&  /*unused*/) const {
         INTERNAL_ERROR("Packed variant not supported");
     }
 
-    [[nodiscard]] result_t on_dynamic_variant (const lexer::DynamicVariantType* const dynamic_variant_type, codegen::UnknownStructBase&& code) const {
+    [[nodiscard]] codegen::UnknownStructBase on_dynamic_variant (const lexer::DynamicVariantType* const dynamic_variant_type, codegen::UnknownStructBase&& code) const {
         if constexpr (in_array) {
             INTERNAL_ERROR("Dynamic array cant be nested");
         } else {
@@ -1262,10 +1259,7 @@ struct TypeVisitor {
             }
 
             
-            return {
-                reinterpret_cast<const next_type_t*>(type),
-                std::move(code)
-            };
+            return std::move(code);
         }
     }
 

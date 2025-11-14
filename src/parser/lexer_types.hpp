@@ -421,6 +421,11 @@ union LeafCounts {
             return SIZE::SIZE_1;
         }
 
+        template <typename writer_params>
+        void log (logger::writer<writer_params> w) const {
+            w.template write<true, true>("Counts{ align1: ", align1, ", align2: ", align2, ", align4: ", align4, ", align8: ", align8, "}");
+        }
+
         [[nodiscard]] static consteval Counts zero () { return {0, 0, 0, 0}; }
         [[nodiscard]] static constexpr Counts of (uint16_t value) { return {value, value, value, value}; }
     } counts;
@@ -701,6 +706,9 @@ struct Type {
 
     template <typename VisitorT, typename... ArgsT>
     [[nodiscard]] VisitorT::result_t visit (VisitorT&& visitor, ArgsT&&... args) const;
+
+    template <typename T>
+    [[nodiscard]] inline T* skip () const;
 };
 
 
@@ -778,29 +786,35 @@ struct ArrayType {
 
 
 
-template <typename TypeMeta_T>
+template <typename TypeMetaT>
 struct VariantTypeBase {
+    friend struct Type;
+    
     [[nodiscard]] static auto create (Buffer &buffer) {
-        return __create_extended<VariantTypeBase, Type, TypeMeta_T>(buffer);
+        return __create_extended<VariantTypeBase, Type, TypeMetaT>(buffer);
     }
 
-    LeafSizes pack_sizes;               // Maximum byte sizes of fixed sized leafs over all variants
-    uint64_t min_byte_size;             // Minimum byte size of the variant (used for size getter)
-    uint16_t variant_count;             // Count of variants
-    uint16_t total_fixed_leafs;         // Count of nested and non-nested fixed sized leafs
-    uint16_t total_var_leafs;           // Count of nested and non-nested variable sized leafs
-    SIZE stored_size_size;              // Size of the stored size
-    SIZE size_size;                     // Size of the size
+    LeafSizes pack_sizes;                   // Maximum byte sizes of fixed sized leafs over all variants
+    uint64_t min_byte_size;                 // Minimum byte size of the variant (used for size getter)
+    Buffer::index_t type_metas_offset;      // Offset from head of this to the head of type_metas
+    uint16_t variant_count;                 // Count of variants
+    uint16_t total_fixed_leafs;             // Count of nested and non-nested fixed sized leafs
+    uint16_t total_var_leafs;               // Count of nested and non-nested variable sized leafs
+    SIZE stored_size_size;                  // Size of the stored size
+    SIZE size_size;                         // Size of the size
 
-    [[nodiscard]] const TypeMeta_T* type_metas () const {
-        static_assert(alignof(VariantTypeBase) >= alignof(TypeMeta_T));
-        return get_padded<const TypeMeta_T>(this + 1);
+    [[nodiscard]] const TypeMetaT* type_metas () const {
+        return reinterpret_cast<const TypeMetaT*>(reinterpret_cast<const uint8_t*>(this) + type_metas_offset);
     }
 
     [[nodiscard]] const Type* first_variant() const {
-        // return reinterpret_cast<const Type*>(type_metas() + variant_count);
-        static_assert(alignof(VariantTypeBase) >= alignof(Type) && alignof(TypeMeta_T) >= alignof(Type));
-        return reinterpret_cast<const Type*>(reinterpret_cast<const uint8_t*>(type_metas()) + (variant_count * sizeof(TypeMeta_T)));
+        static_assert(alignof(VariantTypeBase) >= alignof(Type));
+        return reinterpret_cast<const Type*>(this + 1);
+    }
+private:
+    template <typename T>
+    [[nodiscard]] T* after () const {
+        return reinterpret_cast<T*>(type_metas() + variant_count);
     }
 };
 
@@ -983,45 +997,23 @@ using IdentifierMap = boost::unordered::unordered_flat_map<std::string_view, Ide
 
 
 template <typename T>
-inline const T* skip_type (const Type* type) {
-    using U = const T;
-    switch (type->type)
-    {
-    case STRING_FIXED:
-        return reinterpret_cast<U*>(type->as_fixed_string() + 1);
-    case STRING: {
-        return reinterpret_cast<U*>(type->as_string() + 1);
-    case ARRAY_FIXED:
-    case ARRAY: {
-        return skip_type<T>(type->as_array()->inner_type());
-    }
-    case FIXED_VARIANT: {
-        return skip_variant_type<T>(type->as_fixed_variant());
-    }
-    case PACKED_VARIANT: {
-        return skip_variant_type<T>(type->as_packed_variant());
-    }
-    case DYNAMIC_VARIANT: {
-        return skip_variant_type<T>(type->as_dynamic_variant());
-    }
-    case IDENTIFIER: {
-        return reinterpret_cast<U*>(type->as_identifier() + 1);
-    }
-    default: {
-        return reinterpret_cast<U*>(type + 1);
-    }
-    }
+[[nodiscard]] inline T* Type::skip () const {
+    switch (type) {
+        case STRING_FIXED:      return reinterpret_cast<T*>(as_fixed_string() + 1);
+        case STRING:            return reinterpret_cast<T*>(as_string() + 1);
+        case ARRAY_FIXED:
+        case ARRAY:             return as_array()->inner_type()->skip<T>();
+        case FIXED_VARIANT:     return as_fixed_variant()->after<T>();
+        case PACKED_VARIANT:    return as_packed_variant()->after<T>();
+        case DYNAMIC_VARIANT:   return as_dynamic_variant()->after<T>();
+        case IDENTIFIER:        return reinterpret_cast<T*>(as_identifier() + 1);
+        default:                return reinterpret_cast<T*>(this + 1);
     }
 }
 
 template <typename T, typename TypeMeta_T>
 inline const T* skip_variant_type (const VariantTypeBase<TypeMeta_T>* variant_type) {
-    auto types_count = variant_type->variant_count;
-    const Type* type = variant_type->first_variant();
-    for (uint16_t i = 0; i < types_count; i++) {
-        type = skip_type<Type>(type);
-    }
-    return reinterpret_cast<const T*>(type);
+    return variant_type->template after<const T>();
 }
 
 template <typename VisitorT, typename... ArgsT>
@@ -1157,13 +1149,34 @@ template <typename VisitorT, typename... ArgsT>
             return std::forward<VisitorT>(visitor).on_array(this->as_array(), std::forward<ArgsT>(args)...);
         }
         case FIELD_TYPE::FIXED_VARIANT: {
-            return std::forward<VisitorT>(visitor).on_fixed_variant(this->as_fixed_variant(), std::forward<ArgsT>(args)...);
+            FixedVariantType* const fixed_variant_type = this->as_fixed_variant();
+            if constexpr (no_value) {
+                std::forward<VisitorT>(visitor).on_fixed_variant(fixed_variant_type, std::forward<ArgsT>(args)...);
+                return result_t{fixed_variant_type->after<ConstTypeT>()};
+            } else {
+                return result_t{fixed_variant_type->after<ConstTypeT>(),
+                    std::forward<VisitorT>(visitor).on_fixed_variant(fixed_variant_type, std::forward<ArgsT>(args)...)};
+            }
         }
         case FIELD_TYPE::PACKED_VARIANT: {
-            return std::forward<VisitorT>(visitor).on_packed_variant(this->as_packed_variant(), std::forward<ArgsT>(args)...);
+            PackedVariantType* const packed_variant_type = this->as_packed_variant();
+            if constexpr (no_value) {
+                std::forward<VisitorT>(visitor).on_packed_variant(packed_variant_type, std::forward<ArgsT>(args)...);
+                return result_t{packed_variant_type->after<ConstTypeT>()};
+            } else {
+                return result_t{packed_variant_type->after<ConstTypeT>(),
+                    std::forward<VisitorT>(visitor).on_packed_variant(packed_variant_type, std::forward<ArgsT>(args)...)};
+            }
         }
         case FIELD_TYPE::DYNAMIC_VARIANT: {
-            return std::forward<VisitorT>(visitor).on_dynamic_variant(this->as_dynamic_variant(), std::forward<ArgsT>(args)...);
+            DynamicVariantType* const dynamic_variant_type = this->as_dynamic_variant();
+            if constexpr (no_value) {
+                std::forward<VisitorT>(visitor).on_dynamic_variant(dynamic_variant_type, std::forward<ArgsT>(args)...);
+                return result_t{dynamic_variant_type->after<ConstTypeT>()};
+            } else {
+                return result_t{dynamic_variant_type->after<ConstTypeT>(),
+                    std::forward<VisitorT>(visitor).on_dynamic_variant(dynamic_variant_type, std::forward<ArgsT>(args)...)};
+            }
         }
         case FIELD_TYPE::IDENTIFIER: {
             const IdentifiedType* const identifier_type = this->as_identifier();
@@ -1174,6 +1187,9 @@ template <typename VisitorT, typename... ArgsT>
                 return result_t{reinterpret_cast<ConstTypeT*>(identifier_type + 1),
                     std::forward<VisitorT>(visitor).on_identifier(identifier_type, std::forward<ArgsT>(args)...)};
             }
+        }
+        default: {
+            std::unreachable();
         }
     }
 }

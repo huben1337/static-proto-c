@@ -1,6 +1,7 @@
 #pragma once
 
 #include <concepts>
+#include <cstddef>
 #include <cstdint>
 #include <limits>
 #include <string_view>
@@ -270,15 +271,14 @@ using variant_type_meta_t = std::conditional_t<is_dynamic, DynamicVariantTypeMet
 template <bool expect_fixed>
 std::conditional_t<expect_fixed, LexFixedTypeResult, LexTypeResult> lex_type (const char* YYCURSOR, Buffer &buffer, IdentifierMap &identifier_map);
 
-template <bool is_dynamic, bool expect_fixed>
+template <bool is_dynamic, bool expect_fixed, typename BufferedTypeMetaT>
 inline std::conditional_t<expect_fixed, LexFixedTypeResult, LexTypeResult> add_variant_type (
     const char* YYCURSOR,
     uint64_t inner_min_byte_size,
     uint64_t inner_max_byte_size,
     Buffer& buffer,
 	Buffer&& type_meta_buffer,
-    __CreateExtendedResult<DynamicVariantType, Type> created_variant_type,
-    Buffer::Index<uint8_t> types_start_idx,
+    const __CreateExtendedResult<DynamicVariantType, Type> created_variant_type,
     uint16_t variant_count,
     // uint16_t total_variant_count,
     uint16_t total_variant_fixed_leafs,
@@ -289,34 +289,27 @@ inline std::conditional_t<expect_fixed, LexFixedTypeResult, LexTypeResult> add_v
     YYCURSOR = attribute_lex_result.cursor;
     auto [max_wasted_bytes, shared_id] = attribute_lex_result.value;
 
-    auto types_end_idx = buffer.position_idx<uint8_t>();
+    using out_type_meta_t = variant_type_meta_t<is_dynamic>;
 
-    size_t type_metas_mem_size = variant_count * sizeof(variant_type_meta_t<is_dynamic>);
-    buffer.next_multi_byte<void>(type_metas_mem_size);
-
-    uint8_t* types_start_ptr = buffer.get(types_start_idx);
-    uint8_t* types_end_ptr = buffer.get(types_end_idx);
-    // based on the way the memory overlaps we can reverse copy
-    uint8_t* types_src = types_end_ptr - 1;
-    uint8_t* types_dst = types_end_ptr - 1 + type_metas_mem_size;
-    while (types_src >= types_start_ptr) {
-        *(types_dst--) = *(types_src--);
-    }
-
-    // printf("aligned: %d", (size_t)types_start_ptr % 8); - use this to confirm alignment - now VariantType is 8 byte aligned so it should always be aligned
-    auto leafs_count_src = type_meta_buffer.get(Buffer::Index<variant_type_meta_t<!expect_fixed>>{0});
-    auto leafs_count_dst = reinterpret_cast<variant_type_meta_t<is_dynamic>*>(types_start_ptr);
+    const size_t meta_padding = get_padding<out_type_meta_t>(buffer.position_idx<uint8_t>().value);
+    
+    const Buffer::Index<out_type_meta_t> meta_dst_idx {buffer.next_multi_byte<uint8_t>(
+        (variant_count * sizeof(out_type_meta_t)) + meta_padding
+    ).add(meta_padding).value};
+    
+    auto meta_dst = buffer.get_aligned(meta_dst_idx);
+    auto meta_src = type_meta_buffer.get(Buffer::Index<BufferedTypeMetaT>{0});
     for (size_t i = 0; i < variant_count; i++) {
         if constexpr (expect_fixed) {
             static_assert(!is_dynamic);
-            *leafs_count_dst = *leafs_count_src;
+            *meta_dst = *meta_src;
         } else if constexpr (is_dynamic) {
-            *leafs_count_dst = *leafs_count_src;
+            *meta_dst = *meta_src;
         } else {
-            *leafs_count_dst = {leafs_count_src->fixed_leaf_counts, leafs_count_src->level_fixed_variants/*, leafs_count_src->variant_field_counts*/};
+            *meta_dst = {meta_src->fixed_leaf_counts, meta_src->level_fixed_variants/*, leafs_count_src->variant_field_counts*/};
         }
-        leafs_count_dst++;
-        leafs_count_src++;
+        meta_dst++;
+        meta_src++;
     }
 
     if constexpr (is_dynamic) {
@@ -334,6 +327,8 @@ inline std::conditional_t<expect_fixed, LexFixedTypeResult, LexTypeResult> add_v
 
     auto* const variant_type = buffer.get_aligned(created_variant_type.extended);
     // variant_type->max_fixed_leaf_sizes = inner_max_fixed_leaf_sizes;
+    BSSERT(meta_dst_idx.value > created_variant_type.extended.value);
+    variant_type->type_metas_offset = meta_dst_idx.value - created_variant_type.extended.value;
     variant_type->variant_count = variant_count;
     variant_type->total_fixed_leafs = total_variant_fixed_leafs;
 
@@ -460,7 +455,7 @@ inline std::conditional_t<expect_fixed, LexFixedTypeResult, LexTypeResult> add_v
     }
 }
 
-template <bool is_dynamic, bool expect_fixed>
+template <bool is_dynamic, bool expect_fixed, typename BufferedTypeMetaT>
 inline std::conditional_t<expect_fixed, LexFixedTypeResult, LexTypeResult> lex_variant_types (
     const char* YYCURSOR,
     uint64_t min_byte_size,
@@ -469,7 +464,6 @@ inline std::conditional_t<expect_fixed, LexFixedTypeResult, LexTypeResult> lex_v
 	Buffer&& type_meta_buffer,
     IdentifierMap& identifier_map,
     __CreateExtendedResult<DynamicVariantType, Type> created_variant_type,
-    Buffer::Index<uint8_t> types_start_idx,
     uint16_t variant_count,
     //uint16_t inner_total_variant_count,
     uint16_t total_variant_fixed_leafs,
@@ -509,7 +503,7 @@ inline std::conditional_t<expect_fixed, LexFixedTypeResult, LexTypeResult> lex_v
                     any_white_space* { UNEXPECTED_INPUT("expected ',' or '>'"); }
                 */
                 dynamic_variant_next: {
-                    return lex_variant_types<true, expect_fixed>(
+                    return lex_variant_types<true, expect_fixed, BufferedTypeMetaT>(
                         YYCURSOR,
                         min_byte_size,
                         max_byte_size,
@@ -517,7 +511,6 @@ inline std::conditional_t<expect_fixed, LexFixedTypeResult, LexTypeResult> lex_v
                         std::move(type_meta_buffer),
                         identifier_map,
                         created_variant_type,
-                        types_start_idx,
                         variant_count,
                         //variant_count + inner_total_variant_count,
                         total_variant_fixed_leafs,
@@ -526,14 +519,13 @@ inline std::conditional_t<expect_fixed, LexFixedTypeResult, LexTypeResult> lex_v
                     );
                 }
                 dynamic_variant_done: {
-                    return add_variant_type<true, expect_fixed>(
+                    return add_variant_type<true, expect_fixed, BufferedTypeMetaT>(
                         YYCURSOR,
                         min_byte_size,
                         max_byte_size,
                         buffer,
                         std::move(type_meta_buffer),
                         created_variant_type,
-                        types_start_idx,
                         variant_count,
                         //variant_count + inner_total_variant_count,
                         total_variant_fixed_leafs,
@@ -550,14 +542,13 @@ inline std::conditional_t<expect_fixed, LexFixedTypeResult, LexTypeResult> lex_v
             any_white_space* { UNEXPECTED_INPUT("expected ',' or '>'"); }
         */
         variant_done: {
-            return add_variant_type<is_dynamic, expect_fixed>(
+            return add_variant_type<is_dynamic, expect_fixed, BufferedTypeMetaT>(
                 YYCURSOR,
                 min_byte_size,
                 max_byte_size,
                 buffer,
                 std::move(type_meta_buffer),
                 created_variant_type,
-                types_start_idx,
                 variant_count,
                 //variant_count + inner_total_variant_count,
                 total_variant_fixed_leafs,
@@ -922,11 +913,10 @@ std::conditional_t<expect_fixed, LexFixedTypeResult, LexTypeResult> lex_type (co
 
         auto created_variant_type = DynamicVariantType::create(buffer);
 
-        Buffer type_meta_buffer = BUFFER_INIT_STACK(sizeof(variant_type_meta_t<!expect_fixed>) * 8);
+        using bufferd_type_meta_t = variant_type_meta_t<!expect_fixed>;
+        Buffer type_meta_buffer = BUFFER_INIT_STACK((BUFFER_INIT_ARRAY_SIZE<bufferd_type_meta_t, 8>));
 
-        auto types_start_idx = buffer.position_idx<uint8_t>();
-
-        return lex_variant_types<false, expect_fixed>(
+        return lex_variant_types<false, expect_fixed, bufferd_type_meta_t>(
             YYCURSOR,
             UINT64_MAX,
             0,
@@ -934,7 +924,6 @@ std::conditional_t<expect_fixed, LexFixedTypeResult, LexTypeResult> lex_type (co
             std::move(type_meta_buffer),
             identifier_map,
             created_variant_type,
-            types_start_idx,
             0,
             //0,
             0,
@@ -1092,7 +1081,7 @@ inline const char* lex_struct_fields (
             if (string_view_equal(field_data->name, start, length)) {
                 show_syntax_error("field already defined", start, length);
             }
-            return skip_type<StructField>(field_data->type());
+            return field_data->type()->skip<const StructField>();
         }, field_count);
     }
     /*!local:re2c
