@@ -1284,9 +1284,7 @@ struct TypeVisitor {
         ._struct(unique_name)
             .ctor(array_ctor_strs.ctor_args, array_ctor_strs.ctor_inits).end();
 
-        const auto* field = struct_type->first_field();
-        for (uint16_t i = 0; i < struct_type->field_count; i++) {
-            const auto* const field_data = field->data();
+        struct_type->visit([&](auto field_data) {
             uint16_t struct_depth;
             if constexpr (std::is_same_v<ArgsT, GenStructLeafArgs>) {
                 struct_depth = additional_args.depth + 1;
@@ -1310,10 +1308,10 @@ struct TypeVisitor {
                 array_lengths,
                 pack_sizes
             }, codegen::UnknownStructBase{std::move(struct_code)});
-        
-            field = result.next_type;
+
             struct_code = codegen::NestedStruct<codegen::UnknownStructBase>{std::move(result.value)};
-        }
+            return result.next_type;
+        });
 
         struct_code = struct_code
             ._private()
@@ -1431,9 +1429,7 @@ void generate (
     ._struct(struct_name)
         .ctor("size_t base", "base(base)").end();
 
-    const auto* field = target_struct->first_field();
-    for (uint16_t i = 0; i < target_struct->field_count; i++) {
-        const auto* const field_data = field->data();
+    target_struct->visit([&](const lexer::StructField::Data* const field_data) {
         auto name = field_data->name;
         auto result = field_data->type()->visit(TypeVisitor<
             lexer::StructField,
@@ -1452,10 +1448,9 @@ void generate (
             lexer::LeafSizes::zero()
         }, codegen::UnknownStructBase{std::move(struct_code)});
 
-        field = result.next_type;
         struct_code = std::remove_reference_t<decltype(struct_code)>::Derived_{std::move(result.value)};
-        
-    }
+        return result.next_type;
+    });
 
     struct_code = struct_code
         ._private()

@@ -919,10 +919,26 @@ struct StructDefinition : IdentifiedDefinition::Data {
         // Since we can create a Data object any time the current buffer position might not be aligned, so we have to ensure alignment.
         return create_padded<StructField::Data>(buffer);
     }
-
+private:
     [[nodiscard]] const StructField* first_field() const {
         static_assert(alignof(StructDefinition) >= alignof(StructField));
         return reinterpret_cast<const StructField*>(this + 1);
+    }
+public:
+    template <typename VisitorT>
+    void visit (VisitorT&& visitor) const {
+        const StructField* field = first_field();
+        for (uint16_t i = 0; i < field_count; i++) {
+            field = visitor(field->data());
+        }
+    }
+
+    template <typename VisitorT>
+    void visit_uninitialized (VisitorT&& visitor, const uint16_t field_count) const {
+        const StructField* field = first_field();
+        for (uint16_t i = 0; i < field_count; i++) {
+            field = visitor(field->data());
+        }
     }
 };
 

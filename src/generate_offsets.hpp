@@ -930,15 +930,12 @@ struct TypeVisitor {
         }
         const auto* const struct_type = identifier->data()->as_struct();
 
-        const auto* field = struct_type->first_field();
-        for (uint16_t i = 0; i < struct_type->field_count; i++) {
-            const auto* const field_data = field->data();
-
-            field = field_data->type()->visit(TypeVisitor<lexer::StructField, is_fixed, in_array, in_variant>{
+        struct_type->visit([&](const lexer::StructField::Data* field_data) {
+            return field_data->type()->visit(TypeVisitor<lexer::StructField, is_fixed, in_array, in_variant>{
                 outer_array_length,
                 state
             }).next_type;
-        }
+        });
     }
 };
 
@@ -994,15 +991,12 @@ GenerateResult generate (
         &level_mutable_state
     };
 
-    const auto* field = target_struct->first_field();
-    for (uint16_t i = 0; i < target_struct->field_count; i++) {
-        const auto *const field_data = field->data();
-
-        field = field_data->type()->visit(TypeVisitor<lexer::StructField, true, false, false>{
+    target_struct->visit([&](auto field_data) {
+        return field_data->type()->visit(TypeVisitor<lexer::StructField, true, false, false>{
             1,
             visitor_state
         }).next_type;
-    }
+    });
 
     for (uint16_t i = 0; i < total_fixed_leafs; i++) {
         console.debug("Fixed leaf: i: ", i, ", size: ", const_state.fixed_offsets[i].get_offset());

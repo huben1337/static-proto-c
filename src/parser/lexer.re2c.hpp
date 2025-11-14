@@ -1088,13 +1088,12 @@ inline const char* lex_struct_fields (
     const char* end = YYCURSOR;
     size_t length = end - start;
     if constexpr (!is_first_field) {
-        const StructField::Data* field = buffer.get(definition_data_idx)->first_field()->data();
-        for (uint16_t i = 0; i < field_count; i++) {
-            if (string_view_equal(field->name, start, length)) {
+        buffer.get(definition_data_idx)->visit_uninitialized([&](const lexer::StructField::Data* const field_data) {
+            if (string_view_equal(field_data->name, start, length)) {
                 show_syntax_error("field already defined", start, length);
             }
-            field = skip_type<StructField>(field->type())->data();
-        }
+            return skip_type<StructField>(field_data->type());
+        }, field_count);
     }
     /*!local:re2c
         any_white_space* ":" { goto struct_field; }
