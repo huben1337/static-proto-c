@@ -134,7 +134,7 @@ template <SIZE size>
 requires (size != SIZE::SIZE_0 && size != SIZE::SIZE_8)
 constexpr SIZE next_bigger_size = size_helper::next_bigger_size<size>;
 
-template<typename T, lexer::SIZE max_align = lexer::SIZE::SIZE_8>
+template<typename T, SIZE max_align = SIZE::SIZE_8, StringLiteral name = "AlignMembersBase<>">
 struct AlignMembersBase {
     T align1;
     T align2;
@@ -146,15 +146,15 @@ struct AlignMembersBase {
     : align1(align1), align2(align2), align4(align4), align8(align8) {}
 
     #define ALIGN_MEMBER_GET_CT_ARG(RETURN_TYPE, CONST_ATTR)            \
-    template <lexer::SIZE size>                                         \
+    template <SIZE size>                                                \
     [[nodiscard]] constexpr CONST_ATTR RETURN_TYPE& get () CONST_ATTR { \
-        if constexpr (size == lexer::SIZE::SIZE_8) {                    \
+        if constexpr (size == SIZE::SIZE_8) {                           \
             return align8;                                              \
-        } else if constexpr (size == lexer::SIZE::SIZE_4) {             \
+        } else if constexpr (size == SIZE::SIZE_4) {                    \
             return align4;                                              \
-        } else if constexpr (size == lexer::SIZE::SIZE_2) {             \
+        } else if constexpr (size == SIZE::SIZE_2) {                    \
             return align2;                                              \
-        } else if constexpr (size == lexer::SIZE::SIZE_1) {             \
+        } else if constexpr (size == SIZE::SIZE_1) {                    \
             return align1;                                              \
         } else {                                                        \
             static_assert(false, "Invalid size");                       \
@@ -162,7 +162,7 @@ struct AlignMembersBase {
     }
 
     #define ALIGN_MEMBER_GET_RT_ARG(RETURN_TYPE, CONST_ATTR)                            \
-    [[nodiscard]] constexpr CONST_ATTR RETURN_TYPE& get (lexer::SIZE size) CONST_ATTR { \
+    [[nodiscard]] constexpr CONST_ATTR RETURN_TYPE& get (SIZE size) CONST_ATTR {        \
         switch (size) {                                                                 \
             case SIZE::SIZE_1: return align1;                                           \
             case SIZE::SIZE_2: return align2;                                           \
@@ -179,9 +179,14 @@ struct AlignMembersBase {
 
     #undef ALIGN_MEMBER_GET_CT_ARG
     #undef ALIGN_MEMBER_GET_RT_ARG
+
+    template <typename writer_params>
+    void log (logger::writer<writer_params> w) const {
+        w.template write<true, true>(name + "{align1: "_sl, align1, ", align2: ", align2, ", align4: ", align4, ", align8: ", align8, "}");
+    }
 };
 template<typename T>
-struct AlignMembersBase<T, lexer::SIZE::SIZE_4> {
+struct AlignMembersBase<T, SIZE::SIZE_4> {
     T align1;
     T align2;
     T align4;
@@ -191,13 +196,13 @@ struct AlignMembersBase<T, lexer::SIZE::SIZE_4> {
     : align1(align1), align2(align2), align4(align4) {}
 
     #define ALIGN_MEMBER_GET_CT_ARG(RETURN_TYPE, CONST_ATTR)            \
-    template <lexer::SIZE size>                                         \
+    template <SIZE size>                                                \
     [[nodiscard]] constexpr CONST_ATTR RETURN_TYPE& get () CONST_ATTR { \
-        if constexpr (size == lexer::SIZE::SIZE_4) {                    \
+        if constexpr (size == SIZE::SIZE_4) {                           \
             return align4;                                              \
-        } else if constexpr (size == lexer::SIZE::SIZE_2) {             \
+        } else if constexpr (size == SIZE::SIZE_2) {                    \
             return align2;                                              \
-        } else if constexpr (size == lexer::SIZE::SIZE_1) {             \
+        } else if constexpr (size == SIZE::SIZE_1) {                    \
             return align1;                                              \
         } else {                                                        \
             static_assert(false, "Invalid size");                       \
@@ -205,7 +210,7 @@ struct AlignMembersBase<T, lexer::SIZE::SIZE_4> {
     }
 
     #define ALIGN_MEMBER_GET_RT_ARG(RETURN_TYPE, CONST_ATTR)                            \
-    [[nodiscard]] constexpr CONST_ATTR RETURN_TYPE& get (lexer::SIZE size) CONST_ATTR { \
+    [[nodiscard]] constexpr CONST_ATTR RETURN_TYPE& get (SIZE size) CONST_ATTR {        \
         switch (size) {                                                                 \
             case SIZE::SIZE_1: return align1;                                           \
             case SIZE::SIZE_2: return align2;                                           \
@@ -221,9 +226,14 @@ struct AlignMembersBase<T, lexer::SIZE::SIZE_4> {
 
     #undef ALIGN_MEMBER_GET_CT_ARG
     #undef ALIGN_MEMBER_GET_RT_ARG
+
+    template <StringLiteral name = "AlignMembersBase<T>", typename writer_params>
+    void log (logger::writer<writer_params> w) const {
+        w.template write<true, true>(name + "{ align1: "_sl, align1, ", align2: ", align2, ", align4: ", align4, "}");
+    }
 };
 template<typename T>
-struct AlignMembersBase<T, lexer::SIZE::SIZE_2> {
+struct AlignMembersBase<T, SIZE::SIZE_2> {
     T align1;
     T align2;
 
@@ -232,24 +242,24 @@ struct AlignMembersBase<T, lexer::SIZE::SIZE_2> {
     : align1(align1), align2(align2) {}
 
     #define ALIGN_MEMBER_GET_CT_ARG(RETURN_TYPE, CONST_ATTR)            \
-    template <lexer::SIZE size>                                         \
+    template <SIZE size>                                                \
     [[nodiscard]] constexpr CONST_ATTR RETURN_TYPE& get () CONST_ATTR { \
-        if constexpr (size == lexer::SIZE::SIZE_2) {                    \
+        if constexpr (size == SIZE::SIZE_2) {                           \
             return align2;                                              \
-        } else if constexpr (size == lexer::SIZE::SIZE_1) {             \
+        } else if constexpr (size == SIZE::SIZE_1) {                    \
             return align1;                                              \
         } else {                                                        \
             static_assert(false, "Invalid size");                       \
         }                                                               \
     }
 
-    #define ALIGN_MEMBER_GET_RT_ARG(RETURN_TYPE, CONST_ATTR)                            \
-    [[nodiscard]] constexpr CONST_ATTR RETURN_TYPE& get (lexer::SIZE size) CONST_ATTR { \
-        switch (size) {                                                                 \
-            case SIZE::SIZE_1: return align1;                                           \
-            case SIZE::SIZE_2: return align2;                                           \
-            default: std::unreachable();                                                \
-        }                                                                               \
+    #define ALIGN_MEMBER_GET_RT_ARG(RETURN_TYPE, CONST_ATTR)                        \
+    [[nodiscard]] constexpr CONST_ATTR RETURN_TYPE& get (SIZE size) CONST_ATTR {    \
+        switch (size) {                                                             \
+            case SIZE::SIZE_1: return align1;                                       \
+            case SIZE::SIZE_2: return align2;                                       \
+            default: std::unreachable();                                            \
+        }                                                                           \
     }
 
     ALIGN_MEMBER_GET_CT_ARG(T, )
@@ -259,9 +269,14 @@ struct AlignMembersBase<T, lexer::SIZE::SIZE_2> {
 
     #undef ALIGN_MEMBER_GET_CT_ARG
     #undef ALIGN_MEMBER_GET_RT_ARG
+
+    template <StringLiteral name = "AlignMembersBase<T>", typename writer_params>
+    void log (logger::writer<writer_params> w) const {
+        w.template write<true, true>(name + "{ align1: "_sl, align1, ", align2: ", align2, "}");
+    }
 };
 template<typename T>
-struct AlignMembersBase<T, lexer::SIZE::SIZE_1> {
+struct AlignMembersBase<T, SIZE::SIZE_1> {
     T align1;
 
     constexpr AlignMembersBase() = default;
@@ -269,21 +284,21 @@ struct AlignMembersBase<T, lexer::SIZE::SIZE_1> {
     : align1(align1) {}
 
     #define ALIGN_MEMBER_GET_CT_ARG(RETURN_TYPE, CONST_ATTR)            \
-    template <lexer::SIZE size>                                         \
+    template <SIZE size>                                                \
     [[nodiscard]] constexpr CONST_ATTR RETURN_TYPE& get () CONST_ATTR { \
-        if constexpr (size == lexer::SIZE::SIZE_1) {                    \
+        if constexpr (size == SIZE::SIZE_1) {                           \
             return align1;                                              \
         } else {                                                        \
             static_assert(false, "Invalid size");                       \
         }                                                               \
     }
 
-    #define ALIGN_MEMBER_GET_RT_ARG(RETURN_TYPE, CONST_ATTR)                            \
-    [[nodiscard]] constexpr CONST_ATTR RETURN_TYPE& get (lexer::SIZE size) CONST_ATTR { \
-        switch (size) {                                                                 \
-            case SIZE::SIZE_1: return align1;                                           \
-            default: std::unreachable();                                                \
-        }                                                                               \
+    #define ALIGN_MEMBER_GET_RT_ARG(RETURN_TYPE, CONST_ATTR)                        \
+    [[nodiscard]] constexpr CONST_ATTR RETURN_TYPE& get (SIZE size) CONST_ATTR {    \
+        switch (size) {                                                             \
+            case SIZE::SIZE_1: return align1;                                       \
+            default: std::unreachable();                                            \
+        }                                                                           \
     }
 
     ALIGN_MEMBER_GET_CT_ARG(T, )
@@ -293,17 +308,22 @@ struct AlignMembersBase<T, lexer::SIZE::SIZE_1> {
 
     #undef ALIGN_MEMBER_GET_CT_ARG
     #undef ALIGN_MEMBER_GET_RT_ARG
+
+    template <StringLiteral name = "AlignMembersBase<T>", typename writer_params>
+    void log (logger::writer<writer_params> w) const {
+        w.template write<true, true>(name + "{ align1: "_sl, align1, "}");
+    }
 };
 
-template <lexer::SIZE alignemnt, typename T>
+template <SIZE alignemnt, typename T>
 [[nodiscard]] constexpr auto& get_align_member (T& t) {
-    if constexpr (alignemnt == lexer::SIZE::SIZE_8) {
+    if constexpr (alignemnt == SIZE::SIZE_8) {
         return t.align8;
-    } else if constexpr (alignemnt == lexer::SIZE::SIZE_4) {
+    } else if constexpr (alignemnt == SIZE::SIZE_4) {
         return t.align4;
-    } else if constexpr (alignemnt == lexer::SIZE::SIZE_2) {
+    } else if constexpr (alignemnt == SIZE::SIZE_2) {
         return t.align2;
-    } else if constexpr (alignemnt == lexer::SIZE::SIZE_1) {
+    } else if constexpr (alignemnt == SIZE::SIZE_1) {
         return t.align1;
     } else {
         static_assert(false, "Invalid size");
@@ -407,7 +427,7 @@ struct Range {
 
 union LeafCounts {
 
-    struct Counts : AlignMembersBase<uint16_t> {
+    struct Counts : AlignMembersBase<uint16_t, SIZE::SIZE_8, "Counts"> {
         using AlignMembersBase::AlignMembersBase;
 
         [[nodiscard]] constexpr uint16_t total () const {
@@ -419,11 +439,6 @@ union LeafCounts {
             if (align4 != 0) return SIZE::SIZE_4;
             if (align2 != 0) return SIZE::SIZE_2;
             return SIZE::SIZE_1;
-        }
-
-        template <typename writer_params>
-        void log (logger::writer<writer_params> w) const {
-            w.template write<true, true>("Counts{ align1: ", align1, ", align2: ", align2, ", align4: ", align4, ", align8: ", align8, "}");
         }
 
         [[nodiscard]] static consteval Counts zero () { return {0, 0, 0, 0}; }
@@ -529,7 +544,7 @@ union LeafCounts {
 //     #undef COMPARE
 // }; */
 
-struct LeafSizes : AlignMembersBase<uint64_t> {
+struct LeafSizes : AlignMembersBase<uint64_t, SIZE::SIZE_8, "LeafSizes"> {
     using AlignMembersBase::AlignMembersBase;
     constexpr explicit LeafSizes (const LeafCounts::Counts& counts) : AlignMembersBase{counts.align1, counts.align2, counts.align4, counts.align8} {}
 
@@ -580,7 +595,7 @@ struct LeafSizes : AlignMembersBase<uint64_t> {
         return total() == 0;
     }
 
-    template <lexer::SIZE... sizes>
+    template <SIZE... sizes>
     [[nodiscard]] constexpr uint64_t sum_sizes () {
         return (... + get<sizes>());
     }
@@ -821,7 +836,7 @@ private:
 
 struct FixedVariantTypeMeta {
     LeafCounts fixed_leaf_counts;   // Counts of non-nested fixed sized leafs
-    uint16_t level_fixed_variants;  // Counts of non-nested fixedd variant fields
+    uint16_t level_fixed_variants;  // Counts of non-nested fixed variant fields
     //LeafCounts variant_field_counts;
 };
 
