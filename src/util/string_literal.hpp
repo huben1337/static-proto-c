@@ -172,7 +172,7 @@ namespace string_literal {
         constexpr std::string_view sv = provider();
         constexpr const char* begin = sv.begin();
         constexpr size_t length = sv.length();
-        constexpr size_t N = length + (begin[length] == 0 ? 0 : 1);
+        constexpr size_t N = length + (begin[length - 1] == 0 ? 0 : 1);
         char data[N];
         for (size_t i = 0; i < length; i++) {
             data[i] = begin[i];
