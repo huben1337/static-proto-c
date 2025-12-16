@@ -52,17 +52,10 @@ struct is_attributes_t<Attributes<T...>> : std::true_type {};
 
 
 struct CodeData {
-    constexpr CodeData (Buffer&& buffer, uint8_t indent) : buffer(std::move(buffer)), indent(indent) {}
-
-    CodeData (const CodeData&) noexcept = delete;
-    CodeData& operator = (const CodeData&) = delete;
-
-    constexpr CodeData (CodeData&&) noexcept = default;
-    constexpr CodeData& operator = (CodeData&&) = default;
-
-    protected:
     Buffer buffer;
     uint8_t indent;
+
+    constexpr CodeData (Buffer&& buffer, uint8_t indent) : buffer(std::move(buffer)), indent(indent) {}
 
     [[nodiscard]] static constexpr char* make_indent (uint16_t indent_size, char* dst) {
         char* indent_end = dst + indent_size;
@@ -87,15 +80,25 @@ struct CodeData {
     constexpr void _line (T&&... strs) {
         write_strs(std::forward<T>(strs)..., "\n");
     }
+
+    template <typename T>
+    [[nodiscard, gnu::always_inline]] constexpr T& as () {
+        static_assert(std::is_base_of_v<CodeData, T>);
+        static_assert(std::is_layout_compatible_v<CodeData, T>);
+        return reinterpret_cast<T&>(*this);
+    }
 };
+
+
+
 
 #define CODE_DATA_CTOR_ARGS CodeData{std::move(this->buffer), this->indent}
 
 struct ClosedCodeBlock {
-    private:
+// private:
     Buffer buffer;
 
-    public:
+public:
     constexpr explicit ClosedCodeBlock (Buffer&& buffer) : buffer(std::move(buffer)) {}
 
     [[nodiscard]] constexpr const char* const& data () const {
@@ -112,16 +115,19 @@ struct CodeBlockBase : CodeData {
 
     // constexpr explicit CodeBlockBase (CodeData&& cd) : CodeData{std::move(cd)} {};
 
+    template <typename T>
+    constexpr auto _if (T&& condition);
 
-    constexpr auto _if (std::string_view condition);
-    constexpr auto _switch (std::string_view key);
+    template <typename T>
+    constexpr auto _switch (T&& key);
+
     template <typename ...T>
     constexpr auto _struct (T&&... strs);
 
     template <typename ...T>
     constexpr Derived line (T&&... strs) {
         _line(std::forward<T>(strs)...);
-        return {{CODE_DATA_CTOR_ARGS}};
+        return std::move(as<Derived>());
     }
 
     constexpr auto end () {
@@ -129,7 +135,7 @@ struct CodeBlockBase : CodeData {
             return ClosedCodeBlock{std::move(buffer)};
         } else {
             _end();
-            return Last{{CODE_DATA_CTOR_ARGS}};
+            return std::move(as<Last>());
         }
     }
 
@@ -153,14 +159,15 @@ struct If : CodeBlockBase<Last, If<Last>> {
     constexpr CodeBlock<Last> _else () {
         this->indent--;
         this->_line("} else {");
-        return {{CODE_DATA_CTOR_ARGS}};
+        return std::move(this->template as<CodeBlock<Last>>());
     }
 };
 template <typename Last, typename Derived>
-constexpr auto CodeBlockBase<Last, Derived>::_if (std::string_view condition) {
-    _line("if (", condition, ") {");
+template <typename T>
+constexpr auto CodeBlockBase<Last, Derived>::_if (T&& condition) {
+    _line("if (", std::forward<T>(condition), ") {");
     indent++;
-    return If<Derived>{{CODE_DATA_CTOR_ARGS}};
+    return std::move(this->template as<If<Derived>>());
 };
 
 
@@ -174,34 +181,36 @@ struct Case : CodeBlockBase<Last, Case<Last>> {
 
 template <typename Last>
 struct Switch : CodeData {
-    constexpr Case<Last> _case(std::string_view value) {
-        _line("case ", value, ": {");
+    template <typename T>
+    constexpr Case<Last> _case(T&& value) {
+        _line("case ", std::forward<T>(value), ": {");
         indent++;
-        return {{CODE_DATA_CTOR_ARGS}};
+        return std::move(as<Case<Last>>());
     };
 
     constexpr Case<Last> _default () {
         _line("default: {");
         indent++;
-        return {{CODE_DATA_CTOR_ARGS}};
+        return std::move(as<Case<Last>>());
     }
 
     constexpr Last end () {
         indent--;
         _line("}");
-        return {{CODE_DATA_CTOR_ARGS}};
+        return std::move(as<Last>());
     }
 };
 template <typename Last>
 constexpr auto Case<Last>::end ()  {
     this->_end();
-    return Switch<Last>{{CODE_DATA_CTOR_ARGS}};
+    return std::move(this->template as<Switch<Last>>());
 }
 template <typename Last, typename Derived>
-constexpr auto CodeBlockBase<Last, Derived>::_switch (std::string_view key) {
-    _line("switch (", key, ") {");
+template <typename T>
+constexpr auto CodeBlockBase<Last, Derived>::_switch (T&& key) {
+    _line("switch (", std::forward<T>(key), ") {");
     indent++;
-    return Switch<Derived>{{CODE_DATA_CTOR_ARGS}};
+    return std::move(as<Switch<Derived>>());
 };
 
 template <typename Last>
@@ -219,70 +228,108 @@ struct EmptyCtor : CodeBlockBase<Last, EmptyCtor<Last>> {
 };
 
 
-template <typename Last, typename Derived>
+template <typename Last, typename Derived, typename DerivedSimple = Derived>
 struct StructBase : CodeData {
     using Last_ = Last;
     using Derived_ = Derived;
 
     // constexpr explicit StructBase (CodeData&& cd, Buffer::View<char> name = {}) : CodeData{std::move(cd)}, name(name) {};
 
-    Buffer::View<char> name {Buffer::Index<char>{0}, 0};
-
     constexpr Derived _private () {
         _line("private:");
-        return {{CODE_DATA_CTOR_ARGS}};
+        return std::move(as<Derived>());
     }
     constexpr Derived _public () {
         _line("public:");
-        return {{CODE_DATA_CTOR_ARGS}};
+        return std::move(as<Derived>());
     }
     constexpr Derived _protected () {
         _line("protected:");
-        return {{CODE_DATA_CTOR_ARGS}};
-    }
-
-
-    template <typename T, typename U>
-    constexpr EmptyCtor<Derived> ctor (T&& args, U&& initializers) {
-        _line(std::string_view{name.begin(buffer), name.length}, " (", std::forward<T>(args), ") : ", std::forward<U>(initializers), " {}");
-        return {{CODE_DATA_CTOR_ARGS}};
+        return std::move(as<Derived>());
     }
 
     template <typename T, typename U>
-    constexpr Method<Derived> method (T&& type, U&& name) {
+    constexpr Method<DerivedSimple> method (T&& type, U&& name) {
         _line(std::forward<T>(type), " ", std::forward<U>(name), " () {");
         indent++;
-        return {{CODE_DATA_CTOR_ARGS}};
+        return std::move(as<Method<DerivedSimple>>());
+    }
+
+private:
+    template <typename T, typename U, typename V>
+    constexpr Method<DerivedSimple> method_0 (T&& type, U&& name, V&& args) {
+        _line(std::forward<T>(type), " ", std::forward<U>(name), " (", std::forward<V>(args), ") {");
+        indent++;
+        return std::move(as<Method<DerivedSimple>>());
+    }
+
+    template <typename T, typename U, typename V>
+    constexpr Method<DerivedSimple> method_1 (T&& attributes, U&& type, V&& name) {
+        _line(std::forward<T>(attributes), " ", std::forward<U>(type), " ", std::forward<V>(name), " () {");
+        indent++;
+        return std::move(as<Method<DerivedSimple>>());
+    }
+
+    template <typename T, typename U, typename V, typename W>
+    constexpr Method<DerivedSimple> method_2 (T&& attributes, U&& type, V&& name, W&& args) {
+        _line(std::forward<T>(attributes), " ", std::forward<U>(type), " ", std::forward<V>(name), " (", std::forward<W>(args), ") {");
+        indent++;
+        return std::move(as<Method<DerivedSimple>>());
+    }
+
+public:
+    template <typename T, typename U, typename ...V>
+    requires (sizeof...(V) > 0)
+    constexpr Method<DerivedSimple> method (T&& type, U&& name, Args<V...>&& args) {
+        return method_0(std::forward<T>(type), std::forward<U>(name), std::move(args));
     }
 
     template <typename T, typename U, typename ...V>
     requires (sizeof...(V) > 0)
-    constexpr Method<Derived> method (T&& type, U&& name, const Args<V...>& args) {
-        _line(std::forward<T>(type), " ", std::forward<U>(name), " (", args, ") {");
-        indent++;
-        return {{CODE_DATA_CTOR_ARGS}};
+    constexpr Method<DerivedSimple> method (T&& type, U&& name, const Args<V...>& args) {
+        return method_0(std::forward<T>(type), std::forward<U>(name), args);
     }
 
     template <typename ...T, typename U, typename V>
     requires (sizeof...(T) > 0)
-    constexpr Method<Derived> method (const Attributes<T...>& attributes, U&& type, V&& name) {
-        _line(attributes, " ", std::forward<U>(type), " ", std::forward<V>(name), " () {");
-        indent++;
-        return {{CODE_DATA_CTOR_ARGS}};
+    constexpr Method<DerivedSimple> method (Attributes<T...>&& attributes, U&& type, V&& name) {
+        return method_1(std::move(attributes), std::forward<U>(type), std::forward<V>(name));
+    }
+
+    template <typename ...T, typename U, typename V>
+    requires (sizeof...(T) > 0)
+    constexpr Method<DerivedSimple> method (const Attributes<T...>& attributes, U&& type, V&& name) {
+        return method_1(attributes, std::forward<U>(type), std::forward<V>(name));
     }
 
     template <typename ...T, typename U, typename V, typename ...W>
     requires (sizeof...(T) > 0 && sizeof...(W) > 0)
-    constexpr Method<Derived> method (const Attributes<T...>& attributes, U&& type, V&& name, const Args<W...>& args) {
-        _line(attributes, " ", std::forward<U>(type), " ", std::forward<V>(name), " (", args, ") {");
-        indent++;
-        return {{CODE_DATA_CTOR_ARGS}};
+    constexpr Method<DerivedSimple> method (Attributes<T...>&& attributes, U&& type, V&& name, Args<W...>&& args) {
+        return method_2(std::move(attributes), std::forward<U>(type), std::forward<V>(name), std::move(args));
+    }
+
+    template <typename ...T, typename U, typename V, typename ...W>
+    requires (sizeof...(T) > 0 && sizeof...(W) > 0)
+    constexpr Method<DerivedSimple> method (const Attributes<T...>& attributes, U&& type, V&& name, Args<W...>&& args) {
+        return method_2(attributes, std::forward<U>(type), std::forward<V>(name), std::move(args));
+    }
+
+    template <typename ...T, typename U, typename V, typename ...W>
+    requires (sizeof...(T) > 0 && sizeof...(W) > 0)
+    constexpr Method<DerivedSimple> method (Attributes<T...>&& attributes, U&& type, V&& name, const Args<W...>& args) {
+        return method_2(std::move(attributes), std::forward<U>(type), std::forward<V>(name), args);
+    }
+
+    template <typename ...T, typename U, typename V, typename ...W>
+    requires (sizeof...(T) > 0 && sizeof...(W) > 0)
+    constexpr Method<DerivedSimple> method (const Attributes<T...>& attributes, U&& type, V&& name, const Args<W...>& args) {
+        return method_2(attributes, std::forward<U>(type), std::forward<V>(name), args);
     }
 
     template <typename T, typename U>
     constexpr Derived field (T&& type, U&& name) {
         _line(std::forward<T>(type), " ", std::forward<U>(name), ";");
-        return {{CODE_DATA_CTOR_ARGS}};
+        return std::move(as<Derived>());
     } 
 
     template <typename ...T>
@@ -291,12 +338,12 @@ struct StructBase : CodeData {
 template <typename Last>
 constexpr auto Method<Last>::end ()  {
     this->_end();
-    return Last{{CODE_DATA_CTOR_ARGS}};
+    return std::move(this->template as<Last>());
 }
 
 template <typename Last>
 constexpr auto EmptyCtor<Last>::end ()  {
-    return Last{{CODE_DATA_CTOR_ARGS}};
+    return std::move(this->template as<Last>());
 }
 
 template <typename Last>
@@ -306,9 +353,30 @@ struct Struct : StructBase<Last, Struct<Last>> {
     constexpr Last end () {
         this->indent--;
         this->_line("};");
-        return {{CODE_DATA_CTOR_ARGS}};
+        return std::move(this->template as<Last>());
     }
 };
+
+template <typename Last, typename Derived, typename Base>
+struct StructWithNameBase : Base {
+    Buffer::View<char> name {Buffer::Index<char>{0}, 0};
+
+    template <typename T, typename U>
+    constexpr EmptyCtor<Base> ctor (T&& args, U&& initializers) {
+        this->_line(std::string_view{name.begin(this->buffer), name.length}, " (", std::forward<T>(args), ") : ", std::forward<U>(initializers), " {}");
+        return std::move(this->template as<EmptyCtor<Base>>());
+    }
+
+    constexpr Base strip_name () {
+        return std::move(this->template as<Base>());
+    }
+};
+
+template <typename Last>
+struct StructWithName : StructWithNameBase<Last, StructWithName<Last>, Struct<Last>> {
+    // /*tag1*/ using StructBase<Last, Struct<Last>>::StructBase;
+};
+
 template <typename Last, typename Derived>
 template <typename ...T>
 constexpr auto CodeBlockBase<Last, Derived>::_struct (T&&... strs) {
@@ -316,8 +384,9 @@ constexpr auto CodeBlockBase<Last, Derived>::_struct (T&&... strs) {
     _line("struct ", std::forward<T>(strs)..., " {");
     Buffer::Index<char> name_end_idx = buffer.position_idx<char>().sub(" {"_sl.size());
     indent++;
-    return Struct<Derived>{CODE_DATA_CTOR_ARGS, {name_start_idx, name_end_idx}};
+    return StructWithName<Derived>{{std::move(as<Struct<Derived>>()), {name_start_idx, name_end_idx}}};
 };
+
 template <typename Last>
 struct NestedStruct : StructBase<Last, NestedStruct<Last>> {
     // /*tag1*/ using StructBase<Last, NestedStruct<Last>>::StructBase;
@@ -325,23 +394,31 @@ struct NestedStruct : StructBase<Last, NestedStruct<Last>> {
     constexpr Last end () {
         this->indent--;
         this->_line("};");
-        return {{CODE_DATA_CTOR_ARGS}};
+        return std::move(this->template as<Last>());
     }
 
-    constexpr Last end (std::string_view name) {
+    template<typename T>
+    constexpr Last end (T&& name) {
         this->indent--;
-        this->_line("}; ", name, ";");
-        return {{CODE_DATA_CTOR_ARGS}};
+        this->_line("}; ", std::forward<T>(name), ";");
+        return std::move(this->template as<Last>());
     }
 };
-template <typename Last, typename Derived>
+
+template <typename Last>
+struct NestedStructWithName : StructWithNameBase<Last, NestedStructWithName<Last>, NestedStruct<Last>> {
+    // /*tag1*/ using StructBase<Last, NestedStruct<Last>>::StructBase;
+};
+
+
+template <typename Last, typename Derived, typename DerivedSimple>
 template <typename ...T>
-constexpr auto StructBase<Last, Derived>::_struct (T&&... strs) {
+constexpr auto StructBase<Last, Derived, DerivedSimple>::_struct (T&&... strs) {
     Buffer::Index<char> name_start_idx = buffer.position_idx<char>().add(7 + (indent * 4));
     _line("struct ", std::forward<T>(strs)..., " {");
     Buffer::Index<char> name_end_idx = buffer.position_idx<char>().sub(3);
     indent++;
-    return NestedStruct<Derived>{CODE_DATA_CTOR_ARGS, {name_start_idx, name_end_idx}};
+    return NestedStructWithName<Derived>{{std::move(as<NestedStruct<Derived>>()), {name_start_idx, name_end_idx}}};
 }
 
 struct Empty {};
