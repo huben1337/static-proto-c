@@ -1,10 +1,11 @@
 #pragma once
 
 #include <cstdint>
-#include <cstdlib>
 #include <gsl/pointers>
 #include <memory>
+#include <span>
 #include <utility>
+#include <variant>
 
 #include "../util/logger.hpp"
 #include "../variant_optimizer/data.hpp"
@@ -18,116 +19,89 @@ enum class LINK_TYPE : uint8_t {
     VARIANT_FIELD
 };
 
-struct ChainLink {
-    uint16_t idx;
-    LINK_TYPE type;
-    lexer::SIZE alignment;
 
-    constexpr ChainLink (uint16_t idx, LINK_TYPE type, lexer::SIZE alignment)
-    : idx(idx), type(type), alignment(alignment) {}
-};
-
-template <LINK_TYPE link_type, lexer::SIZE alignment>
-requires (link_type == LINK_TYPE::FIXED_LEAF || link_type == LINK_TYPE::VARIANT_FIELD)
-[[gnu::always_inline]] inline void add_num (
-    const uint64_t target,
-    ChainLink* const sum_chains,
-    const uint64_t num,
-    const uint16_t idx
-) {
-    BSSERT(num <= target);
-    // #pragma clang loop vectorize(enable)
-    for (uint64_t i = target - num; ;) {
-        const ChainLink old_chain_entry = sum_chains[i];
-        if (old_chain_entry.type != LINK_TYPE::EMPTY) {
-            ChainLink& new_chain_entry = sum_chains[i + num];
-            if (new_chain_entry.type == LINK_TYPE::EMPTY) {
-                // console.debug("set sum_chains at: ", i + num, ", type: ", uint8_t(link_type));
-                new_chain_entry = ChainLink{idx, link_type, alignment};
-            }
-        }
-        if (i == 0) break;
-        i--;
-    }
-}
-
-[[gnu::always_inline]] inline std::pair<uint16_t, uint64_t> trace_solution (
-    const uint64_t target,
-    gsl::owner<ChainLink*> const sum_chains,
-    FixedLeaf* const fixed_leafs_buffer,
-    FixedOffset* const fixed_offsets,
-    VariantField* const variant_fields_buffer,
-    uint16_t* const idx_map,
-    uint64_t offset,
-    const lexer::SIZE pack_align,
-    uint16_t ordered_idx
-) {
-    uint64_t chain_idx = target;
-    do {
-        // std::cout << "chain_idx: " << chain_idx << "\n";
-        ChainLink link = sum_chains[chain_idx];
-        if (link.type == LINK_TYPE::FIXED_LEAF) {
-            FixedLeaf& leaf = fixed_leafs_buffer[link.idx];
-            uint16_t map_idx = leaf.get_map_idx();
-            idx_map[map_idx] = ordered_idx;
-            fixed_offsets[ordered_idx] = {offset, pack_align};
-            ordered_idx++;
-            uint64_t leaf_size = leaf.get_size();
-            offset += leaf_size;
-            chain_idx -= leaf_size;
-            // Prevent a leaf from being used twice. The size is set to zero and therfore it will be skipped from here on out.
-            leaf.set_zero();
-        } else {
-            BSSERT(link.type == LINK_TYPE::VARIANT_FIELD && false);
-            uint64_t& size = variant_fields_buffer[link.idx].sizes.get(link.alignment);
-            offset += size;
-            chain_idx -= size;
-            size = 0;
-        }
-        
-    } while (chain_idx > 0);
-
-    std::free(sum_chains);
-    return {ordered_idx, offset};
-}
+static constexpr uint16_t empty_chain_link = -1;
 
 template <lexer::SIZE from_align>
 [[nodiscard]] inline std::pair<uint16_t, uint64_t> solve_loop (
     const uint64_t target,
-    const gsl::owner<ChainLink*> sum_chains,
-    FixedLeaf* const fixed_leafs_buffer,
+    uint16_t* const sum_chains,
+    const std::span<QueuedField> queued_fields_buffer,
     const VariantLeafMeta& meta,
     const uint16_t fixed_leaf_begin_idx,
-    FixedOffset* const fixed_offsets,
-    const estd::integral_range<uint16_t> variant_field_idxs,
-    VariantField* const variant_fields_buffer,
-    uint16_t* idx_map,
-    uint16_t ordered_idx,
+    const std::span<FixedOffset> fixed_offsets,
+    const std::span<FixedOffset> tmp_fixed_offsets,
+    const std::span<uint16_t> idx_map,
+    uint16_t fixed_offset_idx,
     uint64_t offset,
-    lexer::SIZE pack_align
+    const lexer::SIZE pack_align
 ) {
-
-    for (uint16_t& idx : variant_field_idxs) {
-        const VariantField& variant_field = variant_fields_buffer[idx];
-        auto num = variant_field.sizes.get<from_align>();
-        if (num == 0) continue;
-        BSSERT(num <= target);
-        add_num<LINK_TYPE::VARIANT_FIELD, from_align>(target, sum_chains, num, idx);
-
-        if (sum_chains[target].type != LINK_TYPE::EMPTY) {
-            return trace_solution(target, sum_chains, fixed_leafs_buffer, fixed_offsets, variant_fields_buffer, idx_map, offset, pack_align, ordered_idx);
-        }
-    }
-
-    const uint16_t fixed_leaf_end_idx = meta.fixed_leafs_ends.get<from_align>();
-    for (uint16_t leaf_idx = fixed_leaf_begin_idx; leaf_idx < fixed_leaf_end_idx; leaf_idx++) {
-        uint64_t num = fixed_leafs_buffer[leaf_idx].get_size();
+    const uint16_t fixed_leaf_end_idx = meta.ends.get<from_align>();
+    for (const uint16_t idx : estd::integral_range{
+        fixed_leaf_begin_idx,
+        fixed_leaf_end_idx
+    }) {
+        const QueuedField& field = queued_fields_buffer[idx];
+        uint64_t num = field.size;
         if (num == 0) continue; // Skip leaf which has been marked as used.
-        add_num<LINK_TYPE::FIXED_LEAF, from_align>(target, sum_chains, num, leaf_idx);
-
-        if (sum_chains[target].type != LINK_TYPE::EMPTY) {
-            return trace_solution(target, sum_chains, fixed_leafs_buffer, fixed_offsets, variant_fields_buffer, idx_map, offset, pack_align, ordered_idx);
+        BSSERT(num <= target);
+        // #pragma clang loop vectorize(enable)
+        for (uint64_t i = target - num; ;) {
+            const uint16_t old_chain_entry = sum_chains[i];
+            if (old_chain_entry != empty_chain_link) {
+                uint16_t& new_chain_entry = sum_chains[i + num];
+                if (new_chain_entry == empty_chain_link) {
+                    // console.debug("set sum_chains at: ", i + num, ", type: ", uint8_t(link_type));
+                    new_chain_entry = idx;
+                }
+            }
+            if (i == 0) break;
+            i--;
         }
+
+        if (sum_chains[target] == empty_chain_link) continue;
+        
+        uint64_t chain_idx = target;
+        do {
+            // std::cout << "chain_idx: " << chain_idx << "\n";
+            const uint16_t field_idx = sum_chains[chain_idx];
+            QueuedField& field = queued_fields_buffer[field_idx];
+            std::visit([&fixed_offsets, &tmp_fixed_offsets, &fixed_offset_idx, &offset, &pack_align]<typename T>(T& arg) {
+                if constexpr (std::is_same_v<SimpleField, T>) {
+                    const uint16_t map_idx = arg.map_idx;
+                    const FixedOffset fo {offset, map_idx, pack_align};
+                    console.debug("(ssp) fixed_offsets[", fixed_offset_idx, "] = ", fo);
+                    FixedOffset& out = fixed_offsets[fixed_offset_idx];
+                    BSSERT(out == FixedOffset::empty());
+                    out = fo;
+                    fixed_offset_idx++;
+                } else if constexpr (std::is_same_v<ArrayFieldPack, T> || std::is_same_v<VariantFieldPack, T>) {
+                    const estd::integral_range<uint16_t>& tmp_fixed_offset_idxs = arg.tmp_fixed_offset_idxs;
+                    console.debug("tmp_fixed_offsets[", *tmp_fixed_offset_idxs.begin(), " .. ", *tmp_fixed_offset_idxs.end(), "] = FixedOffset::empty() (ssp)");
+                    for (const uint16_t tmp_idx : tmp_fixed_offset_idxs) {
+                        FixedOffset& tmp = tmp_fixed_offsets[tmp_idx];
+                        const FixedOffset fo {tmp.offset + offset, tmp.map_idx, tmp.pack_align};
+                        console.debug("(ssp) fixed_offsets[", fixed_offset_idx, "] = ", fo);
+                        FixedOffset& out = fixed_offsets[fixed_offset_idx];
+                        BSSERT(out == FixedOffset::empty(), fixed_offset_idx);
+                        out = fo;
+                        tmp = FixedOffset::empty();
+                        fixed_offset_idx++;
+                    }
+                } else if constexpr (std::is_same_v<SkippedField, T>) {
+                    std::unreachable();
+                } else {
+                    static_assert(false);
+                }
+            }, field.info);
+            const uint64_t size = field.size;
+            // Prevent a field from being used twice. The size is set to zero and therfore it will be skipped from here on out.
+            field.size = 0;
+            offset += size;
+            chain_idx -= size;
+        } while (chain_idx > 0);
+
+        return {fixed_offset_idx, offset};
     }
 
     if constexpr (from_align == lexer::SIZE::SIZE_1) {
@@ -137,14 +111,13 @@ template <lexer::SIZE from_align>
         return solve_loop<lexer::next_smaller_size<from_align>>(
             target,
             sum_chains,
-            fixed_leafs_buffer,
+            queued_fields_buffer,
             meta,
             fixed_leaf_end_idx,
             fixed_offsets,
-            variant_field_idxs,
-            variant_fields_buffer,
+            tmp_fixed_offsets,
             idx_map,
-            ordered_idx,
+            fixed_offset_idx,
             offset,
             pack_align
         );
@@ -157,36 +130,34 @@ template <lexer::SIZE alignment>
 requires (alignment != lexer::SIZE::SIZE_1)
 [[nodiscard]] inline std::pair<uint16_t, uint64_t> solve (
     const uint64_t target,
-    FixedLeaf* const fixed_leafs_buffer,
+    const std::span<QueuedField> queued_fields_buffer,
     const VariantLeafMeta& meta,
     const uint16_t fixed_leaf_begin_idx,
-    FixedOffset* const fixed_offsets,
-    const estd::integral_range<uint16_t> variant_field_idxs,
-    VariantField* const variant_fields_buffer,
-    uint16_t* idx_map,
-    uint16_t ordered_idx,
-    uint64_t offset
+    const std::span<FixedOffset> fixed_offsets,
+    const std::span<FixedOffset> tmp_fixed_offsets,
+    const std::span<uint16_t> idx_map,
+    const uint16_t fixed_offset_idx,
+    const uint64_t offset
 ) {
     // NOLINTNEXTLINE(readability-simplify-boolean-expr)
     BSSERT(target != 0, "[subset_sum_perfect::solve] invalid target: ", target);
     //std::cout << "FINDING " << target << "\n";
 
-    gsl::owner<ChainLink*> sum_chains = static_cast<ChainLink*>(std::malloc((target + 1) * sizeof(ChainLink)));
+    const std::unique_ptr<uint16_t[]> sum_chains = std::make_unique_for_overwrite<uint16_t[]>(target + 1);
     BSSERT(sum_chains != nullptr, "[subset_sum_perfect::solve] allocation failed");
-    sum_chains[0] = ChainLink{0, LINK_TYPE::ROOT, lexer::SIZE::SIZE_0};
-    std::uninitialized_fill_n(sum_chains + 1, target, ChainLink{0, LINK_TYPE::EMPTY, lexer::SIZE::SIZE_0});
+    sum_chains[0] = 0;
+    std::uninitialized_fill_n(sum_chains.get() + 1, target, empty_chain_link);
     
     return solve_loop<alignment>(
         target,
-        sum_chains,
-        fixed_leafs_buffer,
+        sum_chains.get(),
+        queued_fields_buffer,
         meta,
         fixed_leaf_begin_idx,
         fixed_offsets,
-        variant_field_idxs,
-        variant_fields_buffer,
+        tmp_fixed_offsets,
         idx_map,
-        ordered_idx,
+        fixed_offset_idx,
         offset,
         alignment
     );

@@ -1,5 +1,6 @@
 #pragma once
 
+#include <bit>
 #include <concepts>
 #include <cstddef>
 #include <cstdint>
@@ -12,7 +13,6 @@
 #include "../base.hpp"
 #include "../container/memory.hpp"
 #include "./memory_helpers.hpp"
-#include "../estd/empty.hpp"
 #include "../estd/enum.hpp"
 
 namespace lexer {
@@ -48,7 +48,7 @@ namespace {
     struct size_helper;
 }
 
-struct SIZE : estd::ENUM_CLASS<uint8_t> {
+struct SIZE : estd::ENUM_CLASS<uint8_t, SIZE> {
     friend struct size_helper;
 
     using ENUM_CLASS::ENUM_CLASS;
@@ -134,19 +134,45 @@ template <SIZE size>
 requires (size != SIZE::SIZE_0 && size != SIZE::SIZE_8)
 constexpr SIZE next_bigger_size = size_helper::next_bigger_size<size>;
 
-template<typename T, SIZE max_align = SIZE::SIZE_8, StringLiteral name = "AlignMembersBase<>">
+namespace {
+
+    template <typename Outside>
+    constexpr StringLiteral align_members_outside_name = string_literal::from_([](){ return nameof::nameof_type<Outside>(); });
+
+    template <>
+    constexpr StringLiteral align_members_outside_name<void> = "AlignMembersBase<>";
+
+    template <typename Self, typename Outside>
+    struct AlignMembersOutside {
+        using type = Outside;
+    };
+
+    template <typename Self>
+    struct AlignMembersOutside<Self, void> {
+        using type = Self;
+    };
+
+    template <typename Self, typename Outside>
+    using align_members_outside_t = AlignMembersOutside<Self, Outside>::type;
+}
+
+template<typename T, SIZE max_align = SIZE::SIZE_8, typename Outside = void>
 struct AlignMembersBase {
     T align1;
     T align2;
     T align4;
     T align8;
 
+    // NOLINTNEXTLINE(bugprone-crtp-constructor-accessibility) FALSE POSITIVE. WE DONT USE CRTP
     constexpr AlignMembersBase() = default;
+
+    // NOLINTNEXTLINE(bugprone-crtp-constructor-accessibility) FALSE POSITIVE. WE DONT USE CRTP
     constexpr AlignMembersBase (const T& align1, const T& align2, const T& align4, const T& align8)
-    : align1(align1), align2(align2), align4(align4), align8(align8) {}
+        : align1(align1), align2(align2), align4(align4), align8(align8) {}
 
     #define ALIGN_MEMBER_GET_CT_ARG(RETURN_TYPE, CONST_ATTR)            \
     template <SIZE size>                                                \
+    /* NOLINTNEXTLINE(bugprone-macro-parentheses) */                    \
     [[nodiscard]] constexpr CONST_ATTR RETURN_TYPE& get () CONST_ATTR { \
         if constexpr (size == SIZE::SIZE_8) {                           \
             return align8;                                              \
@@ -161,15 +187,16 @@ struct AlignMembersBase {
         }                                                               \
     }
 
-    #define ALIGN_MEMBER_GET_RT_ARG(RETURN_TYPE, CONST_ATTR)                            \
-    [[nodiscard]] constexpr CONST_ATTR RETURN_TYPE& get (SIZE size) CONST_ATTR {        \
-        switch (size) {                                                                 \
-            case SIZE::SIZE_1: return align1;                                           \
-            case SIZE::SIZE_2: return align2;                                           \
-            case SIZE::SIZE_4: return align4;                                           \
-            case SIZE::SIZE_8: return align8;                                           \
-            default: std::unreachable();                                                \
-        }                                                                               \
+    #define ALIGN_MEMBER_GET_RT_ARG(RETURN_TYPE, CONST_ATTR)                        \
+    /* NOLINTNEXTLINE(bugprone-macro-parentheses) */                                \
+    [[nodiscard]] constexpr CONST_ATTR RETURN_TYPE& get (SIZE size) CONST_ATTR {    \
+        switch (size) {                                                             \
+            case SIZE::SIZE_1: return align1;                                       \
+            case SIZE::SIZE_2: return align2;                                       \
+            case SIZE::SIZE_4: return align4;                                       \
+            case SIZE::SIZE_8: return align8;                                       \
+            default: std::unreachable();                                            \
+        }                                                                           \
     }
 
     ALIGN_MEMBER_GET_CT_ARG(T, )
@@ -182,21 +209,28 @@ struct AlignMembersBase {
 
     template <typename writer_params>
     void log (logger::writer<writer_params> w) const {
-        w.template write<true, true>(name + "{align1: "_sl, align1, ", align2: ", align2, ", align4: ", align4, ", align8: ", align8, "}");
+        w.template write<true, true>(align_members_outside_name<Outside> + "{align1: "_sl, align1, ", align2: ", align2, ", align4: ", align4, ", align8: ", align8, "}");
     }
+
+    template <typename Result = AlignMembersBase>
+    [[nodiscard]] static consteval Result zero () { return Result{0, 0, 0, 0}; }
 };
-template<typename T>
-struct AlignMembersBase<T, SIZE::SIZE_4> {
+template<typename T, typename Outside>
+struct AlignMembersBase<T, SIZE::SIZE_4, Outside> {
     T align1;
     T align2;
     T align4;
 
+    // NOLINTNEXTLINE(bugprone-crtp-constructor-accessibility) FALSE POSITIVE. WE DONT USE CRTP
     constexpr AlignMembersBase() = default;
+
+    // NOLINTNEXTLINE(bugprone-crtp-constructor-accessibility) FALSE POSITIVE. WE DONT USE CRTP
     constexpr AlignMembersBase (const T& align1, const T& align2, const T& align4)
-    : align1(align1), align2(align2), align4(align4) {}
+        : align1(align1), align2(align2), align4(align4) {}
 
     #define ALIGN_MEMBER_GET_CT_ARG(RETURN_TYPE, CONST_ATTR)            \
     template <SIZE size>                                                \
+    /* NOLINTNEXTLINE(bugprone-macro-parentheses) */                    \
     [[nodiscard]] constexpr CONST_ATTR RETURN_TYPE& get () CONST_ATTR { \
         if constexpr (size == SIZE::SIZE_4) {                           \
             return align4;                                              \
@@ -209,14 +243,15 @@ struct AlignMembersBase<T, SIZE::SIZE_4> {
         }                                                               \
     }
 
-    #define ALIGN_MEMBER_GET_RT_ARG(RETURN_TYPE, CONST_ATTR)                            \
-    [[nodiscard]] constexpr CONST_ATTR RETURN_TYPE& get (SIZE size) CONST_ATTR {        \
-        switch (size) {                                                                 \
-            case SIZE::SIZE_1: return align1;                                           \
-            case SIZE::SIZE_2: return align2;                                           \
-            case SIZE::SIZE_4: return align4;                                           \
-            default: std::unreachable();                                                \
-        }                                                                               \
+    #define ALIGN_MEMBER_GET_RT_ARG(RETURN_TYPE, CONST_ATTR)                        \
+    /* NOLINTNEXTLINE(bugprone-macro-parentheses) */                                \
+    [[nodiscard]] constexpr CONST_ATTR RETURN_TYPE& get (SIZE size) CONST_ATTR {    \
+        switch (size) {                                                             \
+            case SIZE::SIZE_1: return align1;                                       \
+            case SIZE::SIZE_2: return align2;                                       \
+            case SIZE::SIZE_4: return align4;                                       \
+            default: std::unreachable();                                            \
+        }                                                                           \
     }
 
     ALIGN_MEMBER_GET_CT_ARG(T, )
@@ -227,22 +262,29 @@ struct AlignMembersBase<T, SIZE::SIZE_4> {
     #undef ALIGN_MEMBER_GET_CT_ARG
     #undef ALIGN_MEMBER_GET_RT_ARG
 
-    template <StringLiteral name = "AlignMembersBase<T>", typename writer_params>
+    template <typename writer_params>
     void log (logger::writer<writer_params> w) const {
-        w.template write<true, true>(name + "{ align1: "_sl, align1, ", align2: ", align2, ", align4: ", align4, "}");
+        w.template write<true, true>(align_members_outside_name<Outside> + "{align1: "_sl, align1, ", align2: ", align2, ", align4: ", align4, "}");
     }
+
+    template <typename Result = AlignMembersBase>
+    [[nodiscard]] static consteval Result zero () { return Result{0, 0, 0}; }
 };
-template<typename T>
-struct AlignMembersBase<T, SIZE::SIZE_2> {
+template<typename T, typename Outside>
+struct AlignMembersBase<T, SIZE::SIZE_2, Outside> {
     T align1;
     T align2;
 
+    // NOLINTNEXTLINE(bugprone-crtp-constructor-accessibility) FALSE POSITIVE. WE DONT USE CRTP
     constexpr AlignMembersBase() = default;
+
+    // NOLINTNEXTLINE(bugprone-crtp-constructor-accessibility) FALSE POSITIVE. WE DONT USE CRTP
     constexpr AlignMembersBase (const T& align1, const T& align2)
-    : align1(align1), align2(align2) {}
+        : align1(align1), align2(align2) {}
 
     #define ALIGN_MEMBER_GET_CT_ARG(RETURN_TYPE, CONST_ATTR)            \
     template <SIZE size>                                                \
+    /* NOLINTNEXTLINE(bugprone-macro-parentheses) */                    \
     [[nodiscard]] constexpr CONST_ATTR RETURN_TYPE& get () CONST_ATTR { \
         if constexpr (size == SIZE::SIZE_2) {                           \
             return align2;                                              \
@@ -254,6 +296,7 @@ struct AlignMembersBase<T, SIZE::SIZE_2> {
     }
 
     #define ALIGN_MEMBER_GET_RT_ARG(RETURN_TYPE, CONST_ATTR)                        \
+    /* NOLINTNEXTLINE(bugprone-macro-parentheses) */                                \
     [[nodiscard]] constexpr CONST_ATTR RETURN_TYPE& get (SIZE size) CONST_ATTR {    \
         switch (size) {                                                             \
             case SIZE::SIZE_1: return align1;                                       \
@@ -270,21 +313,28 @@ struct AlignMembersBase<T, SIZE::SIZE_2> {
     #undef ALIGN_MEMBER_GET_CT_ARG
     #undef ALIGN_MEMBER_GET_RT_ARG
 
-    template <StringLiteral name = "AlignMembersBase<T>", typename writer_params>
+    template <typename writer_params>
     void log (logger::writer<writer_params> w) const {
-        w.template write<true, true>(name + "{ align1: "_sl, align1, ", align2: ", align2, "}");
+        w.template write<true, true>(align_members_outside_name<Outside> + "{align1: "_sl, align1, ", align2: ", align2, "}");
     }
+
+    template <typename Result = AlignMembersBase>
+    [[nodiscard]] static consteval Result zero () { return Result{0, 0}; }
 };
-template<typename T>
-struct AlignMembersBase<T, SIZE::SIZE_1> {
+template<typename T, typename Outside>
+struct AlignMembersBase<T, SIZE::SIZE_1, Outside> {
     T align1;
 
+    // NOLINTNEXTLINE(bugprone-crtp-constructor-accessibility) FALSE POSITIVE. WE DONT USE CRTP
     constexpr AlignMembersBase() = default;
+
+    // NOLINTNEXTLINE(bugprone-crtp-constructor-accessibility) FALSE POSITIVE. WE DONT USE CRTP
     constexpr explicit AlignMembersBase (const T& align1)
-    : align1(align1) {}
+        : align1(align1) {}
 
     #define ALIGN_MEMBER_GET_CT_ARG(RETURN_TYPE, CONST_ATTR)            \
     template <SIZE size>                                                \
+    /* NOLINTNEXTLINE(bugprone-macro-parentheses) */                    \
     [[nodiscard]] constexpr CONST_ATTR RETURN_TYPE& get () CONST_ATTR { \
         if constexpr (size == SIZE::SIZE_1) {                           \
             return align1;                                              \
@@ -294,6 +344,7 @@ struct AlignMembersBase<T, SIZE::SIZE_1> {
     }
 
     #define ALIGN_MEMBER_GET_RT_ARG(RETURN_TYPE, CONST_ATTR)                        \
+    /* NOLINTNEXTLINE(bugprone-macro-parentheses) */                                \
     [[nodiscard]] constexpr CONST_ATTR RETURN_TYPE& get (SIZE size) CONST_ATTR {    \
         switch (size) {                                                             \
             case SIZE::SIZE_1: return align1;                                       \
@@ -309,10 +360,13 @@ struct AlignMembersBase<T, SIZE::SIZE_1> {
     #undef ALIGN_MEMBER_GET_CT_ARG
     #undef ALIGN_MEMBER_GET_RT_ARG
 
-    template <StringLiteral name = "AlignMembersBase<T>", typename writer_params>
+    template <typename writer_params>
     void log (logger::writer<writer_params> w) const {
-        w.template write<true, true>(name + "{ align1: "_sl, align1, "}");
+        w.template write<true, true>(align_members_outside_name<Outside> + "{align1: "_sl, align1, "}");
     }
+
+    template <typename Result = AlignMembersBase>
+    [[nodiscard]] static consteval Result zero () { return Result{0}; }
 };
 
 template <SIZE alignemnt, typename T>
@@ -393,41 +447,24 @@ template <std::integral T>
     return SIZE::SIZE_1;
 }
 [[nodiscard]] constexpr SIZE get_size_size (uint16_t size) {
-    if (size <= UINT8_MAX) {
-        return SIZE::SIZE_1;
-    } else {
-        return SIZE::SIZE_2;
-    }
+    if (size <= UINT8_MAX) return SIZE::SIZE_1; 
+    return SIZE::SIZE_2;
+   
 }
 [[nodiscard]] constexpr SIZE get_size_size (uint32_t size) {
-    if (size <= UINT8_MAX) {
-        return SIZE::SIZE_1;
-    } else if (size <= UINT16_MAX) {
-        return SIZE::SIZE_2;
-    } else {
-        return SIZE::SIZE_4;
-    }
+    if (size <= UINT8_MAX ) return SIZE::SIZE_1;
+    if (size <= UINT16_MAX) return SIZE::SIZE_2;
+    return SIZE::SIZE_4;
 }
 [[nodiscard]] constexpr SIZE get_size_size (uint64_t size) {
-    if (size <= UINT8_MAX) {
-        return SIZE::SIZE_1;
-    } else if (size <= UINT16_MAX) {
-        return SIZE::SIZE_2;
-    } else if (size <= UINT32_MAX) {
-        return SIZE::SIZE_4;
-    } else {
-        return SIZE::SIZE_8;
-    }
+    if (size <= UINT8_MAX ) return SIZE::SIZE_1;
+    if (size <= UINT16_MAX) return SIZE::SIZE_2;
+    if (size <= UINT32_MAX) return SIZE::SIZE_4;
+    return SIZE::SIZE_8;
 }
 
-struct Range {
-    uint32_t min;
-    uint32_t max;
-};
-
-union LeafCounts {
-
-    struct Counts : AlignMembersBase<uint16_t, SIZE::SIZE_8, "Counts"> {
+struct LeafCounts {
+    struct Counts : AlignMembersBase<uint16_t, SIZE::SIZE_8, Counts> {
         using AlignMembersBase::AlignMembersBase;
 
         [[nodiscard]] constexpr uint16_t total () const {
@@ -443,8 +480,9 @@ union LeafCounts {
 
         [[nodiscard]] static consteval Counts zero () { return {0, 0, 0, 0}; }
         [[nodiscard]] static constexpr Counts of (uint16_t value) { return {value, value, value, value}; }
-    } counts;
-    uint64_t as_uint64;
+    };
+
+    uint64_t data;
 
     static_assert(offsetof(Counts, align1) == 0
                && offsetof(Counts, align2) == 2
@@ -452,15 +490,20 @@ union LeafCounts {
                && offsetof(Counts, align8) == 6);
 
     constexpr LeafCounts () = default;
-    constexpr explicit LeafCounts (Counts counts) : counts(counts) {}
-    constexpr LeafCounts (uint16_t align1, uint16_t align2, uint16_t align4, uint16_t align8) : counts{align1, align2, align4, align8} {}
-    constexpr explicit LeafCounts (uint64_t as_uint64) : as_uint64(as_uint64) {}
-    constexpr explicit LeafCounts (SIZE size) : as_uint64(uint64_t{1} << (size.value * sizeof(uint16_t) * 8)) {}
+    constexpr explicit LeafCounts (Counts counts) : data(std::bit_cast<uint64_t>(counts)) {}
+    constexpr LeafCounts (uint16_t align1, uint16_t align2, uint16_t align4, uint16_t align8) : LeafCounts{{align1, align2, align4, align8}} {}
+    constexpr explicit LeafCounts (uint64_t data) : data(data) {}
+    constexpr explicit LeafCounts (SIZE size) : data(uint64_t{1} << (size.value * sizeof(uint16_t) * 8)) {}
 
-    constexpr void operator += (const LeafCounts& other) { as_uint64 += other.as_uint64; }
-    [[nodiscard]] constexpr LeafCounts operator + (const LeafCounts& other) const { return LeafCounts{as_uint64 + other.as_uint64}; }
-    [[nodiscard]] constexpr uint16_t total () const { return counts.total(); }
-    [[nodiscard]] constexpr bool empty () const { return as_uint64 == 0; }
+    constexpr void operator += (const LeafCounts& other) { data += other.data; }
+
+    [[nodiscard]] constexpr LeafCounts operator + (const LeafCounts& other) const { return LeafCounts{data + other.data}; }
+
+    [[nodiscard]] constexpr bool empty () const { return data == 0; }
+
+    [[nodiscard]] constexpr Counts counts () const { return std::bit_cast<Counts>(data); }
+
+    [[nodiscard]] constexpr uint16_t total () const { return counts().total(); }
 
     [[nodiscard]] static consteval LeafCounts zero () { return LeafCounts{Counts::zero()}; }
     [[nodiscard]] static constexpr LeafCounts of (uint16_t value) { return LeafCounts{Counts::of(value)}; }
@@ -481,70 +524,11 @@ union LeafCounts {
     }
 
     [[nodiscard]] constexpr SIZE largest_align () const {
-        return counts.largest_align();
+        return counts().largest_align();
     }
 };
 
-
-// struct uint256_t {
-//     uint64_t data[4];
-
-//     // 0 -> most significant, 3 -> least significant
-
-//     #define ASSIGN(op) \
-//     [[nodiscard]] uint256_t& operator op (const uint256_t& other) { \
-//         data[0] op other.data[0]; \
-//         data[1] op other.data[1]; \
-//         data[2] op other.data[2]; \
-//         data[3] op other.data[3]; \
-//         return *this; \
-//     }
-
-//     ASSIGN(+=)
-//     ASSIGN(-=)
-//     ASSIGN(*=)
-//     ASSIGN(/=)
-
-//     #undef ASSIGN
-
-//     #define ARITHMETIC(op) \
-//     uint256_t operator op (const uint256_t& other) const { \
-//         return { \
-//             data[0] op other.data[0], \
-//             data[1] op other.data[1], \
-//             data[2] op other.data[2], \
-//             data[3] op other.data[3] \
-//         }; \
-//     }
-
-//     // Inocrrect since we dont carray data
-//     ARITHMETIC(+)
-//     ARITHMETIC(-)
-//     ARITHMETIC(*)
-//     ARITHMETIC(/)
-
-//     #undef ARITHMETIC
-
-//     #define COMPARE(op) \
-//     bool operator op (const uint256_t& other) const { \
-//         if (data[0] op other.data[0]) return true; \
-//         if (data[1] op other.data[1]) return true; \
-//         if (data[2] op other.data[2]) return true; \
-//         if (data[3] op other.data[3]) return true; \
-//         return false; \
-//     }
-
-//     COMPARE(==)
-//     COMPARE(!=)
-//     COMPARE(>)
-//     COMPARE(<)
-//     COMPARE(>=)
-//     COMPARE(<=)
-
-//     #undef COMPARE
-// }; */
-
-struct LeafSizes : AlignMembersBase<uint64_t, SIZE::SIZE_8, "LeafSizes"> {
+struct LeafSizes : AlignMembersBase<uint64_t, SIZE::SIZE_8, LeafSizes> {
     using AlignMembersBase::AlignMembersBase;
     constexpr explicit LeafSizes (const LeafCounts::Counts& counts) : AlignMembersBase{counts.align1, counts.align2, counts.align4, counts.align8} {}
 
@@ -671,14 +655,13 @@ struct IdentifiedDefinition {
 };
 
 
-
 struct Type {
     FIELD_TYPE type;
 
     [[nodiscard]] const auto* as_fixed_string () const;
     [[nodiscard]] const auto* as_string () const;
     [[nodiscard]] const auto* as_identifier () const;
-    [[nodiscard]] const auto* as_array () const;
+    [[nodiscard]] auto* as_array () const;
     [[nodiscard]] auto* as_fixed_variant () const;
     [[nodiscard]] auto* as_packed_variant () const;
     [[nodiscard]] auto* as_dynamic_variant () const;
@@ -720,7 +703,7 @@ struct Type {
     };
 
     template <typename VisitorT, typename... ArgsT>
-    [[nodiscard]] VisitorT::result_t visit (VisitorT&& visitor, ArgsT&&... args) const;
+    [[nodiscard]] std::remove_cvref_t<VisitorT>::result_t visit (VisitorT&& visitor, ArgsT&&... args) const;
 
     template <typename T>
     [[nodiscard]] inline T* skip () const;
@@ -736,9 +719,11 @@ template <typename T>
 struct FixedStringType {
     static void create (Buffer &buffer, uint32_t length) {
         auto [extended, base] = create_extended<FixedStringType, Type>(buffer);
-        base->type = FIELD_TYPE::STRING_FIXED;
-        extended->length = length;
-        extended->length_size = get_size_size(length);
+        *base = {FIELD_TYPE::STRING_FIXED};
+        *extended = {
+            length,
+            get_size_size(length)
+        };
     }
 
     uint32_t length;
@@ -751,10 +736,12 @@ struct FixedStringType {
 struct StringType {
     static void create (Buffer &buffer, uint32_t min_length, SIZE stored_size_size, SIZE size_size) {
         auto [extended, base] = create_extended<StringType, Type>(buffer);
-        base->type = STRING;
-        extended->min_length = min_length;
-        extended->stored_size_size = stored_size_size;
-        extended->size_size = size_size;
+        *base = {STRING};
+        *extended = {
+            min_length,
+            stored_size_size,
+            size_size
+        };
     }
     uint32_t min_length;
     SIZE stored_size_size;
@@ -769,8 +756,8 @@ using IdentifedDefinitionIndex = Buffer::Index<const IdentifiedDefinition>;
 struct IdentifiedType {
     static void create (Buffer &buffer, IdentifedDefinitionIndex identifier_idx) {
         auto [extended, base] = create_extended<IdentifiedType, Type>(buffer);
-        base->type = IDENTIFIER;
-        extended->identifier_idx = identifier_idx;
+        *base = {IDENTIFIER};
+        *extended = {identifier_idx};
     }
 
     IdentifedDefinitionIndex identifier_idx;
@@ -785,18 +772,19 @@ struct ArrayType {
         return __create_extended<ArrayType, Type>(buffer);
     }
 
+    LeafCounts level_fixed_leafs;
     uint32_t length;
+    uint16_t pack_info_base_idx;
     SIZE stored_size_size;
     SIZE size_size;
 
     [[nodiscard]] const Type* inner_type () const {
-        static_assert(alignof(ArrayType) >= alignof(Type));
-        return reinterpret_cast<const Type*>(this + 1);
+        return estd::ptr_cast<const Type>(this + 1);
     }
 
 };
-[[nodiscard]] inline const auto* Type::as_array () const {
-    return get_extended_type<const ArrayType>(this);
+[[nodiscard]] inline auto* Type::as_array () const {
+    return get_extended_type<ArrayType>(this);
 }
 
 
@@ -809,7 +797,6 @@ struct VariantTypeBase {
         return __create_extended<VariantTypeBase, Type, TypeMetaT>(buffer);
     }
 
-    LeafSizes pack_sizes;                   // Maximum byte sizes of fixed sized leafs over all variants
     uint64_t min_byte_size;                 // Minimum byte size of the variant (used for size getter)
     Buffer::index_t type_metas_offset;      // Offset from head of this to the head of type_metas
     uint16_t variant_count;                 // Count of variants
@@ -819,31 +806,32 @@ struct VariantTypeBase {
     SIZE size_size;                         // Size of the size
 
     [[nodiscard]] const TypeMetaT* type_metas () const {
-        return reinterpret_cast<const TypeMetaT*>(reinterpret_cast<const uint8_t*>(this) + type_metas_offset);
+        return reinterpret_cast<const TypeMetaT*>(estd::ptr_cast<const uint8_t>(this) + type_metas_offset);
     }
 
     [[nodiscard]] const Type* first_variant() const {
-        static_assert(alignof(VariantTypeBase) >= alignof(Type));
-        return reinterpret_cast<const Type*>(this + 1);
+        return estd::ptr_cast<const Type>(this + 1);
     }
 private:
     template <typename T>
     [[nodiscard]] T* after () const {
-        return reinterpret_cast<T*>(type_metas() + variant_count);
+        return estd::ptr_cast<T>(type_metas() + variant_count);
     }
 };
 
 
 struct FixedVariantTypeMeta {
-    LeafCounts fixed_leaf_counts;   // Counts of non-nested fixed sized leafs
+    LeafCounts level_fixed_leafs;   // Counts of non-nested fixed sized leafs
     uint16_t level_fixed_variants;  // Counts of non-nested fixed variant fields
+    uint16_t level_fixed_arrays;
     //LeafCounts variant_field_counts;
 };
 
 struct DynamicVariantTypeMeta {
-    LeafCounts fixed_leaf_counts;
+    LeafCounts level_fixed_leafs;
     LeafCounts var_leaf_counts;
     uint16_t level_fixed_variants;
+    uint16_t level_fixed_arrays;
     //LeafCounts variant_field_counts;
     uint16_t level_size_leafs;
 };
@@ -870,8 +858,7 @@ struct StructField {
         std::string_view name;
 
         [[nodiscard]] const Type* type () const {
-            static_assert(alignof(Data) >= alignof(Type));
-            return reinterpret_cast<const Type*>(this + 1);
+            return estd::ptr_cast<const Type>(this + 1);
         }
     };
 
@@ -885,20 +872,20 @@ struct EnumField {
     std::string_view name;
 
     struct Value {
-        constexpr explicit Value (int64_t value) {
-            if (value < 0) {
-                is_negative = true;
-                this->value = -value;
-            } else {
-                is_negative = false;
-                this->value = value;
-            }
-        }
-        constexpr Value (uint64_t value, bool is_negative) : value(value), is_negative(is_negative) {}
-
         uint64_t value;
         bool is_negative;
 
+        constexpr Value (uint64_t value, bool is_negative) : value(value), is_negative(is_negative) {}
+
+        [[nodiscard]] static constexpr Value create (int64_t value) {
+            if (value < 0) {
+                return {static_cast<uint64_t>(-value), true}; 
+            }
+            return {static_cast<uint64_t>(value), false};
+        }
+
+        constexpr explicit Value (int64_t value) : Value{create(value)} {}
+        
         constexpr void increment () {
             if (is_negative) {
                 if (value == 1) {
@@ -926,7 +913,7 @@ struct EnumField {
 };
 
 struct StructDefinition : IdentifiedDefinition::Data {
-    LeafCounts fixed_leaf_counts;
+    LeafCounts level_fixed_leafs;
     LeafCounts var_leaf_counts;
     //LeafCounts variant_field_counts;
     // LeafSizes fixed_leaf_sizes;
@@ -934,10 +921,12 @@ struct StructDefinition : IdentifiedDefinition::Data {
     uint64_t max_byte_size;
     uint16_t level_size_leafs;
     uint16_t level_fixed_variants;
+    uint16_t level_fixed_arrays;
     uint16_t level_variant_fields;
-    uint16_t total_variant_fixed_leafs;
+    uint16_t sublevel_fixed_leafs;
     uint16_t total_variant_var_leafs;
     uint16_t field_count;
+    uint16_t pack_count;
     SIZE max_alignment;
 
     [[nodiscard]] static auto create(Buffer &buffer) {
@@ -950,8 +939,7 @@ struct StructDefinition : IdentifiedDefinition::Data {
     }
 private:
     [[nodiscard]] const StructField* first_field() const {
-        static_assert(alignof(StructDefinition) >= alignof(StructField));
-        return reinterpret_cast<const StructField*>(this + 1);
+        return estd::ptr_cast<const StructField>(this + 1);
     }
 public:
     template <typename VisitorT>
@@ -986,8 +974,7 @@ struct EnumDefinition : IdentifiedDefinition::Data {
     }
 
     EnumField* first_field() {
-        static_assert(alignof(EnumDefinition) >= alignof(EnumField));
-        return reinterpret_cast<EnumField*>(this + 1);
+        return estd::ptr_cast<EnumField>(this + 1);
     }
 };
 
@@ -1014,15 +1001,15 @@ using IdentifierMap = boost::unordered::unordered_flat_map<std::string_view, Ide
 template <typename T>
 [[nodiscard]] inline T* Type::skip () const {
     switch (type) {
-        case STRING_FIXED:      return reinterpret_cast<T*>(as_fixed_string() + 1);
-        case STRING:            return reinterpret_cast<T*>(as_string() + 1);
+        case STRING_FIXED:      return estd::ptr_cast<T>(as_fixed_string() + 1);
+        case STRING:            return estd::ptr_cast<T>(as_string() + 1);
         case ARRAY_FIXED:
         case ARRAY:             return as_array()->inner_type()->skip<T>();
         case FIXED_VARIANT:     return as_fixed_variant()->after<T>();
         case PACKED_VARIANT:    return as_packed_variant()->after<T>();
         case DYNAMIC_VARIANT:   return as_dynamic_variant()->after<T>();
-        case IDENTIFIER:        return reinterpret_cast<T*>(as_identifier() + 1);
-        default:                return reinterpret_cast<T*>(this + 1);
+        case IDENTIFIER:        return estd::ptr_cast<T>(as_identifier() + 1);
+        default:                return estd::ptr_cast<T>(this + 1);
     }
 }
 
@@ -1032,108 +1019,109 @@ inline const T* skip_variant_type (const VariantTypeBase<TypeMeta_T>* variant_ty
 }
 
 template <typename VisitorT, typename... ArgsT>
-[[nodiscard]] inline VisitorT::result_t Type::visit (VisitorT&& visitor, ArgsT&&... args) const {
-    using result_t = VisitorT::result_t;
-    using ConstTypeT = const VisitorT::next_type_t;
+[[nodiscard]] inline std::remove_cvref_t<VisitorT>::result_t Type::visit (VisitorT&& visitor, ArgsT&&... args) const {
+    using visitor_t = std::remove_cvref_t<VisitorT>;
+    using result_t = visitor_t::result_t;
+    using const_next_type_t = const visitor_t::next_type_t;
     static constexpr bool no_value = std::is_same_v<typename result_t::value_t, void>;
 
     switch (this->type) {
         case FIELD_TYPE::BOOL: {
             if constexpr (no_value) {
                 std::forward<VisitorT>(visitor).on_bool(std::forward<ArgsT>(args)...);
-                return result_t{reinterpret_cast<ConstTypeT*>(this + 1)};
+                return result_t{estd::ptr_cast<const_next_type_t>(this + 1)};
             } else {
-                return result_t{reinterpret_cast<ConstTypeT*>(this + 1),
+                return result_t{estd::ptr_cast<const_next_type_t>(this + 1),
                     std::forward<VisitorT>(visitor).on_bool(std::forward<ArgsT>(args)...)};
             }
         }
         case FIELD_TYPE::UINT8: {
             if constexpr (no_value) {
                 std::forward<VisitorT>(visitor).on_uint8(std::forward<ArgsT>(args)...);
-                return result_t{reinterpret_cast<ConstTypeT*>(this + 1)};
+                return result_t{estd::ptr_cast<const_next_type_t>(this + 1)};
             } else {
-                return result_t{reinterpret_cast<ConstTypeT*>(this + 1),
+                return result_t{estd::ptr_cast<const_next_type_t>(this + 1),
                     std::forward<VisitorT>(visitor).on_uint8(std::forward<ArgsT>(args)...)};
             }
         }
         case FIELD_TYPE::UINT16: {
             if constexpr (no_value) {
                 std::forward<VisitorT>(visitor).on_uint16(std::forward<ArgsT>(args)...);
-                return result_t{reinterpret_cast<ConstTypeT*>(this + 1)};
+                return result_t{estd::ptr_cast<const_next_type_t>(this + 1)};
             } else {
-                return result_t{reinterpret_cast<ConstTypeT*>(this + 1),
+                return result_t{estd::ptr_cast<const_next_type_t>(this + 1),
                     std::forward<VisitorT>(visitor).on_uint16(std::forward<ArgsT>(args)...)};
             }
         }
         case FIELD_TYPE::UINT32: {
             if constexpr (no_value) {
                 std::forward<VisitorT>(visitor).on_uint32(std::forward<ArgsT>(args)...);
-                return result_t{reinterpret_cast<ConstTypeT*>(this + 1)};
+                return result_t{estd::ptr_cast<const_next_type_t>(this + 1)};
             } else {
-                return result_t{reinterpret_cast<ConstTypeT*>(this + 1),
+                return result_t{estd::ptr_cast<const_next_type_t>(this + 1),
                     std::forward<VisitorT>(visitor).on_uint32(std::forward<ArgsT>(args)...)};
             }
         }
         case FIELD_TYPE::UINT64: {
             if constexpr (no_value) {
                 std::forward<VisitorT>(visitor).on_uint64(std::forward<ArgsT>(args)...);
-                return result_t{reinterpret_cast<ConstTypeT*>(this + 1)};
+                return result_t{estd::ptr_cast<const_next_type_t>(this + 1)};
             } else {
-                return result_t{reinterpret_cast<ConstTypeT*>(this + 1),
+                return result_t{estd::ptr_cast<const_next_type_t>(this + 1),
                     std::forward<VisitorT>(visitor).on_uint64(std::forward<ArgsT>(args)...)};
             }
         }
         case FIELD_TYPE::INT8: {
             if constexpr (no_value) {
                 std::forward<VisitorT>(visitor).on_int8(std::forward<ArgsT>(args)...);
-                return result_t{reinterpret_cast<ConstTypeT*>(this + 1)};
+                return result_t{estd::ptr_cast<const_next_type_t>(this + 1)};
             } else {
-                return result_t{reinterpret_cast<ConstTypeT*>(this + 1),
+                return result_t{estd::ptr_cast<const_next_type_t>(this + 1),
                     std::forward<VisitorT>(visitor).on_int8(std::forward<ArgsT>(args)...)};
             }
         }
         case FIELD_TYPE::INT16: {
             if constexpr (no_value) {
                 std::forward<VisitorT>(visitor).on_int16(std::forward<ArgsT>(args)...);
-                return result_t{reinterpret_cast<ConstTypeT*>(this + 1)};
+                return result_t{estd::ptr_cast<const_next_type_t>(this + 1)};
             } else {
-                return result_t{reinterpret_cast<ConstTypeT*>(this + 1),
+                return result_t{estd::ptr_cast<const_next_type_t>(this + 1),
                     std::forward<VisitorT>(visitor).on_int16(std::forward<ArgsT>(args)...)};
             }
         }
         case FIELD_TYPE::INT32: {
             if constexpr (no_value) {
                 std::forward<VisitorT>(visitor).on_int32(std::forward<ArgsT>(args)...);
-                return result_t{reinterpret_cast<ConstTypeT*>(this + 1)};
+                return result_t{estd::ptr_cast<const_next_type_t>(this + 1)};
             } else {
-                return result_t{reinterpret_cast<ConstTypeT*>(this + 1),
+                return result_t{estd::ptr_cast<const_next_type_t>(this + 1),
                     std::forward<VisitorT>(visitor).on_int32(std::forward<ArgsT>(args)...)};
             }
         }
         case FIELD_TYPE::INT64: {
             if constexpr (no_value) {
                 std::forward<VisitorT>(visitor).on_int64(std::forward<ArgsT>(args)...);
-                return result_t{reinterpret_cast<ConstTypeT*>(this + 1)};
+                return result_t{estd::ptr_cast<const_next_type_t>(this + 1)};
             } else {
-                return result_t{reinterpret_cast<ConstTypeT*>(this + 1),
+                return result_t{estd::ptr_cast<const_next_type_t>(this + 1),
                     std::forward<VisitorT>(visitor).on_int64(std::forward<ArgsT>(args)...)};
             }
         }
         case FIELD_TYPE::FLOAT32: {
             if constexpr (no_value) {
                 std::forward<VisitorT>(visitor).on_float32(std::forward<ArgsT>(args)...);
-                return result_t{reinterpret_cast<ConstTypeT*>(this + 1)};
+                return result_t{estd::ptr_cast<const_next_type_t>(this + 1)};
             } else {
-                return result_t{reinterpret_cast<ConstTypeT*>(this + 1),
+                return result_t{estd::ptr_cast<const_next_type_t>(this + 1),
                     std::forward<VisitorT>(visitor).on_float32(std::forward<ArgsT>(args)...)};
             }
         }
         case FIELD_TYPE::FLOAT64: {
             if constexpr (no_value) {
                 std::forward<VisitorT>(visitor).on_float64(std::forward<ArgsT>(args)...);
-                return result_t{reinterpret_cast<ConstTypeT*>(this + 1)};
+                return result_t{estd::ptr_cast<const_next_type_t>(this + 1)};
             } else {
-                return result_t{reinterpret_cast<ConstTypeT*>(this + 1),
+                return result_t{estd::ptr_cast<const_next_type_t>(this + 1),
                     std::forward<VisitorT>(visitor).on_float64(std::forward<ArgsT>(args)...)};
             }
         }
@@ -1141,9 +1129,9 @@ template <typename VisitorT, typename... ArgsT>
             const FixedStringType* const fixed_string_type = this->as_fixed_string();
             if constexpr (no_value) {
                 std::forward<VisitorT>(visitor).on_fixed_string(fixed_string_type);
-                return result_t{reinterpret_cast<ConstTypeT*>(fixed_string_type + 1)};
+                return result_t{estd::ptr_cast<const_next_type_t>(fixed_string_type + 1)};
             } else {
-                return result_t{reinterpret_cast<ConstTypeT*>(fixed_string_type + 1),
+                return result_t{estd::ptr_cast<const_next_type_t>(fixed_string_type + 1),
                     std::forward<VisitorT>(visitor).on_fixed_string(fixed_string_type, std::forward<ArgsT>(args)...)};
             }
         }
@@ -1151,9 +1139,9 @@ template <typename VisitorT, typename... ArgsT>
             const StringType* const string_type = this->as_string();
             if constexpr (no_value) {
                 std::forward<VisitorT>(visitor).on_string(string_type);
-                return result_t{reinterpret_cast<ConstTypeT*>(string_type + 1)};
+                return result_t{estd::ptr_cast<const_next_type_t>(string_type + 1)};
             } else {
-                return result_t{reinterpret_cast<ConstTypeT*>(string_type + 1),
+                return result_t{estd::ptr_cast<const_next_type_t>(string_type + 1),
                     std::forward<VisitorT>(visitor).on_string(string_type, std::forward<ArgsT>(args)...)};
             }
         }
@@ -1167,9 +1155,9 @@ template <typename VisitorT, typename... ArgsT>
             FixedVariantType* const fixed_variant_type = this->as_fixed_variant();
             if constexpr (no_value) {
                 std::forward<VisitorT>(visitor).on_fixed_variant(fixed_variant_type, std::forward<ArgsT>(args)...);
-                return result_t{fixed_variant_type->after<ConstTypeT>()};
+                return result_t{fixed_variant_type->after<const_next_type_t>()};
             } else {
-                return result_t{fixed_variant_type->after<ConstTypeT>(),
+                return result_t{fixed_variant_type->after<const_next_type_t>(),
                     std::forward<VisitorT>(visitor).on_fixed_variant(fixed_variant_type, std::forward<ArgsT>(args)...)};
             }
         }
@@ -1177,9 +1165,9 @@ template <typename VisitorT, typename... ArgsT>
             PackedVariantType* const packed_variant_type = this->as_packed_variant();
             if constexpr (no_value) {
                 std::forward<VisitorT>(visitor).on_packed_variant(packed_variant_type, std::forward<ArgsT>(args)...);
-                return result_t{packed_variant_type->after<ConstTypeT>()};
+                return result_t{packed_variant_type->after<const_next_type_t>()};
             } else {
-                return result_t{packed_variant_type->after<ConstTypeT>(),
+                return result_t{packed_variant_type->after<const_next_type_t>(),
                     std::forward<VisitorT>(visitor).on_packed_variant(packed_variant_type, std::forward<ArgsT>(args)...)};
             }
         }
@@ -1187,9 +1175,9 @@ template <typename VisitorT, typename... ArgsT>
             DynamicVariantType* const dynamic_variant_type = this->as_dynamic_variant();
             if constexpr (no_value) {
                 std::forward<VisitorT>(visitor).on_dynamic_variant(dynamic_variant_type, std::forward<ArgsT>(args)...);
-                return result_t{dynamic_variant_type->after<ConstTypeT>()};
+                return result_t{dynamic_variant_type->after<const_next_type_t>()};
             } else {
-                return result_t{dynamic_variant_type->after<ConstTypeT>(),
+                return result_t{dynamic_variant_type->after<const_next_type_t>(),
                     std::forward<VisitorT>(visitor).on_dynamic_variant(dynamic_variant_type, std::forward<ArgsT>(args)...)};
             }
         }
@@ -1197,9 +1185,9 @@ template <typename VisitorT, typename... ArgsT>
             const IdentifiedType* const identifier_type = this->as_identifier();
             if constexpr (no_value) {
                 std::forward<VisitorT>(visitor).on_identifier(identifier_type);
-                return result_t{reinterpret_cast<ConstTypeT*>(identifier_type + 1)};
+                return result_t{estd::ptr_cast<const_next_type_t>(identifier_type + 1)};
             } else {
-                return result_t{reinterpret_cast<ConstTypeT*>(identifier_type + 1),
+                return result_t{estd::ptr_cast<const_next_type_t>(identifier_type + 1),
                     std::forward<VisitorT>(visitor).on_identifier(identifier_type, std::forward<ArgsT>(args)...)};
             }
         }
