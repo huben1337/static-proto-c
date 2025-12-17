@@ -46,12 +46,6 @@ constexpr size_t WORD_LANE_COUNT = WORD_BYTES / LANE_BYTES;
     return (target + WORD_BITS) / WORD_BITS;
 }
 
-[[gnu::always_inline]] constexpr gsl::owner<word_t*> allocate_bitset_words (num_t word_count) {
-    gsl::owner<word_t*> words = static_cast<gsl::owner<word_t*>>(std::aligned_alloc(alignof(word_t), word_count * WORD_BYTES));
-    BSSERT(words != nullptr, "Memory allocation failed.")
-    return words;
-}
-
 constexpr bool bit_at (word_t* words, num_t target) {
     return (reinterpret_cast<uint8_t*>(words)[target / 8] & (uint8_t{1} << (target % 8))) != 0;
 }

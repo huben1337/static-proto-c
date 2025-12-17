@@ -17,6 +17,8 @@ const size_t TARGET_MAX_BITS = 48;
 const uint64_t MAX_TARGET = (uint64_t{1} << TARGET_MAX_BITS) - 1;
 
 struct chain_link : estd::u48_u16_pair {
+
+    constexpr chain_link () = default;
     constexpr explicit chain_link (uint64_t data) : u48_u16_pair(data) {}
     constexpr explicit chain_link (uint64_t chain_idx, bool do_count) : u48_u16_pair(chain_idx, static_cast<uint16_t>(do_count)) {}
 
@@ -44,7 +46,7 @@ template <bool do_count>
     }
 }
 
-[[nodiscard, gnu::always_inline]] inline uint64_t count_absorbed (uint64_t chain_idx, gsl::owner<chain_link*> sum_chains) {
+[[nodiscard, gnu::always_inline]] inline uint64_t count_absorbed (uint64_t chain_idx, chain_link* sum_chains) {
     uint64_t result = 0;
     do {
         // std::cout << "chain_idx: " << chain_idx << "\n";
@@ -57,7 +59,6 @@ template <bool do_count>
         chain_idx = next_chain_idx;
     } while (chain_idx > 0);
 
-    std::free(sum_chains);
     return result;
 }
 
@@ -66,20 +67,20 @@ template <bool do_count>
     // NOLINTNEXTLINE(readability-simplify-boolean-expr)
     BSSERT(target != 0 && target <= MAX_TARGET, "[subset_sum_absorbed::solve] invalid target: ", target);
     //std::cout << "FINDING " << target << "\n";
-    gsl::owner<chain_link*> sum_chains = static_cast<chain_link*>(std::malloc((target + 1) * sizeof(chain_link)));
+    const std::unique_ptr<chain_link[]> sum_chains = std::make_unique_for_overwrite<chain_link[]>(target + 1);
     BSSERT(sum_chains != nullptr, "[subset_sum_absorbed::solve] allocation failed");
     sum_chains[0] = chain_link{0};
-    std::uninitialized_fill_n(sum_chains + 1, target, NO_CHAIN_VAL);
+    std::uninitialized_fill_n(sum_chains.get() + 1, target, NO_CHAIN_VAL);
     
     const FixedLeaf* const it_end = nums + counted_num_end;
     for (const FixedLeaf* it = nums; nums != it_end; it++) {
         uint64_t num = it->get_size();
         if (num == 0) continue;
         BSSERT(num <= target);
-        solve_loop<true>(target, num, sum_chains);   
+        solve_loop<true>(target, num, sum_chains.get());   
 
         if (sum_chains[target] != NO_CHAIN_VAL) {
-            return count_absorbed(target, sum_chains);
+            return count_absorbed(target, sum_chains.get());
         }
     }
     const FixedLeaf* const rest_it_end = nums + num_count;
@@ -87,10 +88,10 @@ template <bool do_count>
         uint64_t num = it->get_size();
         if (num == 0) continue;
         BSSERT(num <= target);
-        solve_loop<false>(target, num, sum_chains);   
+        solve_loop<false>(target, num, sum_chains.get());   
 
         if (sum_chains[target] != NO_CHAIN_VAL) {
-            return count_absorbed(target, sum_chains);
+            return count_absorbed(target, sum_chains.get());
         }
     }
 
