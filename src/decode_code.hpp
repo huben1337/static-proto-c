@@ -10,7 +10,6 @@
 #include <gsl/util>
 #include <memory>
 #include <span>
-#include <string>
 #include <array>
 #include <string_view>
 #include <type_traits>
@@ -103,7 +102,7 @@ struct OffsetsAccessor {
     }
 };
 
-[[nodiscard]] constexpr std::string get_size_type_str (lexer::SIZE size) {
+[[nodiscard]] constexpr std::string_view get_size_type_str (lexer::SIZE size) {
     switch (size)
     {
     case lexer::SIZE::SIZE_1:
@@ -439,7 +438,7 @@ requires(!std::is_reference_v<CodeT>)
     for (size_t i = 0; i < level_size_leafs.size(); i++) {
         auto [min_size, idx, size_size, stored_size_size] = level_size_leafs[i];
         const FixedOffset& offset = fixed_offsets[idx];
-        struct_code = struct_code
+        struct_code = std::move(struct_code)
         .method(codegen::Attributes{"static"}, get_size_type_str(size_size), codegen::StringParts{"size", i}, codegen::Args{"size_t base"})
             .line("return *reinterpret_cast<", get_size_type_str(stored_size_size), "*>(base + ", offset.get_offset(), ");")
         .end();
@@ -472,19 +471,11 @@ consteval auto _get_first_return_line_part () {
 template <StringLiteral type_name, StringLiteral postfix = " + ">
 constexpr auto get_first_return_line_part = _get_first_return_line_part<type_name, postfix>();
 
-[[nodiscard]] constexpr uint64_t get_pack_size (const lexer::LeafSizes& sizes, const FixedOffset& fo) {
-    return sizes.get(fo.get_pack_align());
-}
-
-[[nodiscard]] constexpr uint64_t get_pack_size (uint32_t size, const FixedOffset& /*unused*/) {
-    return size;
-}
-
 template <bool is_direct_pack>
 using direct_pack_legnth_arg_t = std::conditional_t<is_direct_pack, const uint32_t, estd::empty>;
 
 template <bool is_array_element, StringLiteral type_name, lexer::SIZE type_size, bool is_direct_pack, typename Last>
-[[nodiscard]] inline codegen::Method<Last>&& _gen_fixed_value_leaf_in_array (
+[[nodiscard]] inline Last _gen_fixed_value_leaf_in_array (
     codegen::Method<Last>&& get_method,
     const OffsetsAccessor& offsets_accessor,
     const uint16_t pack_info_idx,
@@ -495,90 +486,84 @@ template <bool is_array_element, StringLiteral type_name, lexer::SIZE type_size,
     const uint64_t offset = fo.get_offset();
     if constexpr (type_size == lexer::SIZE::SIZE_1 && !is_direct_pack) {
         if (offset == 0) {
-            get_method = get_method
-            .line(get_first_return_line_part<type_name, "">, IdxCalcCodeGenerator<true, is_array_element>{offsets_accessor.pack_infos, pack_info_idx, array_depth}, ");");
+            return std::move(get_method)
+            .line(get_first_return_line_part<type_name, "">, IdxCalcCodeGenerator<true, is_array_element>{offsets_accessor.pack_infos, pack_info_idx, array_depth}, ");")
+            .end();
         } else {
-            get_method = get_method
-            .line(get_first_return_line_part<type_name>, offset, IdxCalcCodeGenerator<true, is_array_element>{offsets_accessor.pack_infos, pack_info_idx, array_depth}, ");");
+            return std::move(get_method)
+            .line(get_first_return_line_part<type_name>, offset, IdxCalcCodeGenerator<true, is_array_element>{offsets_accessor.pack_infos, pack_info_idx, array_depth}, ");")
+            .end();
         }
     } else {
         if constexpr (is_direct_pack) {
             constexpr auto type_byte_size = type_size.byte_size();
             if (offset == 0) {
-                get_method = get_method
-                .line(get_first_return_line_part<type_name, "">, IdxCalcCodeGenerator<false, is_array_element>{offsets_accessor.pack_infos, pack_info_idx, array_depth}, " * ", type_byte_size * direct_pack_length, ");");
+                return std::move(get_method)
+                .line(get_first_return_line_part<type_name, "">, IdxCalcCodeGenerator<false, is_array_element>{offsets_accessor.pack_infos, pack_info_idx, array_depth}, " * ", type_byte_size * direct_pack_length, ");")
+                .end();
             } else {
-                get_method = get_method
-                .line(get_first_return_line_part<type_name>, offset, IdxCalcCodeGenerator<false, is_array_element>{offsets_accessor.pack_infos, pack_info_idx, array_depth}, " * ", type_byte_size * direct_pack_length, ");");
+                return std::move(get_method)
+                .line(get_first_return_line_part<type_name>, offset, IdxCalcCodeGenerator<false, is_array_element>{offsets_accessor.pack_infos, pack_info_idx, array_depth}, " * ", type_byte_size * direct_pack_length, ");")
+                .end();
             }
         } else {
             constexpr auto type_size_str = string_literal::from<type_size.byte_size()>;
             if (offset == 0) {
-                get_method = get_method
-                .line(get_first_return_line_part<type_name, "">, IdxCalcCodeGenerator<false, is_array_element>{offsets_accessor.pack_infos, pack_info_idx, array_depth}, " * "_sl + type_size_str + ");"_sl);
+                return std::move(get_method)
+                .line(get_first_return_line_part<type_name, "">, IdxCalcCodeGenerator<false, is_array_element>{offsets_accessor.pack_infos, pack_info_idx, array_depth}, " * "_sl + type_size_str + ");"_sl)
+                .end();
             } else {
-                get_method = get_method
-                .line(get_first_return_line_part<type_name>, offset, IdxCalcCodeGenerator<false, is_array_element>{offsets_accessor.pack_infos, pack_info_idx, array_depth}, " * "_sl + type_size_str + ");"_sl);
+                return std::move(get_method)
+                .line(get_first_return_line_part<type_name>, offset, IdxCalcCodeGenerator<false, is_array_element>{offsets_accessor.pack_infos, pack_info_idx, array_depth}, " * "_sl + type_size_str + ");"_sl)
+                .end();
             }
         }
     }
-
-    return std::move(get_method);
 }
 
-template <bool is_array_element, StringLiteral type_name, lexer::SIZE type_size, typename Last>
-[[nodiscard]] inline codegen::Method<Last>&& _gen_fixed_value_leaf_default (
-    codegen::Method<Last>&& get_method,
-    const OffsetsAccessor& offsets_accessor
-) {
-    const uint64_t offset = offsets_accessor.next_fixed_offset();
-
-    if (offset == 0) {
-        get_method = get_method
-        .line(get_first_return_line_part<type_name, ");">);
-    } else {
-        get_method = get_method
-        .line(get_first_return_line_part<type_name>, offset, ");");
-    }
-
-    return std::move(get_method);
-}
-
-template <bool in_array, bool is_array_element, StringLiteral type_name, lexer::SIZE type_size, bool is_direct_pack, typename ArgsT, typename CodeT>
-requires(!std::is_reference_v<CodeT>)
-[[nodiscard]] inline CodeT&& _gen_fixed_value_leaf (
+template <bool is_fixed, bool is_array_element, bool in_array, StringLiteral type_name, lexer::SIZE type_size, bool is_direct_pack = false, typename ArgsT, typename CodeT>
+requires(is_fixed && !std::is_reference_v<CodeT>)
+[[nodiscard]] inline CodeT gen_value_leaf (
     CodeT&& code,
     const OffsetsAccessor& offsets_accessor,
     ArgsT&& name_providing_args,
     const uint16_t pack_info_idx,
     const uint8_t array_depth,
-    direct_pack_legnth_arg_t<is_direct_pack> direct_pack_length
+    direct_pack_legnth_arg_t<is_direct_pack> direct_pack_length = estd::empty{}
 ) {
-    if constexpr (is_array_element) {
-        auto&& get_method = code
-        .method(type_name, "get", codegen::Args{"uint32_t idx"});
-        
-        get_method = _gen_fixed_value_leaf_in_array<true, type_name, type_size, is_direct_pack>(std::move(get_method), offsets_accessor, pack_info_idx, array_depth, direct_pack_length);
-
-        code = get_method
-        .end();
+    if constexpr (is_array_element) {      
+        return _gen_fixed_value_leaf_in_array<true, type_name, type_size, is_direct_pack>(
+            std::move(code)
+                .method(type_name, "get", codegen::Args{"uint32_t idx"}),
+            offsets_accessor,
+            pack_info_idx,
+            array_depth,
+            direct_pack_length
+        );
     } else {
-        auto&& get_method = code
-        .method(type_name, get_name(std::forward<ArgsT>(name_providing_args)));
+        auto&& get_method = std::move(code)
+            .method(type_name, get_name(std::forward<ArgsT>(name_providing_args)));
         if constexpr (in_array) {
-            get_method = _gen_fixed_value_leaf_in_array<false, type_name, type_size, is_direct_pack>(std::move(get_method), offsets_accessor, pack_info_idx, array_depth, direct_pack_length);
+            return _gen_fixed_value_leaf_in_array<false, type_name, type_size, is_direct_pack>(std::move(get_method), offsets_accessor, pack_info_idx, array_depth, direct_pack_length);
         } else {
             // console.warn("direct_pack_length not used. is that fine?");
-            get_method = _gen_fixed_value_leaf_default<false, type_name, type_size>(std::move(get_method), offsets_accessor);
+            // _gen_fixed_value_leaf_default
+            const uint64_t offset = offsets_accessor.next_fixed_offset();
+            if (offset == 0) {
+                return std::move(get_method)
+                    .line(get_first_return_line_part<type_name, ");">)
+                    .end();
+            } else {
+                return std::move(get_method)
+                    .line(get_first_return_line_part<type_name>, offset, ");")
+                    .end();
+            }
         }
-        code = get_method
-        .end();
     }
-    return std::move(code);
 }
 
 template <bool is_array_element, StringLiteral type_name, lexer::SIZE type_size, bool is_direct_pack, typename Last>
-[[nodiscard]] inline codegen::Method<Last>&& _gen_var_value_leaf_in_array (
+[[nodiscard]] inline Last _gen_var_value_leaf_in_array (
     codegen::Method<Last>&& get_method,
     const OffsetsAccessor& offsets_accessor,
     const uint16_t pack_info_idx,
@@ -590,163 +575,110 @@ template <bool is_array_element, StringLiteral type_name, lexer::SIZE type_size,
 
     if constexpr (type_size == lexer::SIZE::SIZE_1 && !is_direct_pack) {
         if (size_chain.empty()) {
-            get_method = get_method
-            .line(get_first_return_line_part<type_name>, var_leafs_start, IdxCalcCodeGenerator<true, is_array_element>{offsets_accessor.pack_infos, pack_info_idx, array_depth}, ");");
+            return std::move(get_method)
+            .line(get_first_return_line_part<type_name>, var_leafs_start, IdxCalcCodeGenerator<true, is_array_element>{offsets_accessor.pack_infos, pack_info_idx, array_depth}, ");")
+            .end();
         } else {
-            get_method = get_method
-            .line(get_first_return_line_part<type_name>, var_leafs_start, SizeChainCodeGenerator{offsets_accessor.var_offset_buffer, size_chain}, IdxCalcCodeGenerator<true, is_array_element>{offsets_accessor.pack_infos, pack_info_idx, array_depth}, ");");
+            return std::move(get_method)
+            .line(get_first_return_line_part<type_name>, var_leafs_start, SizeChainCodeGenerator{offsets_accessor.var_offset_buffer, size_chain}, IdxCalcCodeGenerator<true, is_array_element>{offsets_accessor.pack_infos, pack_info_idx, array_depth}, ");")
+            .end();
         }
     } else {
         if constexpr (is_direct_pack) {
             constexpr auto type_byte_size = type_size.byte_size();
             if (size_chain.empty()) {
-                get_method = get_method
-                .line(get_first_return_line_part<type_name>, var_leafs_start, IdxCalcCodeGenerator<false, is_array_element>{offsets_accessor.pack_infos, pack_info_idx, array_depth}, " * ", type_byte_size * direct_pack_length, ");");
+                return std::move(get_method)
+                .line(get_first_return_line_part<type_name>, var_leafs_start, IdxCalcCodeGenerator<false, is_array_element>{offsets_accessor.pack_infos, pack_info_idx, array_depth}, " * ", type_byte_size * direct_pack_length, ");")
+                .end();
             } else {
-                get_method = get_method
-                .line(get_first_return_line_part<type_name>, var_leafs_start, SizeChainCodeGenerator{offsets_accessor.var_offset_buffer, size_chain}, IdxCalcCodeGenerator<false, is_array_element>{offsets_accessor.pack_infos, pack_info_idx, array_depth}, " * ", type_byte_size * direct_pack_length, ");");
+                return std::move(get_method)
+                .line(get_first_return_line_part<type_name>, var_leafs_start, SizeChainCodeGenerator{offsets_accessor.var_offset_buffer, size_chain}, IdxCalcCodeGenerator<false, is_array_element>{offsets_accessor.pack_infos, pack_info_idx, array_depth}, " * ", type_byte_size * direct_pack_length, ");")
+                .end();
             }
         } else {
             constexpr auto type_size_str = string_literal::from<type_size.byte_size()>;
             if (size_chain.empty()) {
-                get_method = get_method
-                .line(get_first_return_line_part<type_name>, var_leafs_start, IdxCalcCodeGenerator<false, is_array_element>{offsets_accessor.pack_infos, pack_info_idx, array_depth}, " * "_sl + type_size_str + ");"_sl);
+                return std::move(get_method)
+                .line(get_first_return_line_part<type_name>, var_leafs_start, IdxCalcCodeGenerator<false, is_array_element>{offsets_accessor.pack_infos, pack_info_idx, array_depth}, " * "_sl + type_size_str + ");"_sl)
+                .end();
             } else {
-                get_method = get_method
-                .line(get_first_return_line_part<type_name>, var_leafs_start, SizeChainCodeGenerator{offsets_accessor.var_offset_buffer, size_chain}, IdxCalcCodeGenerator<false, is_array_element>{offsets_accessor.pack_infos, pack_info_idx, array_depth}, " * "_sl + type_size_str + ");"_sl);
+                return std::move(get_method)
+                .line(get_first_return_line_part<type_name>, var_leafs_start, SizeChainCodeGenerator{offsets_accessor.var_offset_buffer, size_chain}, IdxCalcCodeGenerator<false, is_array_element>{offsets_accessor.pack_infos, pack_info_idx, array_depth}, " * "_sl + type_size_str + ");"_sl)
+                .end();
             }
         }
     }
-    return std::move(get_method);
 }
 
-template <bool is_array_element, StringLiteral type_name, lexer::SIZE type_size, typename Last>
-[[nodiscard]] inline codegen::Method<Last>&& _gen_var_value_leaf_default (
-    codegen::Method<Last>&& get_method,
-    const OffsetsAccessor& offsets_accessor
-) {
-    const uint64_t& var_leafs_start = offsets_accessor.var_leafs_start;
-    const Buffer::View<uint64_t> size_chain = offsets_accessor.next_var_offset();
-
-    if (size_chain.empty()) {
-        get_method = get_method
-        .line(get_first_return_line_part<type_name>, var_leafs_start, ");");
-    } else {
-        get_method = get_method
-        .line(get_first_return_line_part<type_name>, var_leafs_start, SizeChainCodeGenerator{offsets_accessor.var_offset_buffer, size_chain}, ");");
-    }
-
-    return std::move(get_method);
-}
-
-template <bool in_array, bool is_array_element, StringLiteral type_name, lexer::SIZE type_size, bool is_direct_pack, typename ArgsT, typename CodeT>
-requires(!std::is_reference_v<CodeT>)
-[[nodiscard]] inline CodeT&& _gen_var_value_leaf (
+template <bool is_fixed, bool is_array_element, bool in_array, StringLiteral type_name, lexer::SIZE type_size, bool is_direct_pack = false, typename ArgsT, typename CodeT>
+requires(!is_fixed && !std::is_reference_v<CodeT>)
+[[nodiscard]] inline CodeT gen_value_leaf (
     CodeT&& code,
     const OffsetsAccessor& offsets_accessor,
     ArgsT&& name_providing_args,
     const uint16_t pack_info_idx,
     const uint8_t array_depth,
-    direct_pack_legnth_arg_t<is_direct_pack> direct_pack_length
+    direct_pack_legnth_arg_t<is_direct_pack> direct_pack_length = estd::empty{}
 ) {
     if constexpr (is_array_element) {
-        auto&& get_method = code
-        .method(type_name, "get", codegen::Args{"uint32_t idx"});
-
-        get_method = _gen_var_value_leaf_in_array<true, type_name, type_size, is_direct_pack>(
-            std::move(get_method), offsets_accessor, pack_info_idx, array_depth, direct_pack_length);
-
-        code = get_method
-        .end();
+        return _gen_var_value_leaf_in_array<true, type_name, type_size, is_direct_pack>(
+            std::move(code)
+                .method(type_name, "get", codegen::Args{"uint32_t idx"}),
+            offsets_accessor,
+            pack_info_idx,
+            array_depth,
+            direct_pack_length
+        );
     } else {
-        auto&& get_method = code
-        .method(type_name, get_name(std::forward<ArgsT>(name_providing_args)));
+        auto&& get_method = std::move(code)
+            .method(type_name, get_name(std::forward<ArgsT>(name_providing_args)));
         if constexpr (in_array) {
-            get_method = _gen_var_value_leaf_in_array<false, type_name, type_size, is_direct_pack>(
+            return _gen_var_value_leaf_in_array<false, type_name, type_size, is_direct_pack>(
                 std::move(get_method), offsets_accessor, pack_info_idx, array_depth, direct_pack_length);
         } else {
             static_assert(!is_direct_pack);
-            get_method = _gen_var_value_leaf_default<false, type_name, type_size>(std::move(get_method), offsets_accessor);
+            // _gen_var_value_leaf_default
+            const uint64_t& var_leafs_start = offsets_accessor.var_leafs_start;
+            const Buffer::View<uint64_t> size_chain = offsets_accessor.next_var_offset();
+
+            if (size_chain.empty()) {
+                return std::move(get_method)
+                    .line(get_first_return_line_part<type_name>, var_leafs_start, ");")
+                    .end();
+            } else {
+                return std::move(get_method)
+                    .line(get_first_return_line_part<type_name>, var_leafs_start, SizeChainCodeGenerator{offsets_accessor.var_offset_buffer, size_chain}, ");")
+                    .end();
+            }
         }
-        code = get_method
-        .end();
     }
-    return std::move(code);
-}
-
-template <bool is_fixed, bool is_array_element, bool in_array, StringLiteral type_name, lexer::SIZE type_size, bool is_direct_pack, typename ArgsT, typename CodeT>
-requires(!std::is_reference_v<CodeT>)
-[[nodiscard]] inline CodeT&& _gen_value_leaf (
-    CodeT&& code,
-    const OffsetsAccessor& offsets_accessor,
-    ArgsT&& name_providing_args,
-    const uint16_t pack_info_idx,
-    const uint8_t array_depth,
-    direct_pack_legnth_arg_t<is_direct_pack> direct_pack_length
-) {
-    if constexpr (is_fixed) {
-        return _gen_fixed_value_leaf<in_array, is_array_element, type_name, type_size, is_direct_pack>(
-            std::move(code), offsets_accessor, std::forward<ArgsT>(name_providing_args), pack_info_idx, array_depth, direct_pack_length);
-    } else {
-        return _gen_var_value_leaf<in_array, is_array_element, type_name, type_size, is_direct_pack>(
-            std::move(code), offsets_accessor, std::forward<ArgsT>(name_providing_args), pack_info_idx, array_depth, direct_pack_length);
-    }
-}
-
-template <bool is_fixed, bool in_array, StringLiteral type_name, lexer::SIZE type_size, bool is_direct_pack = false, LeafArgs ArgsT, typename CodeT>
-requires(!std::is_reference_v<CodeT>)
-[[nodiscard]] inline CodeT&& gen_value_leaf (
-    CodeT&& code,
-    const OffsetsAccessor& offsets_accessor,
-    const ArgsT& additional_args,
-    const uint16_t pack_info_idx,
-    const uint8_t array_depth,
-    direct_pack_legnth_arg_t<is_direct_pack> direct_pack_length = estd::empty{}
-) {
-    return _gen_value_leaf<is_fixed, is_array_element<ArgsT>, in_array, type_name, type_size, is_direct_pack>(
-        std::move(code), offsets_accessor, additional_args, pack_info_idx, array_depth, direct_pack_length);
-}
-
-template <bool is_fixed, bool is_array_element, bool in_array, StringLiteral type_name, lexer::SIZE type_size, bool is_direct_pack = false, typename NameT, typename CodeT>
-requires(!std::is_reference_v<CodeT>)
-[[nodiscard]] inline CodeT&& gen_value_leaf (
-    CodeT&& code,
-    const OffsetsAccessor& offsets_accessor,
-    NameT&& name,
-    const uint16_t pack_info_idx,
-    const uint8_t array_depth,
-    direct_pack_legnth_arg_t<is_direct_pack> direct_pack_length = estd::empty{}
-) {
-    return _gen_value_leaf<is_fixed, is_array_element, in_array, type_name, type_size, is_direct_pack>(
-        std::move(code), offsets_accessor, std::forward<NameT>(name), pack_info_idx, array_depth, direct_pack_length);
 }
 
 template <typename ArgsT, typename UniqueNameT, typename CodeT>
 requires(!std::is_reference_v<CodeT>)
-[[nodiscard]] inline CodeT&& gen_field_access_method_no_array (
+[[nodiscard]] inline CodeT gen_field_access_method_no_array (
     CodeT&& code,
     const ArgsT& additional_args,
     const std::string_view& ctor_used,
     UniqueNameT&& unique_name
 ) {
-    auto&& field_method = code
+    auto&& field_method = std::move(code)
     .method(unique_name, get_name(additional_args, unique_name));
     if constexpr (is_dynamic_variant_element<ArgsT>) {
         if (additional_args.offset.empty()) {
             // console.debug("[gen_field_access_method_no_array] additional_args.offset is empty");
-            field_method = field_method
+            field_method = std::move(field_method)
             .line(ctor_used);
         } else {
-            field_method = field_method
+            field_method = std::move(field_method)
             .line("return {base", additional_args.offset, std::string_view{ctor_used.data() + 12, ctor_used.size() - 12});
         }
     } else {
-        field_method = field_method
+        field_method = std::move(field_method)
         .line(ctor_used);
     }
-    code = field_method
-    .end();
-    return std::move(code);
+    return std::move(field_method)
+        .end();
 }
 
 template <typename NextTypeT, bool is_fixed, bool in_array, typename Args, typename BaseNameArg>
@@ -787,7 +719,7 @@ struct TypeVisitor {
     template <lexer::FIELD_TYPE field_type, StringLiteral type_name>
     [[nodiscard]] codegen::UnknownStructBase on_simple (codegen::UnknownStructBase&& code) const {
         constexpr lexer::SIZE alignment = lexer::get_type_alignment<field_type>();
-        return gen_value_leaf<is_fixed, in_array, type_name, alignment>(std::move(code), offsets_accessor, additional_args, pack_info_idx, array_depth);
+        return gen_value_leaf<is_fixed, is_array_element<Args>, in_array, type_name, alignment>(std::move(code), offsets_accessor, additional_args, pack_info_idx, array_depth);
        
     }
 
@@ -805,26 +737,22 @@ struct TypeVisitor {
 
     [[nodiscard]] codegen::UnknownStructBase on_fixed_string (const lexer::FixedStringType* const fixed_string_type, codegen::UnknownStructBase&& code) const {
         const uint32_t length = fixed_string_type->length;
-        const std::string size_type_str =  get_size_type_str(fixed_string_type->length_size);
+        const std::string_view size_type_str =  get_size_type_str(fixed_string_type->length_size);
 
         const ArrayCtorStrs array_ctor_strs = make_array_ctor_strs(array_depth);
 
         auto unique_name = get_unique_name<"String">(additional_args);
 
-        auto&& string_struct = code
-        ._struct(unique_name)
-            .ctor(array_ctor_strs.ctor_args, array_ctor_strs.ctor_inits).end();
-
-        string_struct = gen_value_leaf<is_fixed, false, in_array, "char*", lexer::SIZE::SIZE_1, true>(
-            std::move(string_struct),
+        auto&& string_struct = gen_value_leaf<is_fixed, false, in_array, "char*", lexer::SIZE::SIZE_1, true>(
+            std::move(code)
+                ._struct(unique_name)
+                    .ctor(array_ctor_strs.ctor_args, array_ctor_strs.ctor_inits).end(),
             offsets_accessor,
             "c_str"_sl,
             pack_info_idx,
             array_depth,
             length
-        );
-
-        string_struct = string_struct
+        )
             .method(codegen::Attributes{"constexpr"}, size_type_str, "size")
                 .line("return ", length, ";")
             .end()
@@ -835,25 +763,24 @@ struct TypeVisitor {
             .field("size_t", "base");
 
         for (uint8_t i = 0; i < array_depth; i++) {
-            string_struct = string_struct
+            string_struct = std::move(string_struct)
             .field("uint32_t", codegen::StringParts{"idx_", i});
         }
         if constexpr (is_dynamic_variant_element<Args>) {
             BSSERT(level_size_leafs.size() == 0, "Unexpected state");
         }
         
-        code = string_struct
+        code = std::move(string_struct)
         .end();
 
         if constexpr (is_array_element<Args>) {
-            code = code
-            .method(unique_name, "get", codegen::Args{"uint32_t idx"})
+            return std::move(code)
+                .method(unique_name, "get", codegen::Args{"uint32_t idx"})
                 .line(array_ctor_strs.el_ctor_used)
-            .end();
+                .end();
         } else {
-            code = gen_field_access_method_no_array(std::move(code), additional_args, array_ctor_strs.ctor_used, unique_name);
+            return gen_field_access_method_no_array(std::move(code), additional_args, array_ctor_strs.ctor_used, unique_name);
         }
-        return std::move(code);
     }
 
     [[nodiscard]] codegen::UnknownStructBase on_string (const lexer::StringType* const string_type, codegen::UnknownStructBase&& code) const {
@@ -862,7 +789,7 @@ struct TypeVisitor {
         } else {
             const lexer::SIZE size_size = string_type->size_size;
             const lexer::SIZE stored_size_size = string_type->stored_size_size;
-            const std::string size_type_str = get_size_type_str(size_size);
+            const std::string_view size_type_str = get_size_type_str(size_size);
             const Buffer::View<uint64_t> size_chain = offsets_accessor.next_var_offset();
 
             const ArrayCtorStrs array_ctor_strs = make_array_ctor_strs(array_depth);
@@ -872,28 +799,27 @@ struct TypeVisitor {
 
             auto unique_name = get_unique_name(additional_args);
 
-            auto&& string_data_method = code
-            ._struct(unique_name)
+            auto&& string_data_method = std::move(code)
+                ._struct(unique_name)
                 .ctor(array_ctor_strs.ctor_args, array_ctor_strs.ctor_inits).end()
                 .method("const char*", "c_str");
 
             if (size_chain.empty()) {
-                string_data_method = string_data_method
-                .line("return reinterpret_cast<const char*>(base + ", offsets_accessor.var_leafs_start, ");");
+                string_data_method = std::move(string_data_method)
+                    .line("return reinterpret_cast<const char*>(base + ", offsets_accessor.var_leafs_start, ");");
             } else {
-                string_data_method = string_data_method
-                .line("return reinterpret_cast<const char*>(base + ", offsets_accessor.var_leafs_start, SizeChainCodeGenerator{offsets_accessor.var_offset_buffer, size_chain}, ");");
+                string_data_method = std::move(string_data_method)
+                    .line("return reinterpret_cast<const char*>(base + ", offsets_accessor.var_leafs_start, SizeChainCodeGenerator{offsets_accessor.var_offset_buffer, size_chain}, ");");
             }
 
-            auto&& string_size_method = 
-            string_data_method
-            .end()
-            .method(size_type_str, "size");
+            auto&& string_size_method = std::move(string_data_method)
+                .end()
+                .method(size_type_str, "size");
             
             if constexpr (is_dynamic_variant_element<Args>) {
                 const uint64_t offset = offsets_accessor.next_fixed_offset();
-                string_size_method = string_size_method
-                .line("return ", string_type->min_length, " + *reinterpret_cast<", get_size_type_str(stored_size_size), "*>(base + ", offset, ");");
+                string_size_method = std::move(string_size_method)
+                    .line("return ", string_type->min_length, " + *reinterpret_cast<", get_size_type_str(stored_size_size), "*>(base + ", offset, ");");
             } else {
                 level_size_leafs[size_leaf_idx] = {
                     string_type->min_length,
@@ -901,28 +827,29 @@ struct TypeVisitor {
                     size_size,
                     stored_size_size
                 };
-                string_size_method = string_size_method
-                .line("return size", size_leaf_idx, "(base);");
+                string_size_method = std::move(string_size_method)
+                    .line("return size", size_leaf_idx, "(base);");
             }
 
-            code =
-                    string_size_method
-                .end()
-                .method(size_type_str, "length")
+            return gen_field_access_method_no_array(
+                std::move(string_size_method)
+                    .end()
+                    .method(size_type_str, "length")
                     .line("return size() - 1;")
-                .end()
-                ._private()
-                .field("size_t", "base")
-            .end();
-            code = gen_field_access_method_no_array(std::move(code), additional_args, array_ctor_strs.ctor_used, unique_name);
-
-            return std::move(code);
+                    .end()
+                    ._private()
+                    .field("size_t", "base")
+                    .end(),
+                additional_args,
+                array_ctor_strs.ctor_used,
+                unique_name
+            );
         }
     }
 
     [[nodiscard]] result_t on_fixed_array (const lexer::ArrayType* const fixed_array_type, codegen::UnknownStructBase&& code) const {
         const uint32_t length = fixed_array_type->length;
-        const std::string size_type_str = get_size_type_str(fixed_array_type->size_size);
+        const std::string_view size_type_str = get_size_type_str(fixed_array_type->size_size);
 
         const ArrayCtorStrs array_ctor_strs = make_array_ctor_strs(array_depth);
 
@@ -936,10 +863,6 @@ struct TypeVisitor {
 
         auto unique_name = get_unique_name(additional_args, [&depth]() { return codegen::StringParts{"Array_"_sl, depth}; });
 
-        auto&& array_struct = code
-        ._struct(unique_name)
-            .ctor(array_ctor_strs.ctor_args, array_ctor_strs.ctor_inits).end();
-
         /* uint32_t* new_array_lengths = nullptr;
         if (array_depth > 0) {
             new_array_lengths = ALLOCA(uint32_t, array_depth);
@@ -950,24 +873,30 @@ struct TypeVisitor {
             new_array_lengths[last_i] = length;
         } */
 
-        result_t result = fixed_array_type->inner_type()->visit(TypeVisitor<
-            next_type_t,
-            is_fixed,
-            true,
-            GenFixedArrayLeafArgs,
-            decltype(estd::conditionally<is_dynamic_variant_element<Args>>(unique_name, base_name))
-        >{
-            ast_buffer,
-            estd::conditionally<is_dynamic_variant_element<Args>>(unique_name, base_name),
-            offsets_accessor,
-            level_size_leafs,
-            current_size_leaf_idx,
-            GenFixedArrayLeafArgs{depth},
-            gsl::narrow_cast<uint8_t>(array_depth + 1),
-            pack_sizes
-        }, codegen::UnknownStructBase{std::move(array_struct)});
+        result_t result = fixed_array_type->inner_type()->visit(
+            TypeVisitor<
+                next_type_t,
+                is_fixed,
+                true,
+                GenFixedArrayLeafArgs,
+                decltype(estd::conditionally<is_dynamic_variant_element<Args>>(unique_name, base_name))
+            >{
+                ast_buffer,
+                estd::conditionally<is_dynamic_variant_element<Args>>(unique_name, base_name),
+                offsets_accessor,
+                level_size_leafs,
+                current_size_leaf_idx,
+                GenFixedArrayLeafArgs{depth},
+                gsl::narrow_cast<uint8_t>(array_depth + 1),
+                pack_sizes
+            },
+            std::move(code)
+                ._struct(unique_name)
+                .ctor(array_ctor_strs.ctor_args, array_ctor_strs.ctor_inits).end()
+                .template as<codegen::UnknownStructBase>()
+        );
 
-        array_struct = codegen::NestedStruct<codegen::UnknownStructBase>{std::move(result.value)}
+        auto&& array_struct = std::move(result.value).template as<codegen::NestedStruct<codegen::UnknownStructBase>>()
             .method(codegen::Attributes{"constexpr"}, size_type_str, "length")
                 .line("return ", length, ";")
             .end()
@@ -975,18 +904,18 @@ struct TypeVisitor {
             .field("size_t", "base");
 
         for (uint8_t i = 0; i < array_depth; i++) {
-            array_struct = array_struct
+            array_struct = std::move(array_struct)
             .field("uint32_t", codegen::StringParts{"idx_", i});
         }
         if constexpr (is_dynamic_variant_element<Args>) {
             BSSERT(level_size_leafs.size() == 0, "Unexpected state");
         }
 
-        code = array_struct
+        code = std::move(array_struct)
         .end();
         
         if constexpr (is_array_element<Args>) {
-            code = code
+            code = std::move(code)
             .method(unique_name, "get", codegen::Args{"uint32_t idx"})
                 .line(array_ctor_strs.el_ctor_used)
             .end();
@@ -1006,32 +935,34 @@ struct TypeVisitor {
         } else {
             const lexer::SIZE size_size = array_type->size_size;
             const lexer::SIZE stored_size_size = array_type->stored_size_size;
-            const std::string size_type_str = get_size_type_str(size_size);
+            const std::string_view size_type_str = get_size_type_str(size_size);
 
             const ArrayCtorStrs array_ctor_strs = make_array_ctor_strs(0);
 
             auto unique_name = get_unique_name(additional_args);
 
-            auto&& array_struct = code
-            ._struct(unique_name)
-                .ctor(array_ctor_strs.ctor_args, array_ctor_strs.ctor_inits).end();
-
-            result_t result = array_type->inner_type()->visit(TypeVisitor<
-                next_type_t,
-                false,
-                true,
-                GenArrayLeafArgs,
-                decltype(estd::conditionally<is_dynamic_variant_element<Args>>(unique_name, base_name))
-            >{
-                ast_buffer,
-                estd::conditionally<is_dynamic_variant_element<Args>>(unique_name, base_name),
-                offsets_accessor,
-                level_size_leafs,
-                current_size_leaf_idx,
-                GenArrayLeafArgs{},
-                1,
-                pack_sizes
-            }, codegen::UnknownStructBase{std::move(array_struct)});
+            result_t result = array_type->inner_type()->visit(
+                TypeVisitor<
+                    next_type_t,
+                    false,
+                    true,
+                    GenArrayLeafArgs,
+                    decltype(estd::conditionally<is_dynamic_variant_element<Args>>(unique_name, base_name))
+                >{
+                    ast_buffer,
+                    estd::conditionally<is_dynamic_variant_element<Args>>(unique_name, base_name),
+                    offsets_accessor,
+                    level_size_leafs,
+                    current_size_leaf_idx,
+                    GenArrayLeafArgs{},
+                    1,
+                    pack_sizes
+                },
+                std::move(code)
+                ._struct(unique_name)
+                .ctor(array_ctor_strs.ctor_args, array_ctor_strs.ctor_inits).end()
+                .template as<codegen::UnknownStructBase>()
+            );
 
             const uint16_t size_leaf_idx = (*current_size_leaf_idx)++;
             // console.debug("ARRAY size_leaf_idx:", size_leaf_idx);
@@ -1042,7 +973,7 @@ struct TypeVisitor {
                 stored_size_size
             };
 
-            array_struct = codegen::NestedStruct<codegen::UnknownStructBase>{std::move(result.value)}
+            auto&& array_struct = std::move(result.value).template as<codegen::NestedStruct<codegen::UnknownStructBase>>()
                 .method(size_type_str, "length")
                     .line("return size", size_leaf_idx, "(base);")
                 .end()
@@ -1051,9 +982,13 @@ struct TypeVisitor {
             if constexpr (is_dynamic_variant_element<Args>) {
                 array_struct = add_size_leafs(level_size_leafs, offsets_accessor.fixed_offsets, std::move(array_struct));
             }
-            code = array_struct
-            .end();
-            code = gen_field_access_method_no_array(std::move(code), additional_args, array_ctor_strs.ctor_used, unique_name);
+
+            code = gen_field_access_method_no_array(
+                std::move(array_struct)
+                    .end(), additional_args,
+                    array_ctor_strs.ctor_used,
+                    unique_name
+            );
 
             return {
                 std::move(result.next_type),
@@ -1069,7 +1004,7 @@ struct TypeVisitor {
 
         const ArrayCtorStrs array_ctor_strs = make_array_ctor_strs(array_depth);
         
-        auto&& variant_struct = code
+        auto&& variant_struct = std::move(code)
         ._struct(unique_name)
             .ctor(array_ctor_strs.ctor_args, array_ctor_strs.ctor_inits).end();
 
@@ -1114,39 +1049,35 @@ struct TypeVisitor {
                 },
                 array_depth,
                 lexer::LeafSizes::zero()
-            }, codegen::UnknownStructBase{std::move(variant_struct)});
+            }, std::move(variant_struct).template as<codegen::UnknownStructBase>());
 
             type = result.next_type;
-            variant_struct = codegen::NestedStruct<codegen::UnknownStructBase>{std::move(result.value)};
+            variant_struct = std::move(result.value).template as<codegen::NestedStruct<codegen::UnknownStructBase>>();
         }
         
-        variant_struct = variant_struct
+        variant_struct = std::move(variant_struct)
         ._private()
-            .field("size_t", "base");
+        .field("size_t", "base");
 
         for (uint8_t i = 0; i < array_depth; i++) {
-            variant_struct = variant_struct
+            variant_struct = std::move(variant_struct)
             .field("uint32_t", codegen::StringParts{"idx_", i});
         }
         if constexpr (is_dynamic_variant_element<Args>) {
             variant_struct = add_size_leafs(level_size_leafs, offsets_accessor.fixed_offsets, std::move(variant_struct));
         }
 
-        code = variant_struct
+        code = std::move(variant_struct)
         .end();
 
-        
-
         if constexpr (is_array_element<Args>) {
-            code = code
+            return std::move(code)
             .method("Variant", "get", codegen::Args{"uint32_t idx"})
                 .line(array_ctor_strs.el_ctor_used)
             .end();
         } else {
-            code = gen_field_access_method_no_array(std::move(code), additional_args, array_ctor_strs.ctor_used, unique_name);
+            return gen_field_access_method_no_array(std::move(code), additional_args, array_ctor_strs.ctor_used, unique_name);
         }
-
-        return std::move(code);
     }
 
     [[nodiscard]] codegen::UnknownStructBase on_packed_variant (const lexer::PackedVariantType* const /*unused*/, codegen::UnknownStructBase&&  /*unused*/) const {
@@ -1163,7 +1094,7 @@ struct TypeVisitor {
 
             const ArrayCtorStrs array_ctor_strs = make_array_ctor_strs(array_depth);
             
-            auto&& variant_struct = code
+            auto&& variant_struct = std::move(code)
             ._struct(unique_name)
                 .ctor(array_ctor_strs.ctor_args, array_ctor_strs.ctor_inits).end();
             
@@ -1247,38 +1178,34 @@ struct TypeVisitor {
                     },
                     array_depth,
                     pack_sizes
-                }, codegen::UnknownStructBase{std::move(variant_struct)});
+                }, std::move(variant_struct).template as<codegen::UnknownStructBase>());
                 type = (lexer::Type*)result.next_type;
-                variant_struct = codegen::NestedStruct<codegen::UnknownStructBase>{std::move(result.value)};
+                variant_struct = std::move(result.value).template as<codegen::NestedStruct<codegen::UnknownStructBase>>();
             }
 
-            variant_struct = variant_struct
-            ._private()
+            variant_struct = std::move(variant_struct)
+                ._private()
                 .field("size_t", "base");
 
             for (uint8_t i = 0; i < array_depth; i++) {
-                variant_struct = variant_struct
+                variant_struct = std::move(variant_struct)
                 .field("uint32_t", codegen::StringParts{"idx_", i});
             }
             if constexpr (is_dynamic_variant_element<Args>) {
                 // console.debug("Adding size leafs, variant_depth: ", additional_args.variant_depth);
                 variant_struct = add_size_leafs(level_size_leafs, offsets_accessor.fixed_offsets, std::move(variant_struct));
             }
-            code = variant_struct
-            .end();
 
-            if constexpr (is_array_element<Args>) {
-                static_assert(false, "Dynamic array cant be array element");
-            } else {
-                if constexpr (!in_array) {
-                    code = gen_field_access_method_no_array(std::move(code), additional_args, array_ctor_strs.ctor_used, unique_name);
-                } else {
-                    static_assert(false, "Dynamic array cant be in array");
-                }
-            }
+            static_assert(!is_array_element<Args>, "Dynamic variant cant be array element");
+            static_assert(!in_array, "Dynamic variant cant be in array");
 
-            
-            return std::move(code);
+            return gen_field_access_method_no_array(
+                std::move(variant_struct)
+                    .end(),
+                additional_args,
+                array_ctor_strs.ctor_used,
+                unique_name
+            );
         }
     }
 
@@ -1293,7 +1220,7 @@ struct TypeVisitor {
 
         auto unique_name = get_unique_name(additional_args, [&struct_type]() { return struct_type->name; });
         
-        auto&& struct_code = code
+        auto&& struct_code = std::move(code)
         ._struct(unique_name)
             .ctor(array_ctor_strs.ctor_args, array_ctor_strs.ctor_inits).end();
 
@@ -1320,37 +1247,36 @@ struct TypeVisitor {
                 GenStructLeafArgs{field_data->name, struct_depth},
                 array_depth,
                 pack_sizes
-            }, codegen::UnknownStructBase{std::move(struct_code)});
+            }, std::move(struct_code).template as<codegen::UnknownStructBase>());
 
-            struct_code = codegen::NestedStruct<codegen::UnknownStructBase>{std::move(result.value)};
+            struct_code = std::move(result.value).template as<codegen::NestedStruct<codegen::UnknownStructBase>>();
             return result.next_type;
         });
 
-        struct_code = struct_code
+        struct_code = std::move(struct_code)
             ._private()
             .field("size_t", "base");
         
         for (uint8_t i = 0; i < array_depth; i++) {
-            struct_code = struct_code
+            struct_code = std::move(struct_code)
             .field("uint32_t", codegen::StringParts{"idx_", i});
         }
+
         if constexpr (is_dynamic_variant_element<Args>) {
             struct_code = add_size_leafs(level_size_leafs, offsets_accessor.fixed_offsets, std::move(struct_code));
         }
 
-        code = struct_code
+        code = std::move(struct_code)
         .end();
 
         if constexpr (is_array_element<Args>) {
-            code = code
+            return std::move(code)
             .method(unique_name, "get", codegen::Args{"uint32_t idx"})
                 .line(array_ctor_strs.el_ctor_used)
             .end();
         } else {
-            code = gen_field_access_method_no_array(std::move(code), additional_args, array_ctor_strs.ctor_used, unique_name);
+            return gen_field_access_method_no_array(std::move(code), additional_args, array_ctor_strs.ctor_used, unique_name);
         }
-
-        return std::move(code);
     }
 };
 
@@ -1392,7 +1318,6 @@ void generate (
     ALLOCA_SAFE_SPAN(pack_infos, ArrayPackInfo, target_struct->pack_count);
     std::ranges::uninitialized_fill(pack_infos, ArrayPackInfo{0, static_cast<uint16_t>(-1)});
 
-    Buffer var_offset_buffer = BUFFER_INIT_STACK(sizeof(uint64_t) * 512);
     auto generate_offsets_result = generate_offsets::generate(
         target_struct,
         ast_buffer,
@@ -1400,7 +1325,7 @@ void generate (
         var_offsets,
         idx_map,
         pack_infos,
-        std::move(var_offset_buffer),
+        BUFFER_INIT_STACK(sizeof(uint64_t) * 512),
         level_fixed_leafs,
         var_leaf_counts,
         total_var_leafs,
@@ -1408,7 +1333,6 @@ void generate (
         level_fixed_arrays,
         level_size_leafs_count
     );
-    var_offset_buffer = std::move(generate_offsets_result.var_offset_buffer);
 
     uint16_t current_map_idx = 0;
     uint16_t current_variant_field_idx = 0;
@@ -1417,7 +1341,7 @@ void generate (
         var_offsets,
         idx_map,
         pack_infos,
-        ReadOnlyBuffer{var_offset_buffer},
+        ReadOnlyBuffer{generate_offsets_result.var_offset_buffer},
         generate_offsets_result.var_leafs_start,
         &current_map_idx,
         &current_variant_field_idx
@@ -1433,7 +1357,7 @@ void generate (
         .line("#include \"lib/lib.hpp\"")
         .line("");
 
-        auto&& struct_code = code
+        auto&& struct_code = std::move(code)
         ._struct(struct_name)
             .ctor("size_t base", "base(base)").end();
 
@@ -1454,19 +1378,19 @@ void generate (
                 GenStructLeafArgs{name, 0},
                 0,
                 lexer::LeafSizes::zero()
-            }, codegen::UnknownStructBase{std::move(struct_code)});
+            }, std::move(struct_code).template as<codegen::UnknownStructBase>());
 
-            struct_code = std::remove_reference_t<decltype(struct_code)>::Derived_{std::move(result.value)};
+            struct_code = std::move(result.value).template as<std::remove_reference_t<decltype(struct_code)>>();
             return result.next_type;
         });
 
-        struct_code = struct_code
+        struct_code = std::move(struct_code)
             ._private()
             .field("size_t", "base");
 
         struct_code = add_size_leafs(level_size_leafs, fixed_offsets, std::move(struct_code));
 
-        auto&& code_done = struct_code
+        auto&& code_done = std::move(struct_code)
         .end()
         .end();
 
