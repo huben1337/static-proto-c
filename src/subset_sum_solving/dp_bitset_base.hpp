@@ -9,9 +9,6 @@
 #include <immintrin.h>
 #include <xmmintrin.h>
 
-#include "../util/logger.hpp"
-
-
 namespace dp_bitset_base {
 
 using num_t = uint64_t;
