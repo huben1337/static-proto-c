@@ -16,6 +16,7 @@
 #include "estd/class_constraints.hpp"
 #include "estd/ranges.hpp"
 #include "estd/vector.hpp"
+#include "math/mod1.hpp"
 #include "nameof.hpp"
 #include "parser/lexer_types.hpp"
 #include "subset_sum_solving/dp_bitset_base.hpp"
@@ -41,7 +42,7 @@ using PackFieldIdxs = lexer::AlignMembersBase<estd::integral_range<uint16_t>>;
 
 struct Queued {
     fields_t fields;
-    uint64_t fields_size_sum = 0;
+    uint64_t modulated_field_size_sums = 0;
 };
 
 struct ConstStateBase {
@@ -101,7 +102,6 @@ struct MutableStateBase {
 [[nodiscard]] inline fields_t extract_sum_subset_from_queue (const uint64_t target, Queued& queued) {
     // NOLINTNEXTLINE(readability-simplify-boolean-expr)
     BSSERT(target != 0, "[subset_sum_perfect::solve] invalid target: ", target);
-    //std::cout << "FINDING " << target << "\n";
     constexpr uint16_t NO_CHAIN_VAL = -1;
 
     const std::unique_ptr<uint16_t[]> sum_chains = std::make_unique_for_overwrite<uint16_t[]>(target + 1);
@@ -109,8 +109,10 @@ struct MutableStateBase {
     std::uninitialized_fill_n(sum_chains.get() + 1, target, NO_CHAIN_VAL);
     
     const uint16_t queue_size = queued.fields.size();
+    // console.debug("Extracting from queue with length: ", queue_size);
     for (uint16_t queue_idx = 0; queue_idx < queue_size; queue_idx++) {
-        uint64_t num = queued.fields[queue_idx].size;
+        const uint64_t num = math::mod1(queued.fields[queue_idx].size, lexer::SIZE::MAX.byte_size());
+        // console.debug("Adding num ", num, " to sum subset");
         BSSERT(/*num != 0 && */num <= target, "num: ", num, ", target: ", target);
         if (num == 0) continue;
         // #pragma clang loop vectorize(enable)
@@ -135,9 +137,9 @@ struct MutableStateBase {
             do {
                 uint16_t link = sum_chains[chain_idx];
                 QueuedField& field = queued.fields[link];
-                const uint64_t field_size = field.size;
-                queued.fields_size_sum -= field_size;
-                chain_idx -= field_size;
+                const auto modulated_field_size = math::mod1(field.size, lexer::SIZE::MAX.byte_size());
+                queued.modulated_field_size_sums -= modulated_field_size;
+                chain_idx -= modulated_field_size;
                 used_fields.push_back(field);
                 field.size = 0; // Mark for deletion from queue
             } while (chain_idx > 0);
@@ -364,7 +366,7 @@ public:
 
     template <lexer::SIZE alignment>
     void enqueue(const QueuedField field) const {
-        mutable_state.level().queued.fields_size_sum += field.size;
+        mutable_state.level().queued.modulated_field_size_sums += math::mod1(field.size, lexer::SIZE::MAX.byte_size());
         mutable_state.level().queued.fields.emplace_back(field);
         static_cast<const Derived&>(*this).template try_solve_queued<alignment>();
     }
@@ -375,28 +377,34 @@ public:
     }
 
     template<lexer::SIZE target_align>
-    requires (target_align != lexer::SIZE::SIZE_0)
-    void try_solve_queued_for_align () const {
-        MutableStateBase::TrivialLevel& level_mutable_state = mutable_state.level();
-        
+    [[nodiscard]] constexpr uint64_t find_target () const {
+        const uint64_t queued_sum = mutable_state.level().queued.modulated_field_size_sums;
         constexpr uint8_t target_align_byte_size = target_align.byte_size();
-        const uint64_t queued_sum = level_mutable_state.queued.fields_size_sum;
-        if (queued_sum < target_align_byte_size) return;
+        if (queued_sum < target_align_byte_size) return 0;
         const dp_bitset_base::num_t bitset_words_count = dp_bitset_base::bitset_word_count(queued_sum);
         const std::unique_ptr<dp_bitset_base::word_t[]> bitset_words = std::make_unique_for_overwrite<dp_bitset_base::word_t[]>(bitset_words_count);
         dp_bitset_base::init_bits(bitset_words.get(), bitset_words_count);
-        for (const auto& e : level_mutable_state.queued.fields) {
-            dp_bitset_base::apply_num_unsafe(e.size, bitset_words.get(), bitset_words_count);
+        for (const auto& e : mutable_state.level().queued.fields) {
+            dp_bitset_base::apply_num_unsafe(math::mod1(e.size, lexer::SIZE::MAX.byte_size()), bitset_words.get(), bitset_words_count);
         }
         uint64_t target = lexer::last_multiple(queued_sum, target_align);
         for (;;) {
             if (dp_bitset_base::bit_at(bitset_words.get(), target)) {
-                console.debug("next_leaf enquing batch of size: ", target);
-                break;
+                return target;
             }
-            if (target <= target_align_byte_size) return;
+            if (target <= target_align_byte_size) return 0;
             target -= target_align_byte_size;
         }
+    }
+
+    template<lexer::SIZE target_align>
+    requires (target_align != lexer::SIZE::SIZE_0)
+    void try_solve_queued_for_align () const {
+        MutableStateBase::TrivialLevel& level_mutable_state = mutable_state.level();
+        
+        const uint64_t target = find_target<target_align>();
+        if (target == 0) return;
+        console.debug("next_leaf enquing batch of size: ", target);
         const fields_t used_fields = extract_sum_subset_from_queue(target, level_mutable_state.queued);
 
         Fields<target_align> fields;
@@ -535,6 +543,9 @@ public:
                 level_mutable_state.current_offset += field.size;
             }, field.info);
         }
+
+        // We should have inserted all possible field from queue
+        BSSERT(find_target<target_align>() == 0);
     }
 
     void try_solve_queued_for_align (const lexer::SIZE target_align) const {
