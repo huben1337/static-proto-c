@@ -59,6 +59,9 @@ struct SIZE : estd::ENUM_CLASS<uint8_t, SIZE> {
     static const SIZE SIZE_8;
     static const SIZE SIZE_0;
 
+    static const SIZE MIN;
+    static const SIZE MAX;
+
     [[nodiscard]] constexpr value_t byte_size () const {
         return value_t{1} << value;
     }
@@ -89,6 +92,8 @@ constexpr SIZE SIZE::SIZE_2{1};
 constexpr SIZE SIZE::SIZE_4{2};
 constexpr SIZE SIZE::SIZE_8{3};
 constexpr SIZE SIZE::SIZE_0{0xff};
+constexpr SIZE SIZE::MIN   {SIZE::SIZE_1};
+constexpr SIZE SIZE::MAX   {SIZE::SIZE_8};
 
 namespace {
     struct size_helper {
