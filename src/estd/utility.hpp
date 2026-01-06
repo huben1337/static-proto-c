@@ -34,13 +34,38 @@ namespace estd {
         return std::forward<U>(u);
     }
 
+    namespace {
+        template <typename To, typename From>
+        consteval void check_casting_const_correctness_ () {
+            if constexpr (std::is_const_v<std::remove_reference_t<From>>) {
+                static_assert(std::is_const_v<std::remove_reference_t<To>>, "Can't cast away const");
+            }
+        }
+    }
+
     template <typename To, typename From>
     [[nodiscard, gnu::always_inline]] constexpr To* ptr_cast (From* from) {
         static_assert(alignof(From) >= alignof(To), "Can't cast pointer to type of lower alignment");
-        if constexpr (std::is_const_v<std::remove_reference_t<From>>) {
-            static_assert(std::is_const_v<std::remove_reference_t<To>>, "Can't cast away const");
-        }
+        check_casting_const_correctness_<To, From>();
         return reinterpret_cast<To*>(from);
+    }
+
+    template <typename To, typename From>
+    [[nodiscard, gnu::always_inline]] constexpr To sibling_cast (From&& from) {
+        static_assert(std::is_layout_compatible_v<std::remove_cvref_t<From>, std::remove_cvref_t<To>>,
+            "Siblings must be layout compatible");
+        if constexpr (std::is_lvalue_reference_v<To>) {
+            static_assert(std::is_lvalue_reference_v<From>, "Can not cast from rvalue to lvalue");
+            check_casting_const_correctness_<To, From>();
+        } else {
+            if constexpr (!std::is_trivially_copyable_v<std::remove_reference_t<From>>) {
+                static_assert(!std::is_reference_v<From>,
+                    "Do not use sibling_cast to cast from lvalue to rvalue use std::move instead");
+            }
+            static_assert(!std::is_const_v<From>, "Do not cast from const rvalues!");
+            static_assert(!std::is_const_v<To>, "Do not cast to const rvalues!");
+        }
+        return reinterpret_cast<To>(from);
     }
 
     template <size_t N, typename... T>
