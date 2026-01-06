@@ -127,9 +127,9 @@ struct CodeBlockBase : CodeData {
     constexpr auto _struct (T&&... strs) &&;
 
     template <typename ...T>
-    constexpr Derived line (T&&... strs) && {
-        _line(std::forward<T>(strs)...);
-        return std::move(as<Derived>());
+    constexpr Derived line (this auto&& self, T&&... strs) {
+        self._line(std::forward<T>(strs)...);
+        return std::forward<Derived>(self);
     }
 
     constexpr auto end () && {
@@ -141,7 +141,7 @@ struct CodeBlockBase : CodeData {
         }
     }
 
-    protected:
+protected:
     constexpr void _end () {
         indent--;
         _line("}");
@@ -237,17 +237,17 @@ struct StructBase : CodeData {
 
     // constexpr explicit StructBase (CodeData&& cd, Buffer::View<char> name = {}) : CodeData{std::move(cd)}, name(name) {};
 
-    constexpr Derived _private () && {
-        _line("private:");
-        return std::move(as<Derived>());
+    constexpr Derived _private (this auto&& self) {
+        self._line("private:");
+        return std::forward<Derived>(self);
     }
-    constexpr Derived _public () && {
-        _line("public:");
-        return std::move(as<Derived>());
+    constexpr Derived _public (this auto&& self) {
+        self._line("public:");
+        return std::forward<Derived>(self);
     }
-    constexpr Derived _protected () && {
-        _line("protected:");
-        return std::move(as<Derived>());
+    constexpr Derived _protected (this auto&& self) {
+        self._line("protected:");
+        return std::forward<Derived>(self);
     }
 
     template <typename T, typename U>
@@ -329,9 +329,9 @@ public:
     }
 
     template <typename T, typename U>
-    constexpr Derived field (T&& type, U&& name) && {
-        _line(std::forward<T>(type), " ", std::forward<U>(name), ";");
-        return std::move(as<Derived>());
+    constexpr Derived field (this auto&& self, T&& type, U&& name) {
+        self._line(std::forward<T>(type), " ", std::forward<U>(name), ";");
+        return std::forward<Derived>(self);
     } 
 
     template <typename ...T>
