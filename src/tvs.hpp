@@ -209,43 +209,48 @@ public:
 
     template <lexer::SIZE alignment>
     void next_array_pack (
+        this const auto& self,
         const uint64_t size,
         const estd::integral_range<uint16_t> fixed_offset_idxs,
         const uint16_t pack_info_idx
-    ) const {
+    ) {
         if (size == 0) {
             BSSERT(fixed_offset_idxs.size() == 0);
-            // static_cast<const Derived&>(*this).template skip<alignment>();
+            // self.template skip<alignment>();
             // return;
         }
 
-        ArrayPackInfo& pack_info = const_state.shared().pack_infos[pack_info_idx];
+        ArrayPackInfo& pack_info = self.const_state.shared().pack_infos[pack_info_idx];
         pack_info.size = size;
 
-        static_cast<const Derived&>(*this).template enqueue<alignment>(QueuedField{size, ArrayFieldPack{move_to_tmp<alignment, true>(fixed_offset_idxs), pack_info_idx}});
+        self.template enqueue<alignment>(QueuedField{size, ArrayFieldPack{self.template move_to_tmp<alignment, true>(fixed_offset_idxs), pack_info_idx}});
     }
 
     template <lexer::SIZE alignment>
     void next_variant_pack (
+        this const auto& self,
         const uint64_t size,
         const estd::integral_range<uint16_t> fixed_offset_idxs
-    ) const {
+    ) {
         // BSSERT(size != 0);
         if (size == 0) {
             BSSERT(fixed_offset_idxs.size() == 0);
-            // static_cast<const Derived&>(*this).template skip<alignment>();
+            // self.template skip<alignment>();
             // return;
         }
 
-        static_cast<const Derived&>(*this).template enqueue<alignment>(QueuedField{size, VariantFieldPack{move_to_tmp<alignment, false>(fixed_offset_idxs)}});
+        self.template enqueue<alignment>(QueuedField{size, VariantFieldPack{self.template move_to_tmp<alignment, false>(fixed_offset_idxs)}});
     }
 
     template <lexer::SIZE alignment>
-    void next_simple (const uint64_t count = 1) const {
-        const uint16_t map_idx = next_map_idx();
+    void next_simple (
+        this const auto& self,
+        const uint64_t count = 1
+    ) {
+        const uint16_t map_idx = self.next_map_idx();
         console.debug("using map_idx: ", map_idx);
-        const_state.shared().idx_map[map_idx] = -1; // Mark as not set
-        static_cast<const Derived&>(*this).template enqueue<alignment>(QueuedField{alignment.byte_size() * count, SimpleField{map_idx}});
+        self.const_state.shared().idx_map[map_idx] = -1; // Mark as not set
+        self.template enqueue<alignment>(QueuedField{alignment.byte_size() * count, SimpleField{map_idx}});
     }
 
     void next_simple (const lexer::SIZE alignment, const uint64_t count = 1) const {
@@ -365,15 +370,18 @@ public:
     }
 
     template <lexer::SIZE alignment>
-    void enqueue(const QueuedField field) const {
+    void enqueue (
+        this const auto& self,
+        const QueuedField field
+    ) {
         mutable_state.level().queued.modulated_field_size_sums += math::mod1(field.size, lexer::SIZE::MAX.byte_size());
         mutable_state.level().queued.fields.emplace_back(field);
-        static_cast<const Derived&>(*this).template try_solve_queued<alignment>();
+        self.template try_solve_queued<alignment>();
     }
 
     template <lexer::SIZE alignment>
-    void skip () const {
-        static_cast<const Derived&>(*this).template skip<alignment>();
+    void skip (this const auto& self) {
+        self.template skip<alignment>();
     }
 
     template<lexer::SIZE target_align>
