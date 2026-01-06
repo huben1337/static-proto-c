@@ -20,6 +20,7 @@
 #include "./helper/internal_error.hpp"
 #include "./helper/alloca.hpp"
 #include "./variant_optimizer/perfect_st.hpp"
+#include "estd/utility.hpp"
 #include "subset_sum_solving/subset_sum_perfect.hpp"
 #include "util/string_literal.hpp"
 #include "variant_optimizer/data.hpp"
@@ -508,7 +509,7 @@ struct TypeVisitor {
 
     template<typename NewNextType>
     [[nodiscard]] constexpr const TypeVisitor<NewNextType, State, in_array, in_fixed_size>& as_visitor_for() const {
-        return reinterpret_cast<const TypeVisitor<NewNextType, State, in_array, in_fixed_size>&>(*this);
+        return estd::sibling_cast<const TypeVisitor<NewNextType, State, in_array, in_fixed_size>&>(*this);
     }
 };
 
