@@ -7,8 +7,6 @@
 #include <vector>
 #include <variant>
 
-#include "../estd/enum.hpp"
-#include "../estd/variant.hpp"
 #include "../parser/lexer_types.hpp"
 #include "../estd/ranges.hpp"
 #include "../estd/integral_pair.hpp"
@@ -149,26 +147,7 @@ struct VariantLeafMeta {
     }
 };
 
-struct FieldTypeTag : estd::ENUM_CLASS<uint8_t> {
-    using ENUM_CLASS::ENUM_CLASS;
-    static const FieldTypeTag SIMPLE;
-    static const FieldTypeTag VARIANT_PACK;
-    static const FieldTypeTag ARRAY_PACK;
-};
-
-constexpr FieldTypeTag FieldTypeTag::SIMPLE{0};
-constexpr FieldTypeTag FieldTypeTag::VARIANT_PACK{1};
-constexpr FieldTypeTag FieldTypeTag::ARRAY_PACK{2};
-
-
-
-template <FieldTypeTag tag>
-using field_tag = estd::tag_template<FieldTypeTag, FieldTypeTag>::type<tag>;
-
-
 struct SimpleField {
-    // field_tag<FieldTypeTag::SIMPLE> tag;
-    //lexer::SIZE alignment {};
     uint16_t map_idx {};
 
     constexpr SimpleField () = default;
@@ -182,8 +161,6 @@ struct VariantFieldPack {
 };
 
 struct ArrayFieldPack {
-    // field_tag<FieldTypeTag::VARIANT_PACK> tag;
-    // lexer::SIZE alignment;
     estd::integral_range<uint16_t> tmp_fixed_offset_idxs;
     uint16_t pack_info_idx;
 };
