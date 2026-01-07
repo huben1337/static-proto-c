@@ -250,7 +250,7 @@ public:
         const uint16_t map_idx = self.next_map_idx();
         console.debug("using map_idx: ", map_idx);
         self.const_state.shared().idx_map[map_idx] = -1; // Mark as not set
-        self.template enqueue<alignment>(QueuedField{alignment.byte_size() * count, SimpleField{map_idx}});
+        static_cast<const Derived&>(self).template enqueue<alignment>(QueuedField{alignment.byte_size() * count, SimpleField{map_idx}});
     }
 
     void next_simple (const lexer::SIZE alignment, const uint64_t count = 1) const {
@@ -374,9 +374,9 @@ public:
         this const auto& self,
         const QueuedField field
     ) {
-        mutable_state.level().queued.modulated_field_size_sums += math::mod1(field.size, lexer::SIZE::MAX.byte_size());
-        mutable_state.level().queued.fields.emplace_back(field);
-        self.template try_solve_queued<alignment>();
+        self.mutable_state.level().queued.modulated_field_size_sums += math::mod1(field.size, lexer::SIZE::MAX.byte_size());
+        self.mutable_state.level().queued.fields.emplace_back(field);
+        static_cast<const Derived&>(self).template try_solve_queued<alignment>();
     }
 
     template <lexer::SIZE alignment>
