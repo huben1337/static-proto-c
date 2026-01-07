@@ -12,6 +12,7 @@
 #include <tuple>
 #include <type_traits>
 #include <utility>
+#include <variant>
 
 #include "./parser/lexer_types.hpp"
 #include "./estd/ranges.hpp"
@@ -218,7 +219,8 @@ struct TypeVisitor {
         const variant_layout::Layout& layout,
         const uint16_t variant_count,
         VariantLeafMeta* const variant_leaf_metas,
-        lexer::AlignMembersBase<std::pair<uint64_t, estd::integral_range<uint16_t>>> packs = {}
+        const uint16_t fixed_offset_idx_begin,
+        lexer::AlignMembersBase<std::pair<uint64_t, estd::integral_range<uint16_t>>> packs
     ) const {
         if constexpr (alignment == lexer::SIZE::SIZE_1) {
             BSSERT(layout.align1 != 0, "This should not happen. layout for alignemnt 1 is always defined as long as higher alignments are defined");
@@ -234,14 +236,16 @@ struct TypeVisitor {
                     queued_fields_buffer,
                     layout,
                     variant_count,
-                    variant_leaf_metas
+                    variant_leaf_metas,
+                    fixed_offset_idx_begin,
+                    packs
                 );
             }
         }
         
         // const uint16_t ordered_idx_begin = ordered_idx;
         console.debug("[apply_layout] alignemnt: ", alignment.byte_size());
-        const uint16_t fixed_offset_idx_begin = state.get_fixed_offset_idx();
+        //const uint16_t fixed_offset_idx_begin = state.get_fixed_offset_idx();
         uint16_t fixed_offset_idx = fixed_offset_idx_begin;
         uint64_t max_offset = 0;
         for (VariantLeafMeta& meta : std::ranges::subrange{
@@ -337,15 +341,15 @@ struct TypeVisitor {
         }
         // pack_sizes.get<alignment>() = max_offset;
 
-        state.template next_variant_pack<alignment>(max_offset, {fixed_offset_idx_begin, fixed_offset_idx});
-        // packs.get<alignment>() = {max_offset, {fixed_offset_idx_begin, fixed_offset_idx}};
+        // state.template next_variant_pack<alignment>(max_offset, {fixed_offset_idx_begin, fixed_offset_idx});
+        packs.get<alignment>() = {max_offset, {fixed_offset_idx_begin, fixed_offset_idx}};
 
         if constexpr (alignment == lexer::SIZE::SIZE_1) {
             // return ordered_idx;
-            // state.template next_variant_pack<lexer::SIZE::SIZE_8>(packs.get<lexer::SIZE::SIZE_8>().first, packs.get<lexer::SIZE::SIZE_8>().second);
-            // state.template next_variant_pack<lexer::SIZE::SIZE_4>(packs.get<lexer::SIZE::SIZE_4>().first, packs.get<lexer::SIZE::SIZE_4>().second);
-            // state.template next_variant_pack<lexer::SIZE::SIZE_2>(packs.get<lexer::SIZE::SIZE_2>().first, packs.get<lexer::SIZE::SIZE_2>().second);
-            // state.template next_variant_pack<lexer::SIZE::SIZE_1>(packs.get<lexer::SIZE::SIZE_1>().first, packs.get<lexer::SIZE::SIZE_1>().second);
+            state.template next_variant_pack<lexer::SIZE::SIZE_8>(packs.get<lexer::SIZE::SIZE_8>());
+            state.template next_variant_pack<lexer::SIZE::SIZE_4>(packs.get<lexer::SIZE::SIZE_4>());
+            state.template next_variant_pack<lexer::SIZE::SIZE_2>(packs.get<lexer::SIZE::SIZE_2>());
+            state.template next_variant_pack<lexer::SIZE::SIZE_1>(packs.get<lexer::SIZE::SIZE_1>());
         } else {
             static constexpr lexer::SIZE next_alignment = lexer::next_smaller_size<alignment>;
             return apply_layout<next_alignment>(
@@ -353,6 +357,7 @@ struct TypeVisitor {
                 layout,
                 variant_count,
                 variant_leaf_metas,
+                fixed_offset_idx,
                 packs
             );
         }
@@ -390,6 +395,8 @@ struct TypeVisitor {
         VariantLeafMeta variant_leaf_metas[variant_count];
         ALLOCA_SAFE_SPAN(queued_fields_buffer, QueuedField, total_fixed_leafs + fixed_field_packs_total);
         uint16_t queued_fields_base = 0;
+
+        uint16_t tmp_fixed_offset_idx_base = state.mutable_state.level().tmp_fixed_offset_idx;
         
         const uint16_t fixed_offset_idx_begin_bak = state.get_fixed_offset_idx();
 
@@ -407,12 +414,12 @@ struct TypeVisitor {
 
             FixedVariantLevel::MutableState::Level level_mutable_state {
                 create_positions(field_counts, queued_fields_start),
-                state.mutable_state.level().tmp_fixed_offset_idx
+                tmp_fixed_offset_idx_base
             };
 
-            // console.debug("variant fixed leafs: ", type_meta.level_fixed_leafs.counts());
-            // console.debug("variant fields: ", field_counts);
-            // console.debug("Queued positions: ", level_mutable_state.queue_positions , " total: ", field_count_total);
+            console.debug("variant fixed leafs: ", type_meta.level_fixed_leafs.counts());
+            console.debug("variant fields: ", field_counts);
+            console.debug("Queued positions: ", level_mutable_state.queue_positions , " total: ", field_count_total);
 
             type = type->visit(TypeVisitor<lexer::Type, FixedVariantLevel::State, in_array, in_fixed_size>{
                 FixedVariantLevel::State{
@@ -431,7 +438,9 @@ struct TypeVisitor {
                 }
             }).next_type;
 
-            // console.debug("Queued positions after: ", level_mutable_state.queue_positions);
+            tmp_fixed_offset_idx_base = level_mutable_state.tmp_fixed_offset_idx;
+
+            console.debug("Queued positions after: ", level_mutable_state.queue_positions);
             const lexer::LeafCounts::Counts& queued_end_positions = level_mutable_state.queue_positions; // this was advanced in TypeVisitor so now its the end
             
             lexer::LeafSizes used_spaces = lexer::LeafSizes::zero();
@@ -482,7 +491,9 @@ struct TypeVisitor {
             queued_fields_buffer,
             layout,
             variant_count,
-            variant_leaf_metas
+            variant_leaf_metas,
+            state.get_fixed_offset_idx(),
+            {}
         );
         }
     }

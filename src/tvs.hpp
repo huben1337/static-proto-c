@@ -42,7 +42,13 @@ using PackFieldIdxs = lexer::AlignMembersBase<estd::integral_range<uint16_t>>;
 
 struct Queued {
     fields_t fields;
-    uint64_t modulated_field_size_sums = 0;
+    uint64_t field_size_sum = 0;
+    uint64_t modulated_field_size_sum = 0;
+
+    void increment_sum (const uint64_t size) {
+        field_size_sum += size;
+        modulated_field_size_sum += math::mod1(size, lexer::SIZE::MAX.byte_size());
+    } 
 };
 
 struct ConstStateBase {
@@ -53,7 +59,7 @@ struct ConstStateBase {
             std::span<FixedOffset>            tmp_fixed_offsets,
             std::span<Buffer::View<uint64_t>> var_offsets,
             std::span<uint16_t>               idx_map,
-            std::span<ArrayPackInfo>               pack_infos
+            std::span<ArrayPackInfo>          pack_infos
         ) : ast_buffer        (ast_buffer),
             fixed_offsets     (fixed_offsets),
             tmp_fixed_offsets (tmp_fixed_offsets),
@@ -66,7 +72,7 @@ struct ConstStateBase {
         std::span<FixedOffset>            tmp_fixed_offsets;
         std::span<Buffer::View<uint64_t>> var_offsets;   // Represents the size of the variable size leaf. Used for genrating the offset calc strings
         std::span<uint16_t>               idx_map;       // Maps occurence in the AST to a stored leaf
-        std::span<ArrayPackInfo>               pack_infos;
+        std::span<ArrayPackInfo>          pack_infos;
     };
 };
 
@@ -138,7 +144,8 @@ struct MutableStateBase {
                 uint16_t link = sum_chains[chain_idx];
                 QueuedField& field = queued.fields[link];
                 const auto modulated_field_size = math::mod1(field.size, lexer::SIZE::MAX.byte_size());
-                queued.modulated_field_size_sums -= modulated_field_size;
+                queued.field_size_sum -= field.size;
+                queued.modulated_field_size_sum -= modulated_field_size;
                 chain_idx -= modulated_field_size;
                 used_fields.push_back(field);
                 field.size = 0; // Mark for deletion from queue
@@ -216,8 +223,8 @@ public:
     ) {
         if (size == 0) {
             BSSERT(fixed_offset_idxs.size() == 0);
-            // self.template skip<alignment>();
-            // return;
+            self.template skip<alignment>();
+            return;
         }
 
         ArrayPackInfo& pack_info = self.const_state.shared().pack_infos[pack_info_idx];
@@ -229,14 +236,22 @@ public:
     template <lexer::SIZE alignment>
     void next_variant_pack (
         this const auto& self,
+        const std::pair<uint64_t, estd::integral_range<uint16_t>> pack
+    ) {
+        self.template next_variant_pack<alignment>(pack.first, pack.second);
+    }
+
+    template <lexer::SIZE alignment>
+    void next_variant_pack (
+        this const auto& self,
         const uint64_t size,
         const estd::integral_range<uint16_t> fixed_offset_idxs
     ) {
         // BSSERT(size != 0);
         if (size == 0) {
             BSSERT(fixed_offset_idxs.size() == 0);
-            // self.template skip<alignment>();
-            // return;
+            self.template skip<alignment>();
+            return;
         }
 
         self.template enqueue<alignment>(QueuedField{size, VariantFieldPack{self.template move_to_tmp<alignment, false>(fixed_offset_idxs)}});
@@ -250,21 +265,24 @@ public:
         const uint16_t map_idx = self.next_map_idx();
         console.debug("using map_idx: ", map_idx);
         self.const_state.shared().idx_map[map_idx] = -1; // Mark as not set
-        static_cast<const Derived&>(self).template enqueue<alignment>(QueuedField{alignment.byte_size() * count, SimpleField{map_idx}});
+        self.template enqueue<alignment>(QueuedField{alignment.byte_size() * count, SimpleField{map_idx}});
     }
 
-    void next_simple (const lexer::SIZE alignment, const uint64_t count = 1) const {
+    void next_simple (
+        this const auto& self,
+        const lexer::SIZE alignment, const uint64_t count = 1
+    ) {
         switch (alignment) {
-            case lexer::SIZE::SIZE_8: return next_simple<lexer::SIZE::SIZE_8>(count);
-            case lexer::SIZE::SIZE_4: return next_simple<lexer::SIZE::SIZE_4>(count);
-            case lexer::SIZE::SIZE_2: return next_simple<lexer::SIZE::SIZE_2>(count);
-            case lexer::SIZE::SIZE_1: return next_simple<lexer::SIZE::SIZE_1>(count);
+            case lexer::SIZE::SIZE_8: return self.template next_simple<lexer::SIZE::SIZE_8>(count);
+            case lexer::SIZE::SIZE_4: return self.template next_simple<lexer::SIZE::SIZE_4>(count);
+            case lexer::SIZE::SIZE_2: return self.template next_simple<lexer::SIZE::SIZE_2>(count);
+            case lexer::SIZE::SIZE_1: return self.template next_simple<lexer::SIZE::SIZE_1>(count);
             default: std::unreachable();
         }
     }
 
     template <lexer::SIZE alignment, bool array_mode>
-    [[nodiscard]] estd::integral_range<uint16_t> move_to_tmp_ (
+    [[nodiscard]] estd::integral_range<uint16_t> move_to_tmp_awdawd (
         const estd::integral_range<uint16_t> fixed_offset_idxs
     ) const {
         const std::span<FixedOffset>& fixed_offsets = const_state.shared().fixed_offsets;
@@ -324,11 +342,11 @@ public:
             const_state.shared().tmp_fixed_offsets.begin() + *tmp_fixed_offset_idxs.end(),
         };
 
-        for (const FixedOffset& fo : target_tmp_fixed_offsets) {
-            BSSERT(fo == FixedOffset::empty());
-        }
-
         console.debug("tmp_fixed_offsets[", *tmp_fixed_offset_idxs.begin(), " .. ", *tmp_fixed_offset_idxs.end(), "] = FixedOffset{?} alignment: ", alignment, " (tt)");
+
+        for (const uint16_t idx : tmp_fixed_offset_idxs) {
+            BSSERT(const_state.shared().tmp_fixed_offsets[idx] == FixedOffset::empty(), idx);
+        }
 
         std::swap_ranges(
             const_state.shared().fixed_offsets.begin() + *fixed_offset_idxs.begin(),
@@ -374,9 +392,9 @@ public:
         this const auto& self,
         const QueuedField field
     ) {
-        self.mutable_state.level().queued.modulated_field_size_sums += math::mod1(field.size, lexer::SIZE::MAX.byte_size());
+        self.mutable_state.level().queued.increment_sum(field.size);
         self.mutable_state.level().queued.fields.emplace_back(field);
-        static_cast<const Derived&>(self).template try_solve_queued<alignment>();
+        self.template try_solve_queued<alignment>();
     }
 
     template <lexer::SIZE alignment>
@@ -386,16 +404,17 @@ public:
 
     template<lexer::SIZE target_align>
     [[nodiscard]] constexpr uint64_t find_target () const {
-        const uint64_t queued_sum = mutable_state.level().queued.modulated_field_size_sums;
         constexpr uint8_t target_align_byte_size = target_align.byte_size();
+        const uint64_t queued_sum = mutable_state.level().queued.field_size_sum;
         if (queued_sum < target_align_byte_size) return 0;
-        const dp_bitset_base::num_t bitset_words_count = dp_bitset_base::bitset_word_count(queued_sum);
+        const uint64_t modulated_queued_sum = mutable_state.level().queued.modulated_field_size_sum;
+        const dp_bitset_base::num_t bitset_words_count = dp_bitset_base::bitset_word_count(modulated_queued_sum);
         const std::unique_ptr<dp_bitset_base::word_t[]> bitset_words = std::make_unique_for_overwrite<dp_bitset_base::word_t[]>(bitset_words_count);
         dp_bitset_base::init_bits(bitset_words.get(), bitset_words_count);
         for (const auto& e : mutable_state.level().queued.fields) {
             dp_bitset_base::apply_num_unsafe(math::mod1(e.size, lexer::SIZE::MAX.byte_size()), bitset_words.get(), bitset_words_count);
         }
-        uint64_t target = lexer::last_multiple(queued_sum, target_align);
+        uint64_t target = lexer::last_multiple(modulated_queued_sum, target_align);
         for (;;) {
             if (dp_bitset_base::bit_at(bitset_words.get(), target)) {
                 return target;
@@ -627,7 +646,7 @@ struct TopLevel {
         void skip () const {
             uint16_t& c = mutable_state.level().left_fields.get<alignment>();
             if (c == 1) {
-                // There will never be triggered a solve attampt for this alignment again so we need to trigger it manually.
+                // There will never be triggered a solve attempt for this alignment again so we need to trigger it manually.
                 try_solve_queued<alignment>();
                 return;
             }
