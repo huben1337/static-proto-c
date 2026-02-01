@@ -3,9 +3,11 @@
 #include <cassert>
 #include <concepts>
 #include <gsl/util>
+#include <iterator>
 #include <ranges>
 #include <span>
 #include <type_traits>
+#include <vector>
 
 namespace estd {
     template <std::unsigned_integral T>
@@ -57,8 +59,11 @@ namespace estd {
     private:
         struct template_guard {};
 
+        template <typename R>
+        using iterator_from_begin_t = decltype(std::declval<R&>().begin());
+
         template <typename Iterable, typename With>
-        [[nodiscard]] With access_iterable (const Iterable& i) const {
+        [[nodiscard]] With access_iterable (Iterable& i) const {
             auto begin = i.begin();
             auto accessed_end = begin + to;
             assert(accessed_end <= i.end());
@@ -78,28 +83,38 @@ namespace estd {
         }
 
     public:
-        template <typename Iterable, std::same_as<template_guard> = template_guard, typename With = std::span<typename Iterable::iterator::value_type>>
+        template <
+            typename Iterable,
+            std::same_as<template_guard> = template_guard,
+            typename With = std::span<std::iter_reference_t<iterator_from_begin_t<Iterable>>>
+        >
         [[nodiscard]] With access_subspan (Iterable& i) const {
             return access_iterable<Iterable, With>(i);
         }
-        template <typename Iterable, std::same_as<template_guard> = template_guard, typename With = std::span<const typename Iterable::iterator::value_type>>
-        [[nodiscard]] With access_subspan (const Iterable& i) const {
-            return access_iterable<Iterable, With>(i);
-        }
-        template <typename U, std::same_as<template_guard> = template_guard, typename With = std::ranges::subrange<U*>>
+
+        template <
+            typename U,
+            std::same_as<template_guard> = template_guard,
+            typename With = std::span<U>
+        >
         [[nodiscard]] With access_subspan (U* const p) const {
             return access_ptr<U, With>(p);
         }
 
-        template <typename Iterable, std::same_as<template_guard> = template_guard, typename With = std::ranges::subrange<typename Iterable::iterator>>
+        template <
+            typename Iterable,
+            std::same_as<template_guard> = template_guard,
+            typename With = std::ranges::subrange<iterator_from_begin_t<Iterable>>
+        >
         [[nodiscard]] With access_subrange (Iterable& i) const {
             return access_iterable<Iterable, With>(i);
         }
-        template <typename Iterable, std::same_as<template_guard> = template_guard, typename With = std::ranges::subrange<typename Iterable::const_iterator>>
-        [[nodiscard]] With access_subrange (const Iterable& i) const {
-            return access_iterable<Iterable, With>(i);
-        }
-        template <typename U, std::same_as<template_guard> = template_guard, typename With = std::ranges::subrange<U*>>
+
+        template <
+            typename U,
+            std::same_as<template_guard> = template_guard,
+            typename With = std::ranges::subrange<U*>
+        >
         [[nodiscard]] With access_subrange (U* const p) const {
             return access_ptr<U, With>(p);
         }
