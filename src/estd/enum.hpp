@@ -7,19 +7,30 @@
 
 namespace estd {
 
-namespace {
-
-    template <typename Outside>
-    constexpr StringLiteral enum_class_outside_name = string_literal::from_([](){ return nameof::nameof_type<Outside>(); });
-
-    template <>
-    constexpr StringLiteral enum_class_outside_name<void> = "ENUM_CLASS<>";
-}
-
 template <std::integral T, typename Outside = void>
 struct ENUM_CLASS {
+private:
+
+    template <typename Outside_>
+    struct outside {
+        using type = Outside;
+    };
+
+    template <>
+    struct outside<void> {
+        using type = ENUM_CLASS;
+    };
+
+    template <typename Outside_>
+    static constexpr StringLiteral outside_name_v = string_literal::from_([](){ return nameof::nameof_type<Outside>(); });
+
+    template <>
+    constexpr StringLiteral outside_name_v<void> = "ENUM_CLASS<>";
+
 public:
     using value_t = T;
+    using outside_t = outside<Outside>::type;
+    static constexpr StringLiteral outside_name = outside_name_v<Outside>;
 
     value_t value;
 
@@ -36,8 +47,8 @@ public:
     [[nodiscard]] explicit operator bool () const = delete;
 
     template <typename writer_params>
-    void log (logger::writer<writer_params> w) const {
-        w.template write<true, true>(enum_class_outside_name<Outside> + "{value: "_sl, value, "}");
+    void log (const logger::writer<writer_params> w) const {
+        w.template write<true, true>(outside_name + "{value: "_sl, value, "}");
     }
 
 protected:

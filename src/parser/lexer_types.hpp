@@ -84,14 +84,20 @@ public:
         }
         return SIZE{gsl::narrow_cast<value_t>(value + 1)};
     };
+
+    template <std::unsigned_integral T>
+    [[nodiscard]] static SIZE from_integral (const T i) {
+        return SIZE{gsl::narrow_cast<value_t>(i % gsl::narrow_cast<value_t>(MAX.value + 1))};
+    }
 };
+
 
 
 constexpr SIZE SIZE::SIZE_1{0};
 constexpr SIZE SIZE::SIZE_2{1};
 constexpr SIZE SIZE::SIZE_4{2};
 constexpr SIZE SIZE::SIZE_8{3};
-constexpr SIZE SIZE::SIZE_0{0xff};
+constexpr SIZE SIZE::SIZE_0{static_cast<value_t>(-1)};
 constexpr SIZE SIZE::MIN   {SIZE::SIZE_1};
 constexpr SIZE SIZE::MAX   {SIZE::SIZE_8};
 
@@ -148,17 +154,17 @@ namespace {
     constexpr StringLiteral align_members_outside_name<void> = "AlignMembersBase<>";
 
     template <typename Self, typename Outside>
-    struct AlignMembersOutside {
+    struct align_members_outside {
         using type = Outside;
     };
 
     template <typename Self>
-    struct AlignMembersOutside<Self, void> {
+    struct align_members_outside<Self, void> {
         using type = Self;
     };
 
     template <typename Self, typename Outside>
-    using align_members_outside_t = AlignMembersOutside<Self, Outside>::type;
+    using align_members_outside_t = align_members_outside<Self, Outside>::type;
 }
 
 template<typename T, SIZE max_align = SIZE::SIZE_8, typename Outside = void>
@@ -213,7 +219,7 @@ struct AlignMembersBase {
     #undef ALIGN_MEMBER_GET_RT_ARG
 
     template <typename writer_params>
-    void log (logger::writer<writer_params> w) const {
+    void log (const logger::writer<writer_params> w) const {
         w.template write<true, true>(align_members_outside_name<Outside> + "{align1: "_sl, align1, ", align2: ", align2, ", align4: ", align4, ", align8: ", align8, "}");
     }
 
@@ -268,7 +274,7 @@ struct AlignMembersBase<T, SIZE::SIZE_4, Outside> {
     #undef ALIGN_MEMBER_GET_RT_ARG
 
     template <typename writer_params>
-    void log (logger::writer<writer_params> w) const {
+    void log (const logger::writer<writer_params> w) const {
         w.template write<true, true>(align_members_outside_name<Outside> + "{align1: "_sl, align1, ", align2: ", align2, ", align4: ", align4, "}");
     }
 
@@ -319,7 +325,7 @@ struct AlignMembersBase<T, SIZE::SIZE_2, Outside> {
     #undef ALIGN_MEMBER_GET_RT_ARG
 
     template <typename writer_params>
-    void log (logger::writer<writer_params> w) const {
+    void log (const logger::writer<writer_params> w) const {
         w.template write<true, true>(align_members_outside_name<Outside> + "{align1: "_sl, align1, ", align2: ", align2, "}");
     }
 
@@ -366,7 +372,7 @@ struct AlignMembersBase<T, SIZE::SIZE_1, Outside> {
     #undef ALIGN_MEMBER_GET_RT_ARG
 
     template <typename writer_params>
-    void log (logger::writer<writer_params> w) const {
+    void log (const logger::writer<writer_params> w) const {
         w.template write<true, true>(align_members_outside_name<Outside> + "{align1: "_sl, align1, "}");
     }
 
@@ -476,14 +482,22 @@ struct LeafCounts {
             return align1 + align2 + align4 + align8;
         }
 
+        template <SIZE limit = lexer::SIZE::SIZE_8>
+        requires (limit >= SIZE::SIZE_1 && limit <= SIZE::SIZE_8)
         [[nodiscard]] constexpr SIZE largest_align () const {
-            if (align8 != 0) return SIZE::SIZE_8;
-            if (align4 != 0) return SIZE::SIZE_4;
-            if (align2 != 0) return SIZE::SIZE_2;
+            if constexpr (limit >= SIZE::SIZE_8) {
+                if (align8 != 0) return SIZE::SIZE_8;
+            }
+            if constexpr (limit >= SIZE::SIZE_4) {
+                if (align4 != 0) return SIZE::SIZE_4;
+            }
+            if constexpr (limit >= SIZE::SIZE_2) {
+                if (align2 != 0) return SIZE::SIZE_2;
+            }
             return SIZE::SIZE_1;
         }
 
-        [[nodiscard]] static consteval Counts zero () { return {0, 0, 0, 0}; }
+        [[nodiscard]] static consteval Counts zero () { return AlignMembersBase::zero<Counts>(); }
         [[nodiscard]] static constexpr Counts of (uint16_t value) { return {value, value, value, value}; }
     };
 
@@ -528,8 +542,9 @@ struct LeafCounts {
         }
     }
 
+    template <SIZE limit = lexer::SIZE::SIZE_8>
     [[nodiscard]] constexpr SIZE largest_align () const {
-        return counts().largest_align();
+        return counts().largest_align<limit>();
     }
 };
 
@@ -589,7 +604,7 @@ struct LeafSizes : AlignMembersBase<uint64_t, SIZE::SIZE_8, LeafSizes> {
         return (... + get<sizes>());
     }
 
-    [[nodiscard]] static consteval LeafSizes zero () { return {0, 0, 0, 0}; }
+    [[nodiscard]] static consteval LeafSizes zero () { return AlignMembersBase::zero<LeafSizes>(); }
 
     template <SIZE size>
     [[nodiscard]] static constexpr LeafSizes from_size (uint32_t count) {
