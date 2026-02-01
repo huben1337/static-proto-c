@@ -1,6 +1,5 @@
 #pragma once
 
-#include <ranges>
 #include "./dp_bitset_base.hpp"
 #include "../variant_optimizer/data.hpp"
 
@@ -18,10 +17,7 @@ inline void generate_bits (
 
     dp_bitset_base::init_bits(bits, bitset_words);
 
-    for (const QueuedField& field : std::ranges::subrange{
-        queued_fields_buffer,
-        queued_fields_buffer + meta.ends.align1
-    }) {
+    for (const QueuedField& field : meta.field_idxs.access_subrange(queued_fields_buffer)) {
         auto num = field.size;
         if (num == 0) continue;
         BSSERT(num <= target);
