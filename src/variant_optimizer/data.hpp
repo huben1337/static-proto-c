@@ -1,7 +1,5 @@
 #pragma once
 
-#include <sys/types.h>
-#include <bit>
 #include <cstdint>
 #include <gsl/util>
 #include <vector>
@@ -45,34 +43,6 @@ struct FixedLeaf : private estd::u48_u16_pair {
     }
 };
 
-struct FixedOffsetOld : private estd::u48_u16_pair {
-    FixedOffsetOld () = default;
-
-    constexpr explicit FixedOffsetOld (uint64_t data)
-    : u48_u16_pair(data)
-    {}
-
-    constexpr FixedOffsetOld (uint64_t offset, lexer::SIZE pack_align)
-    : u48_u16_pair(offset, pack_align)
-    {}
-
-    [[nodiscard]] constexpr lexer::SIZE get_pack_align () const {
-        return std::bit_cast<lexer::SIZE>(gsl::narrow_cast<uint8_t>(get_u16()));
-    }
-
-    constexpr void set_pack_align (lexer::SIZE value) { set_u16(value); }
-
-    [[nodiscard]] constexpr uint64_t get_offset () const { return get_u48(); }
-
-    constexpr void set_offset (uint64_t value) { set_u48(value); }
-
-    constexpr void increment_offset (uint64_t value) { data += value; };
-
-    [[nodiscard]] constexpr bool operator == (const FixedOffsetOld& other) const {
-        return data == other.data;
-    }
-};
-
 struct FixedOffset {
     FixedOffset () = default;
 
@@ -102,67 +72,53 @@ struct FixedOffset {
     }
 
     [[nodiscard]] static consteval FixedOffset empty() {
-        return  {static_cast<uint64_t>(-1), static_cast<uint16_t>(-1), lexer::SIZE::SIZE_0};
+        return {static_cast<uint64_t>(-1), static_cast<uint16_t>(-1), lexer::SIZE::SIZE_0};
     }
 
     template <typename writer_params>
-    void log (logger::writer<writer_params> w) const {
+    void log (const logger::writer<writer_params> w) const {
         w.template write<true, true>("FixedOffset{offset: ", offset, ", map_idx: ", map_idx, ", pack_align: ", pack_align, "}");
     }
 };
 
-struct VariantField {
-    struct Range : public estd::integral_range<uint16_t> {
-        constexpr Range () = default;
-        using integral_range::integral_range;
-
-        [[nodiscard]] static consteval Range empty () { return {0, 0}; }
-    };
-    Range align1;
-    Range align2;
-    Range align4;
-    Range align8;
-
-    lexer::LeafSizes sizes;
-};
-
 struct VariantLeafMeta {
-    uint16_t start;
-    lexer::LeafCounts::Counts ends;
-    uint64_t required_space;
     lexer::LeafSizes used_spaces;
-
-    template <lexer::SIZE alignment>
-    [[nodiscard]] constexpr uint16_t fields_begin_idx () {
-        if constexpr (alignment == lexer::SIZE::SIZE_8) {
-            return start;
-        } else {
-            return ends.get<alignment.next_bigger()>();
-        }
-    }
-
-    template <lexer::SIZE alignment>
-    [[nodiscard]] constexpr uint16_t fields_end_idx () {
-        return ends.get<alignment>();
-    }
+    uint64_t required_space;
+    lexer::LeafCounts::Counts left_fields;
+    estd::integral_range<uint16_t> field_idxs;
+    
+    // template <lexer::SIZE alignment>
+    // [[nodiscard]] constexpr uint16_t fields_begin_idx () {
+    //     if constexpr (alignment == lexer::SIZE::SIZE_8) {
+    //         return start;
+    //     } else {
+    //         return ends.get<alignment.next_bigger()>();
+    //     }
+    // }
 };
 
 struct SimpleField {
-    uint16_t map_idx {};
+    uint16_t map_idx;
+    lexer::SIZE alignment;
 
-    constexpr SimpleField () = default;
+    [[nodiscard]] lexer::SIZE get_alignment () const { return alignment; }
 
-    constexpr explicit SimpleField (uint16_t map_idx)
-    : map_idx(map_idx) {}
 };
 
 struct VariantFieldPack {
     estd::integral_range<uint16_t> tmp_fixed_offset_idxs;
+    lexer::SIZE alignment;
+
+    [[nodiscard]] lexer::SIZE get_alignment () const { return alignment; }
 };
 
 struct ArrayFieldPack {
     estd::integral_range<uint16_t> tmp_fixed_offset_idxs;
     uint16_t pack_info_idx;
+
+    [[nodiscard]] lexer::SIZE get_alignment () const {
+        return lexer::SIZE::from_integral(pack_info_idx);
+    }
 };
 
 struct ArrayPackInfo {
@@ -178,11 +134,37 @@ struct ArrayPackInfo {
     }
 };
 
-struct SkippedField {};
+
+
+struct FieldSize : private estd::u48_u16_pair {
+    FieldSize () = default;
+
+    constexpr explicit FieldSize (uint64_t data)
+        : u48_u16_pair(data) {}
+
+    constexpr FieldSize (uint64_t offset, bool flag)
+        : u48_u16_pair(offset, static_cast<uint16_t>(flag)) {}
+
+    [[nodiscard]] constexpr bool get_flag () const {
+        return gsl::narrow_cast<bool>(get_u16());
+    }
+
+    constexpr void set_flag (bool value) { set_u16(static_cast<uint16_t>(value)); }
+
+    [[nodiscard]] constexpr uint64_t get_size () const { return get_u48(); }
+
+    constexpr void set_size (uint64_t value) { set_u48(value); }
+
+    // constexpr void increment_offset (uint64_t value) { data += value; };
+
+    [[nodiscard]] constexpr bool operator == (const FieldSize& other) const {
+        return data == other.data;
+    }
+};
 
 struct QueuedField {
 
-    using info_t = std::variant<SimpleField, ArrayFieldPack, VariantFieldPack, SkippedField>;
+    using info_t = std::variant<SimpleField, ArrayFieldPack, VariantFieldPack>;
 
     uint64_t size {};
     info_t info;
@@ -191,5 +173,3 @@ struct QueuedField {
 
     constexpr QueuedField (uint64_t size, info_t info) : size(size), info(info) {}
 };
-
-using fields_t = std::vector<QueuedField>;

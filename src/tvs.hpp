@@ -1,3 +1,5 @@
+#pragma once
+
 #include <algorithm>
 #include <cstdint>
 #include <gsl/pointers>
@@ -42,10 +44,147 @@ struct Fields : lexer::AlignMembersBase<AlignedFields, max_align.next_smaller(),
 template<>
 struct Fields<lexer::SIZE::SIZE_1> : estd::empty {};
 
-using PackFieldIdxs = lexer::AlignMembersBase<estd::integral_range<uint16_t>>;
+template <lexer::SIZE target_align>
+void enqueueing_for_level (auto& level, const uint16_t idx) {
+    level.template enqueue_for_level<target_align>(idx);    
+}
+
+template <lexer::SIZE target_align>
+void enqueueing_for_level (auto& level, const std::vector<uint16_t>& idxs) {
+    for (const uint16_t idx : idxs) {
+        level.template enqueue_for_level<target_align>(idx);    
+    }
+}
+
+template <lexer::SIZE to_align, lexer::SIZE max_align, typename... T>
+static void add_to_align (
+    auto& level,
+    const uint16_t i,
+    // QueuedField& field,
+    Fields<max_align>& fields,
+    AlignedFields& first,
+    T&... rest
+) {
+    if constexpr (to_align == max_align) {
+        enqueueing_for_level<max_align>(level, first.idxs);
+        (enqueueing_for_level<max_align>(level, rest.idxs), ...);
+        enqueueing_for_level<max_align>(level, i);
+    } else {
+        AlignedFields& target = fields.template get<to_align>();
+        if (target.size_sum == 0) {
+            BSSERT(target.idxs.size() == 0);
+            if constexpr (sizeof...(T) > 0) {
+                estd::move_append(first.idxs, 1, rest.idxs...);
+                first.size_sum += (rest.size_sum + ...);
+                ((rest.size_sum = 0), ...);
+            }
+            first.idxs.emplace_back(i);
+            std::swap(target.idxs, first.idxs);
+            std::swap(target.size_sum, first.size_sum);
+        } else {
+            BSSERT(target.idxs.size() != 0);
+            add_to_align<lexer::next_bigger_size<to_align>>(level, i, fields, target, first, rest...);
+        }
+    }
+};
+
+// TODO: Make it possible to pass already dereferenced/indexed field instead of the index only
+template<lexer::SIZE target_align>
+static void add_field (
+    auto& level,
+    const uint16_t field_idx,
+    Fields<target_align>& fields,
+    const uint64_t field_size
+) {
+    if constexpr (target_align >= lexer::SIZE::SIZE_8) {
+        if (field_size % 8 == 0) {
+            if constexpr (target_align == lexer::SIZE::SIZE_8) {
+                enqueueing_for_level<target_align>(level, field_idx);
+            } else {
+                fields.align8.size_sum += field_size;
+                fields.align8.idxs.emplace_back(field_idx);
+            }
+            return;
+        }
+    }
+    if constexpr (target_align >= lexer::SIZE::SIZE_4) {
+        if (field_size % 4 == 0) {
+            if constexpr (target_align == lexer::SIZE::SIZE_4) {
+                enqueueing_for_level<target_align>(level, field_idx);
+            } else {
+                fields.align4.size_sum += field_size;
+                if constexpr (target_align >= lexer::SIZE::SIZE_8) {
+                    if (fields.align4.size_sum % 8 == 0) {
+                        BSSERT(fields.align4.idxs.size() != 0);
+                        add_to_align<lexer::SIZE::SIZE_8>(level, field_idx, fields, fields.align4);
+                        return;
+                    }
+                }
+                BSSERT(fields.align4.idxs.size() == 0);
+                fields.align4.idxs.emplace_back(field_idx);
+            }
+            return;
+        }
+    }
+    if constexpr (target_align >= lexer::SIZE::SIZE_2) {
+        if (field_size % 2 == 0) {
+            if constexpr (target_align == lexer::SIZE::SIZE_2) {
+                enqueueing_for_level<target_align>(level, field_idx);
+            } else {
+                fields.align2.size_sum += field_size;
+                if constexpr (target_align >= lexer::SIZE::SIZE_8) {
+                    if (fields.align2.size_sum % 8 == 0) {
+                        /*
+                        In this case we could apply the field directly.
+                        But better would be to check if we can split off a align4 part of the combination.
+                        But i dont think that should ever be the case since the (new_size_sum % 4) branch should have caught that combintion ??!
+                        Im not really sure. The align4 subset combination is not caught if the change bubbles up into here and adds a align4 combination as a whole,
+                        which should not really happen.
+                        */
+                        add_to_align<lexer::SIZE::SIZE_8>(level, field_idx, fields, fields.align2);
+                        return;
+                    }
+                }
+                if constexpr (target_align >= lexer::SIZE::SIZE_4) {
+                    if (fields.align2.size_sum % 4 == 0) {
+                        add_to_align<lexer::SIZE::SIZE_4>(level, field_idx, fields, fields.align2);
+                        return;
+                    }
+                }
+                BSSERT(fields.align2.size_sum % 2 == 0);
+                fields.align2.idxs.emplace_back(field_idx);
+            }
+            return;
+        }
+    }
+    if constexpr (target_align == lexer::SIZE::SIZE_1) {
+        enqueueing_for_level<target_align>(level, field_idx);
+    } else {
+        fields.align1.size_sum += field_size;
+        if constexpr (target_align >= lexer::SIZE::SIZE_8) {
+            if (fields.align1.size_sum % 8 == 0) {
+                add_to_align<lexer::SIZE::SIZE_8>(level, field_idx, fields, fields.align1);
+                return;
+            }
+        }
+        if constexpr (target_align >= lexer::SIZE::SIZE_4) {
+            if (fields.align1.size_sum % 4 == 0) {
+                add_to_align<lexer::SIZE::SIZE_4>(level, field_idx, fields, fields.align1);
+                return;
+            }
+        }
+        if constexpr (target_align >= lexer::SIZE::SIZE_2) {
+            if (fields.align1.size_sum % 2 == 0) {
+                add_to_align<lexer::SIZE::SIZE_2>(level, field_idx, fields, fields.align1);
+                return;
+            } 
+        }
+        fields.align1.idxs.emplace_back(field_idx);
+    }
+}
 
 struct Queued {
-    fields_t fields;
+    std::vector<QueuedField> fields;
     uint64_t field_size_sum = 0;
     uint64_t modulated_field_size_sum = 0;
 
@@ -109,7 +248,7 @@ struct MutableStateBase {
 
 
 // O(n * t) | 0 < t < MAX_SUM
-inline void generate_sum_subset_chains (const uint64_t target, const fields_t& queued_fields, const std::span<uint16_t> sum_chains) {
+inline void generate_sum_subset_chains (const uint64_t target, const std::vector<QueuedField>& queued_fields, const std::span<uint16_t> sum_chains) {
     // NOLINTNEXTLINE(readability-simplify-boolean-expr)
     BSSERT(target != 0, "[subset_sum_perfect::solve] invalid target: ", target);
     constexpr uint16_t NO_CHAIN_VAL = -1;
@@ -205,14 +344,15 @@ public:
         const uint64_t size,
         const estd::integral_range<uint16_t> fixed_offset_idxs
     ) {
+        // console.debug("Next variant pack: ", alignment, ", size: ", size);
         // BSSERT(size != 0);
         if (size == 0) {
-            BSSERT(fixed_offset_idxs.size() == 0);
+            CSSERT(fixed_offset_idxs.size(), ==, 0, " ", alignment);
             self.template skip<alignment>();
             return;
         }
 
-        self.template enqueue<alignment>(QueuedField{size, VariantFieldPack{self.template move_to_tmp<alignment, false>(fixed_offset_idxs)}});
+        self.template enqueue<alignment>(QueuedField{size, VariantFieldPack{self.template move_to_tmp<alignment, false>(fixed_offset_idxs), alignment}});
     }
 
     template <lexer::SIZE alignment>
@@ -223,7 +363,7 @@ public:
         const uint16_t map_idx = self.next_map_idx();
         console.debug("using map_idx: ", map_idx);
         self.const_state.shared().idx_map[map_idx] = -1; // Mark as not set
-        self.template enqueue<alignment>(QueuedField{alignment.byte_size() * count, SimpleField{map_idx}});
+        self.template enqueue<alignment>(QueuedField{alignment.byte_size() * count, SimpleField{map_idx, alignment}});
     }
 
     void next_simple (
@@ -240,52 +380,6 @@ public:
     }
 
     template <lexer::SIZE alignment, bool array_mode>
-    [[nodiscard]] estd::integral_range<uint16_t> move_to_tmp_awdawd (
-        const estd::integral_range<uint16_t> fixed_offset_idxs
-    ) const {
-        const std::span<FixedOffset>& fixed_offsets = const_state.shared().fixed_offsets;
-        const std::span<FixedOffset>& tmp_fixed_offsets = const_state.shared().tmp_fixed_offsets;
-
-        const uint16_t fixed_offset_idxs_count = fixed_offset_idxs.size();
-        const uint16_t tmp_fixed_offset_idx_begin = mutable_state.level().tmp_fixed_offset_idx;
-        const uint16_t tmp_fixed_offset_idx_end = tmp_fixed_offset_idx_begin + fixed_offset_idxs_count;
-        mutable_state.level().tmp_fixed_offset_idx = tmp_fixed_offset_idx_end;
-
-
-        const estd::integral_range tmp_fixed_offset_idxs {
-            tmp_fixed_offset_idx_begin,
-            tmp_fixed_offset_idx_end
-        };
-
-        for (const uint16_t idx : tmp_fixed_offset_idxs) {
-            BSSERT(tmp_fixed_offsets[idx] == FixedOffset::empty(), idx);
-        }
-
-        console.debug("tmp_fixed_offsets[", *tmp_fixed_offset_idxs.begin(), " .. ", *tmp_fixed_offset_idxs.end(), "] = FixedOffset{?} alignment: ", alignment, " (tt)");
-
-        std::copy(
-            fixed_offsets.data() + *fixed_offset_idxs.begin(),
-            fixed_offsets.data() + *fixed_offset_idxs.end(),
-            tmp_fixed_offsets.data() + *tmp_fixed_offset_idxs.begin()
-        );
-
-        for (const uint16_t idx : fixed_offset_idxs) {
-            fixed_offsets[idx] = FixedOffset::empty();
-        }
-
-        for (const uint16_t idx : tmp_fixed_offset_idxs) {
-            if constexpr (array_mode) {
-                BSSERT(tmp_fixed_offsets[idx].get_pack_align() <= alignment);
-            } else {
-                BSSERT(tmp_fixed_offsets[idx].get_pack_align() == alignment);
-            }
-            
-        }
-
-        return tmp_fixed_offset_idxs;
-    }
-
-    template <lexer::SIZE alignment, bool array_mode>
     [[nodiscard]] estd::integral_range<uint16_t> move_to_tmp (
         const estd::integral_range<uint16_t> fixed_offset_idxs
     ) const {
@@ -295,24 +389,23 @@ public:
         };
         mutable_state.level().tmp_fixed_offset_idx = *tmp_fixed_offset_idxs.end();
 
-        const std::ranges::subrange target_tmp_fixed_offsets {
-            const_state.shared().tmp_fixed_offsets.begin() + *tmp_fixed_offset_idxs.begin(),
-            const_state.shared().tmp_fixed_offsets.begin() + *tmp_fixed_offset_idxs.end(),
-        };
+        const std::ranges::subrange target_tmp_fixed_offsets = tmp_fixed_offset_idxs.access_subrange(const_state.shared().tmp_fixed_offsets);
 
-        console.debug("tmp_fixed_offsets[", *tmp_fixed_offset_idxs.begin(), " .. ", *tmp_fixed_offset_idxs.end(), "] = FixedOffset{?} alignment: ", alignment, " (tt)");
+        console.debug("tmp_fixed_offsets[", *tmp_fixed_offset_idxs.begin(), " .. ", *tmp_fixed_offset_idxs.end(), "] = fixed_offsets[", *fixed_offset_idxs.begin(), " .. ", *fixed_offset_idxs.end(), "] alignment: ", alignment, " (tt)");
 
         for (const uint16_t idx : tmp_fixed_offset_idxs) {
             BSSERT(const_state.shared().tmp_fixed_offsets[idx] == FixedOffset::empty(), idx);
         }
 
-        std::swap_ranges(
-            const_state.shared().fixed_offsets.begin() + *fixed_offset_idxs.begin(),
-            const_state.shared().fixed_offsets.begin() + *fixed_offset_idxs.end(),
-            target_tmp_fixed_offsets.begin()
+        std::ranges::swap_ranges(
+            fixed_offset_idxs.access_subrange(const_state.shared().fixed_offsets),
+            target_tmp_fixed_offsets
         );
 
         for (const FixedOffset& fo : target_tmp_fixed_offsets) {
+            // if (fo.get_pack_align() > alignment) {
+            //     console.warn("Detected possible downgrade of field: ", fo.get_pack_align(), " to ", alignment, " (tt)");
+            // }
             if constexpr (array_mode) {
                 BSSERT(fo.get_pack_align() <= alignment);
             } else {
@@ -350,9 +443,14 @@ public:
         this const auto& self,
         const QueuedField field
     ) {
-        self.mutable_state.level().queued.increment_sum(field.size);
-        self.mutable_state.level().queued.fields.emplace_back(field);
-        self.template try_solve_queued<alignment>();
+        if constexpr (alignment == lexer::SIZE::MAX) {
+            self.template enqueue_for_level_<alignment, false>(field);
+            self.template decrement_left_fields<alignment>();
+        } else {
+            self.mutable_state.level().queued.increment_sum(field.size);
+            self.mutable_state.level().queued.fields.emplace_back(field);
+            self.template try_solve_queued<alignment>();
+        }
     }
 
     template <lexer::SIZE alignment>
@@ -370,6 +468,7 @@ public:
         ALLOCA_UNSAFE_SPAN(bitset_words, dp_bitset_base::word_t, bitset_words_count)
         dp_bitset_base::init_bits(bitset_words.data(), bitset_words_count);
         for (const auto& e : mutable_state.level().queued.fields) {
+            BSSERT(e.size != 0);
             dp_bitset_base::apply_num_unsafe(math::mod1(e.size, lexer::SIZE::MAX.byte_size()), bitset_words.data(), bitset_words_count);
         }
         uint64_t target = lexer::last_multiple(modulated_queued_sum, target_align);
@@ -382,10 +481,9 @@ public:
         }
     }
 
-    template <lexer::SIZE target_align>
-    void enqueueing_for_level (const uint16_t idx) const {
+    template <lexer::SIZE target_align, bool set_field_size_zero>
+    void enqueue_for_level_ (estd::conditional_const_t<!set_field_size_zero, QueuedField>& field) const {
         MutableStateBase::TrivialLevel& level_mutable_state = mutable_state.level();
-        QueuedField& field = level_mutable_state.queued.fields[idx];
         std::visit([this, &level_mutable_state]<typename T>(const T& arg) {
             const ConstStateBase::Shared& shared_const_state = const_state.shared();
             if constexpr (std::is_same_v<SimpleField, T>) {
@@ -418,6 +516,9 @@ public:
                 for (const uint16_t idx : tmp_fixed_offset_idxs) {
                     FixedOffset& tmp = shared_const_state.tmp_fixed_offsets[idx];
                     CSSERT(tmp.pack_align, <=, target_align, "Cant downgrade alignment");
+                    // if (tmp.pack_align > target_align) {
+                    //     console.warn("Detected possible downgrade of field: ", tmp.pack_align, " to ", target_align, " (sq)");
+                    // }
                     const uint16_t map_idx = tmp.map_idx;
                     const uint16_t fixed_offset_idx = level_mutable_state.next_fixed_offset_idx();
                     const FixedOffset fo {tmp.offset + level_mutable_state.current_offset, map_idx, tmp.pack_align};
@@ -433,57 +534,25 @@ public:
                     }
                     tmp = FixedOffset::empty();
                 }
-            } else if constexpr (std::is_same_v<SkippedField, T>) {
-                std::unreachable();
             } else {
                 static_assert(false);
             }
         }, field.info);
-        level_mutable_state.current_offset += field.size;
         BSSERT(field.size != 0);
-        field.size = 0; // Mark for deletion from queue
+        level_mutable_state.current_offset += field.size;
+        // TODO: Maybe implement this functionality without this NTTP
+        if constexpr (set_field_size_zero) {
+            // Mark for deletion from queue.
+            field.size = 0;
+        }
     }
 
     template <lexer::SIZE target_align>
-    void enqueueing_for_level (const std::vector<uint16_t>& idxs) const {
-        for (const uint16_t idx : idxs) {
-            enqueueing_for_level<target_align>(idx);    
-        }
+    void enqueue_for_level (const uint16_t idx) const {
+        MutableStateBase::TrivialLevel& level_mutable_state = mutable_state.level();
+        enqueue_for_level_<target_align, true>(level_mutable_state.queued.fields[idx]);
     }
 
-    template <lexer::SIZE to_align, lexer::SIZE max_align, typename... T>
-    void add_to_align (const uint16_t i, Fields<max_align>& fields, AlignedFields& first, T&... rest) const {
-        if constexpr (to_align == max_align) {
-            enqueueing_for_level<max_align>(first.idxs);
-            (enqueueing_for_level<max_align>(rest.idxs), ...);
-            enqueueing_for_level<max_align>(i);
-        } else {
-            AlignedFields& target = fields.template get<to_align>();
-            if (target.size_sum == 0) {
-                BSSERT(target.idxs.size() == 0);
-                if constexpr (sizeof...(T) > 0) {
-                    estd::move_append(first.idxs, 1, rest.idxs...);
-                    first.size_sum += (rest.size_sum + ...);
-                    ((rest.size_sum = 0), ...);
-                }
-                first.idxs.emplace_back(i);
-                std::swap(target.idxs, first.idxs);
-                std::swap(target.size_sum, first.size_sum);
-            } else {
-                BSSERT(target.idxs.size() != 0);
-                if constexpr (to_align == max_align) {
-                    static_assert(false);
-                    estd::move_append(target.idxs, 0, first.idxs, rest.idxs..., i);
-                    target.size_sum += (first.size_sum + (0 + ... + rest.size_sum));
-                    first.size_sum = 0;
-                    ((rest.size_sum = 0), ...);
-                } else {
-                    // NOLINTNEXTLINE(readability-suspicious-call-argument)
-                    add_to_align<lexer::next_bigger_size<to_align>>(i, fields, target, first, rest...);
-                }
-            }
-        }
-    };
 
     template<lexer::SIZE target_align>
     requires (target_align != lexer::SIZE::SIZE_0)
@@ -501,99 +570,15 @@ public:
 
         uint64_t chain_idx = target;
         do {
-            const uint16_t link = sum_chains[chain_idx];
-            QueuedField& field = level_mutable_state.queued.fields[link];
+            const uint16_t field_idx = sum_chains[chain_idx];
+            QueuedField& field = level_mutable_state.queued.fields[field_idx];
             const uint64_t field_size = field.size;
+            console.debug("used field: ", field_size, " target align: ", target_align);
+            add_field(*this, field_idx, fields, field_size);
             const auto modulated_field_size = math::mod1(field_size, lexer::SIZE::MAX.byte_size());
             level_mutable_state.queued.field_size_sum -= field_size;
             level_mutable_state.queued.modulated_field_size_sum -= modulated_field_size;
             chain_idx -= modulated_field_size;
-            console.debug("used field: ", field_size, " target align: ", target_align);
-            if constexpr (target_align >= lexer::SIZE::SIZE_8) {
-                if (field_size % 8 == 0) {
-                    if constexpr (target_align == lexer::SIZE::SIZE_8) {
-                        enqueueing_for_level<target_align>(link);
-                    } else {
-                        fields.align8.size_sum += field_size;
-                        fields.align8.idxs.emplace_back(link);
-                    }
-                    continue;
-                }
-            }
-            if constexpr (target_align >= lexer::SIZE::SIZE_4) {
-                if (field_size % 4 == 0) {
-                    if constexpr (target_align == lexer::SIZE::SIZE_4) {
-                        enqueueing_for_level<target_align>(link);
-                    } else {
-                        fields.align4.size_sum += field_size;
-                        if constexpr (target_align >= lexer::SIZE::SIZE_8) {
-                            if (fields.align4.size_sum % 8 == 0) {
-                                BSSERT(fields.align4.idxs.size() != 0);
-                                add_to_align<lexer::SIZE::SIZE_8>(link, fields, fields.align4);
-                                continue;
-                            }
-                        }
-                        BSSERT(fields.align4.idxs.size() == 0);
-                        fields.align4.idxs.emplace_back(link);
-                        continue;
-                    }
-                }
-            }
-            if constexpr (target_align >= lexer::SIZE::SIZE_2) {
-                if (field_size % 2 == 0) {
-                    if constexpr (target_align == lexer::SIZE::SIZE_2) {
-                        enqueueing_for_level<target_align>(link);
-                    } else {
-                        fields.align2.size_sum += field_size;
-                        if constexpr (target_align >= lexer::SIZE::SIZE_8) {
-                            if (fields.align2.size_sum % 8 == 0) {
-                                /*
-                                In this case we could apply the field directly.
-                                But better would be to check if we can split off a align4 part of the combination.
-                                But i dont think that should ever be the case since the (new_size_sum % 4) branch should have caught that combintion ??!
-                                Im not really sure. The align4 subset combination is not caught if the change bubbles up into here and adds a align4 combination as a whole,
-                                which should not really happen.
-                                */
-                                add_to_align<lexer::SIZE::SIZE_8>(link, fields, fields.align2);
-                                continue;
-                            }
-                        }
-                        if constexpr (target_align >= lexer::SIZE::SIZE_4) {
-                            if (fields.align2.size_sum % 4 == 0) {
-                                add_to_align<lexer::SIZE::SIZE_4>(link, fields, fields.align2);
-                                continue;
-                            }
-                        }
-                        BSSERT(fields.align2.size_sum % 2 == 0);
-                        fields.align2.idxs.emplace_back(link);
-                        continue;
-                    }
-                }
-            }
-            if constexpr (target_align == lexer::SIZE::SIZE_1) {
-                enqueueing_for_level<target_align>(link);
-            } else {
-                fields.align1.size_sum += field_size;
-                if constexpr (target_align >= lexer::SIZE::SIZE_8) {
-                    if (fields.align1.size_sum % 8 == 0) {
-                        add_to_align<lexer::SIZE::SIZE_8>(link, fields, fields.align1);
-                        continue;
-                    }
-                }
-                if constexpr (target_align >= lexer::SIZE::SIZE_4) {
-                    if (fields.align1.size_sum % 4 == 0) {
-                        add_to_align<lexer::SIZE::SIZE_4>(link, fields, fields.align1);
-                        continue;
-                    }
-                }
-                if constexpr (target_align >= lexer::SIZE::SIZE_2) {
-                    if (fields.align1.size_sum % 2 == 0) {
-                        add_to_align<lexer::SIZE::SIZE_2>(link, fields, fields.align1);
-                        continue;
-                    } 
-                }
-                fields.align1.idxs.emplace_back(link);
-            }
         } while (chain_idx > 0);
 
         console.log("enqueueing for level: ", NAMEOF_ENUM(state_type), ", target align: ", target_align);
@@ -688,12 +673,17 @@ struct TopLevel {
         }
 
         template <lexer::SIZE alignment>
-        void try_solve_queued () const {
-            const lexer::SIZE largest_align = mutable_state.level().left_fields.largest_align();
+        void decrement_left_fields () const {
             uint16_t& c = mutable_state.level().left_fields.get<alignment>();
-            console.debug("[TopLevel::try_solve_queued] alignment: ", alignment, ", left_fields: ", mutable_state.level().left_fields);
             BSSERT(c != 0);
             c--;
+        }
+
+        template <lexer::SIZE alignment>
+        void try_solve_queued () const {
+            const lexer::SIZE largest_align = mutable_state.level().left_fields.largest_align();
+            console.debug("[TopLevel::try_solve_queued] alignment: ", alignment, ", left_fields: ", mutable_state.level().left_fields);
+            decrement_left_fields<alignment>();
             console.debug("[TopLevel::try_solve_queued] largest_align: ", largest_align);
             try_solve_queued_for_align(largest_align);
         }
@@ -766,7 +756,11 @@ struct FixedArrayLevel {
         void skip () const {}
 
         template <lexer::SIZE>
+        consteval void decrement_left_fields () const {}
+
+        template <lexer::SIZE>
         void try_solve_queued () const {
+            console.debug("[FixedArrayLevel::try_solve_queued]");
             try_solve_queued_for_align<lexer::SIZE::SIZE_8>();
         }
     };
@@ -798,7 +792,9 @@ struct FixedVariantLevel {
 
     struct MutableState : MutableStateBase {
         struct Level {
-            lexer::LeafCounts::Counts queue_positions;
+            lexer::LeafSizes used_spaces;
+            lexer::LeafCounts::Counts non_zero_fields_counts;
+            uint16_t queue_position;
             uint16_t tmp_fixed_offset_idx;
         };
 
@@ -825,17 +821,16 @@ struct FixedVariantLevel {
         }
 
         template <lexer::SIZE alignment>
-        void skip () const {
-            const uint16_t idx = mutable_state.level().queue_positions.get<alignment>()++;
-            const_state.level().queued[idx] = QueuedField{0, SkippedField{}};
-        }
+        void skip () const {}
 
         template <lexer::SIZE alignment>
         void enqueue (const QueuedField field) const {
-            console.debug("[FixedVariantLevel::enqueue] alignment: ", alignment.value);
-            const uint16_t idx = mutable_state.level().queue_positions.get<alignment>()++;
+            console.debug("[FixedVariantLevel::enqueue] alignment: ", alignment);
+            const uint16_t idx = mutable_state.level().queue_position++;
             CSSERT(idx, <, const_state.level().queued.size());
             const_state.level().queued[idx] = field;
+            mutable_state.level().used_spaces.get<alignment>() += field.size;
+            mutable_state.level().non_zero_fields_counts.get<alignment>()++;
         }
     };
 };

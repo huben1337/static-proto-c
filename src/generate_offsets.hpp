@@ -13,6 +13,7 @@
 #include <type_traits>
 #include <utility>
 #include <variant>
+#include <vector>
 
 #include "./parser/lexer_types.hpp"
 #include "./estd/ranges.hpp"
@@ -21,6 +22,7 @@
 #include "./helper/internal_error.hpp"
 #include "./helper/alloca.hpp"
 #include "./variant_optimizer/perfect_st.hpp"
+#include "estd/empty.hpp"
 #include "estd/utility.hpp"
 #include "subset_sum_solving/subset_sum_perfect.hpp"
 #include "util/string_literal.hpp"
@@ -29,31 +31,6 @@
 
 
 namespace generate_offsets {
-
-template <lexer::SIZE size>
-requires (size != lexer::SIZE::SIZE_0)
-constexpr void set_ez_perfect_layout (VariantField& variant_field, VariantField::Range range) {
-    if constexpr (size == lexer::SIZE::SIZE_8) {
-        variant_field.align8 = range;
-    } else {
-        variant_field.align8 = VariantField::Range::empty();
-    }
-    if constexpr (size == lexer::SIZE::SIZE_4) {
-        variant_field.align4 = range;
-    } else {
-        variant_field.align4 = VariantField::Range::empty();
-    }
-    if constexpr (size == lexer::SIZE::SIZE_2) {
-        variant_field.align2 = range;
-    } else {
-        variant_field.align2 = VariantField::Range::empty();
-    }
-    if constexpr (size == lexer::SIZE::SIZE_1) {
-        variant_field.align1 = range;
-    } else {
-        variant_field.align1 = VariantField::Range::empty();
-    }
-}
 
 [[nodiscard]] constexpr lexer::LeafCounts::Counts create_positions (const lexer::LeafCounts::Counts& counts, uint16_t offset = 0) {
     return {
@@ -231,7 +208,8 @@ struct TypeVisitor {
                     // We could template this with something like: bool had_fields. Then we could simply disallow 0 layout offset when we have already had fields.
                     BSSERT(layout.get<lexer::next_bigger_size<alignment>>() == 0, "Non perfect variant layouts disabled for now!");
                 }
-                state.template next_variant_pack<alignment>(0, {0, 0});
+                // state.template next_variant_pack<alignment>(0, {0, 0});
+                packs.get<alignment>() = {0, {0, 0}};
                 return apply_layout<lexer::next_smaller_size<alignment>>(
                     queued_fields_buffer,
                     layout,
@@ -242,6 +220,9 @@ struct TypeVisitor {
                 );
             }
         }
+
+        const std::span<FixedOffset>& fixed_offsets = state.const_state.shared().fixed_offsets;
+        const std::span<FixedOffset>& tmp_fixed_offsets = state.const_state.shared().tmp_fixed_offsets;
         
         // const uint16_t ordered_idx_begin = ordered_idx;
         console.debug("[apply_layout] alignemnt: ", alignment.byte_size());
@@ -251,101 +232,114 @@ struct TypeVisitor {
         for (VariantLeafMeta& meta : std::ranges::subrange{
             variant_leaf_metas,
             variant_leaf_metas + variant_count
-        }) {
+        }) {            
+            uint64_t required = 0;
             uint64_t offset = 0;
 
-            const std::span<FixedOffset>& fixed_offsets = state.const_state.shared().fixed_offsets;
-            const std::span<FixedOffset>& tmp_fixed_offsets = state.const_state.shared().tmp_fixed_offsets;
-            
-            uint64_t required = 0;
-          
-            const uint16_t copied_begin = meta.fields_begin_idx<alignment>();
-            BSSERT(copied_begin <= queued_fields_buffer.size());
-            const uint16_t copied_end = meta.fields_end_idx<alignment>();
-            CSSERT(copied_end, <=, queued_fields_buffer.size());
-            console.debug(" copied_begin: ", copied_begin, ", copied_end: ", copied_end);
-            // console.debug("[apply_layout] alignemnt: ", alignment.byte_size(), " i: ", i, " start: ", size_t(it_start), " end: ", size_t(it_end), " copied: ", meta.fixed_leaf_ends.align4);
-            for (QueuedField& field : std::ranges::subrange{
-                queued_fields_buffer.begin() + copied_begin,
-                queued_fields_buffer.begin() + copied_end
-            }) {
+            std::conditional_t<alignment != lexer::SIZE::SIZE_1, 
+                std::vector<std::pair<uint16_t, uint64_t>>,
+                estd::empty> pre_selected;
+
+            // TODO: Do this with stack allocation only
+            if constexpr (alignment != lexer::SIZE::SIZE_1) {
+                pre_selected.reserve(meta.left_fields.get<alignment>());
+            }
+
+            for (const uint16_t& field_idx : meta.field_idxs) {
+                // console.debug("pre select checking field at: ", field_idx);
+                QueuedField& field = queued_fields_buffer[field_idx];
                 BSSERT(field.size != ~uint64_t{0});
                 if constexpr (alignment != lexer::SIZE::SIZE_8) {
                     if (field.size == 0) continue;
+                } else {
+                    BSSERT(field.size != 0);
                 }
-                if (field.size == 0) continue;
-                std::visit([&fixed_offset_idx, &offset, &fixed_offsets, &tmp_fixed_offsets]<typename T>(T& arg) {
-                    if constexpr (std::is_same_v<SimpleField, T>) {
-                        const FixedOffset fo {offset, arg.map_idx, alignment};
-                        console.debug("(al) fixed_offsets[", fixed_offset_idx, "] = ", fo);
-                        FixedOffset& out = fixed_offsets[fixed_offset_idx];
-                        BSSERT(out == FixedOffset::empty(), fixed_offset_idx);
-                        out = fo;
-                        fixed_offset_idx++;
-                    } else if constexpr (std::is_same_v<ArrayFieldPack, T> || std::is_same_v<VariantFieldPack, T>) {
-                        const estd::integral_range<uint16_t>& tmp_fixed_offset_idxs = arg.tmp_fixed_offset_idxs;
-                        console.debug("tmp_fixed_offsets[", *tmp_fixed_offset_idxs.begin(), " .. ", *tmp_fixed_offset_idxs.end(), "] = FixedOffset::empty() (al)");
-                        for (const uint16_t tmp_idx : tmp_fixed_offset_idxs) {
-                            FixedOffset& tmp = tmp_fixed_offsets[tmp_idx];
-                            const FixedOffset fo {tmp.offset + offset, tmp.map_idx, tmp.pack_align};
-                            console.debug("(al) fixed_offsets[", fixed_offset_idx, "] = ", fo);
-                            FixedOffset& out = fixed_offsets[fixed_offset_idx];
-                            BSSERT(out == FixedOffset::empty(), fixed_offset_idx);
-                            out = fo;
-                            tmp = FixedOffset::empty();
-                            fixed_offset_idx++;
-                        }
-                    } else if constexpr (std::is_same_v<SkippedField, T>) {
-                        // noop
+                const bool not_target_alignment = std::visit([]<typename T>(T& arg) -> bool {
+                    if constexpr (
+                           std::is_same_v<SimpleField, T>
+                        || std::is_same_v<VariantFieldPack, T>
+                        || std::is_same_v<ArrayFieldPack, T>
+                    ) {
+                        return arg.get_alignment() != alignment;
                     } else {
                         static_assert(false);
                     }
                 }, field.info);
-                offset += field.size;
+                if (not_target_alignment) continue;
+                console.debug("pre selected field with size: ", field.size, " from idx: ", field_idx);
                 required += field.size;
-                // For assertion
-                field.size = ~uint64_t{0};
+                if constexpr (alignment != lexer::SIZE::SIZE_1) {
+                    pre_selected.emplace_back(field_idx, field.size);
+                    // Mark as tracked
+                    field.size = 0;
+                } else {
+                    // Field gets marked as tracked in this called function. But that doesnt really matter since we are done after applying the layout for alignment 1
+                    std::tie(fixed_offset_idx, offset) = subset_sum_perfect::apply_field<alignment>(
+                        field,
+                        offset,
+                        fixed_offset_idx,
+                        fixed_offsets,
+                        tmp_fixed_offsets
+                    );
+                }
+                // TODO: We do not need to track this for alinemnt 1.
+                meta.left_fields.get<alignment>()--;
             }
+            BSSERT(meta.left_fields.get<alignment>() == 0);
             // console.debug("[apply_layout] alignemnt: ", alignment.byte_size(), " i: ", i);
             const uint64_t layout_space = layout.get_space<alignment>();
             
             BSSERT(layout_space >= required, "The layout doesn't fulfill space requirements for "_sl + string_literal::from<alignment.byte_size()> + " byte aligned section of Variant "_sl, layout_space, " >= ", required);
-            
-            if constexpr (alignment != lexer::SIZE::SIZE_1) {
-                // if (copied_end == meta.ends.align1) goto skip;
 
+            if constexpr (alignment != lexer::SIZE::SIZE_1) {
                 const auto used_space = meta.used_spaces.get<alignment>();
-                if (layout_space > used_space) {
-                    const uint64_t required_space = meta.required_space - offset;
-                    console.debug("required_space: ", required_space, ", layout_space: ", layout_space, ", used_space: ", used_space, ", required: ", required);
-                    const uint64_t target = std::min<uint64_t>(layout_space - used_space, required_space);
-                    if (target != 0) {
-                        std::tie(fixed_offset_idx, offset) = subset_sum_perfect::solve<alignment>(
-                            target,
-                            queued_fields_buffer,
-                            meta,
-                            copied_end,
+                console.debug("meta.required_space: ", meta.required_space, ", layout_space: ", layout_space, ", used_space: ", used_space, ", required: ", required);
+                const uint64_t target = std::min<uint64_t>(layout_space - required, meta.required_space - required);
+                console.debug("meta.left_fields: ", meta.left_fields);
+                const lexer::SIZE largest_align = meta.left_fields.largest_align<alignment.next_smaller()>();
+                // CSSERT(meta.left_fields.largest_align(), ==, largest_align); // Asserts that we count left fields perfectly
+                CSSERT(largest_align, <, alignment); // Sanity check
+
+                if ((largest_align < alignment.next_smaller())) {
+                    console.debug("largest align checks are not useless");
+                }
+
+                if (target != 0) {
+                    std::tie(fixed_offset_idx, offset) = subset_sum_perfect::solve(
+                        target,
+                        largest_align,
+                        {
+                            offset,
+                            fixed_offset_idx,
                             fixed_offsets,
                             tmp_fixed_offsets,
-                            state.const_state.shared().idx_map,
-                            fixed_offset_idx,
-                            offset
-                        );
-                    }
+                            queued_fields_buffer
+                        },
+                        meta,
+                        pre_selected
+                    );
+                    // console.debug("target != 0  ", fixed_offset_idx, " ", offset);
+                } else {
+                    std::tie(fixed_offset_idx, offset) = subset_sum_perfect::apply_pre_selected<alignment>(
+                        pre_selected,
+                        offset,
+                        fixed_offset_idx,
+                        fixed_offsets,
+                        tmp_fixed_offsets,
+                        queued_fields_buffer
+                    );
                 }
+
             }
 
-            // skip:
             meta.required_space -= offset;
             max_offset = std::max(offset, max_offset);
         }
-        // pack_sizes.get<alignment>() = max_offset;
 
         // state.template next_variant_pack<alignment>(max_offset, {fixed_offset_idx_begin, fixed_offset_idx});
         packs.get<alignment>() = {max_offset, {fixed_offset_idx_begin, fixed_offset_idx}};
 
         if constexpr (alignment == lexer::SIZE::SIZE_1) {
-            // return ordered_idx;
             state.template next_variant_pack<lexer::SIZE::SIZE_8>(packs.get<lexer::SIZE::SIZE_8>());
             state.template next_variant_pack<lexer::SIZE::SIZE_4>(packs.get<lexer::SIZE::SIZE_4>());
             state.template next_variant_pack<lexer::SIZE::SIZE_2>(packs.get<lexer::SIZE::SIZE_2>());
@@ -410,16 +404,17 @@ struct TypeVisitor {
             const auto field_count_total = field_counts.total();
 
             const uint16_t queued_fields_start = queued_fields_base;
-            queued_fields_base += field_count_total;
 
             FixedVariantLevel::MutableState::Level level_mutable_state {
-                create_positions(field_counts, queued_fields_start),
+                lexer::LeafSizes::zero(),
+                lexer::LeafCounts::Counts::zero(),
+                queued_fields_start,
                 tmp_fixed_offset_idx_base
             };
 
             console.debug("variant fixed leafs: ", type_meta.level_fixed_leafs.counts());
             console.debug("variant fields: ", field_counts);
-            console.debug("Queued positions: ", level_mutable_state.queue_positions , " total: ", field_count_total);
+            console.debug("Queued position: ", level_mutable_state.queue_position , " total: ", field_count_total);
 
             type = type->visit(TypeVisitor<lexer::Type, FixedVariantLevel::State, in_array, in_fixed_size>{
                 FixedVariantLevel::State{
@@ -440,33 +435,16 @@ struct TypeVisitor {
 
             tmp_fixed_offset_idx_base = level_mutable_state.tmp_fixed_offset_idx;
 
-            console.debug("Queued positions after: ", level_mutable_state.queue_positions);
-            const lexer::LeafCounts::Counts& queued_end_positions = level_mutable_state.queue_positions; // this was advanced in TypeVisitor so now its the end
+            console.debug("Queued position after: ", level_mutable_state.queue_position);
+            queued_fields_base = level_mutable_state.queue_position;
             
-            lexer::LeafSizes used_spaces = lexer::LeafSizes::zero();
-            {
-                QueuedField* it = queued_fields_buffer.data() + queued_fields_start;
-                QueuedField* end = queued_fields_buffer.data() + queued_end_positions.align8;
-                BSSERT(end - it == field_counts.align8);
-                for (; it != end; it++) { used_spaces.align8 += it->size; }
-                end = queued_fields_buffer.data() + queued_end_positions.align4;
-                BSSERT(end - it == field_counts.align4);
-                for (; it != end; it++) { used_spaces.align4 += it->size; }
-                end = queued_fields_buffer.data() + queued_end_positions.align2;
-                BSSERT(end - it == field_counts.align2);
-                for (; it != end; it++) { used_spaces.align2 += it->size; }
-                end = queued_fields_buffer.data() + queued_end_positions.align1;
-                BSSERT(end - it == field_counts.align1);
-                for (; it != end; it++) { used_spaces.align1 += it->size; }
-            }
-
-            uint64_t used_space = used_spaces.total();
+            const uint64_t used_space = level_mutable_state.used_spaces.total();
 
             variant_leaf_metas[i] = {
-                queued_fields_start,
-                queued_end_positions,
+                level_mutable_state.used_spaces,
                 used_space,
-                used_spaces
+                level_mutable_state.non_zero_fields_counts,
+                {queued_fields_start, queued_fields_base}
             };
             
             max_used_space = std::max(used_space, max_used_space);
@@ -475,7 +453,7 @@ struct TypeVisitor {
         std::sort(variant_leaf_metas, variant_leaf_metas + variant_count, [](const VariantLeafMeta& a, const VariantLeafMeta& b) {
             return a.required_space > b.required_space;
         });
-        console.debug("max_used_space", max_used_space);
+        console.debug("max_used_space: ", max_used_space);
         BSSERT(variant_leaf_metas[0].required_space == max_used_space, "Sorting of variants' leaf metadata invalid")
           
         // try perferect layout
