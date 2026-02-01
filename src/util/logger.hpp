@@ -587,12 +587,13 @@ public:
 
 namespace logger_detail {
     template <typename ParamsT>
-    class writer : estd::unique_only {
+    class writer {
     public:
         friend class ::logger;
     private:
         static constexpr bool outer_is_first = ParamsT::outer_is_first;
         static constexpr bool outer_is_last = ParamsT::outer_is_last;
+        // NOLINTNEXTLINE(cppcoreguidelines-avoid-const-or-ref-data-members)
         logger& target;
 
         [[gnu::always_inline]] constexpr explicit writer (logger& target) : target(target) {}
@@ -621,7 +622,7 @@ template <StringLiteral auto_msg, typename... ArgsT>
     } else {
         console.error<false, auto_msg>();
     }
-    std::exit(1);
+    __builtin_trap();
 }
 
 #define BSSERT(EXPR, ...)                                                                                   \
@@ -653,7 +654,7 @@ template<StringLiteral auto_msg, StringLiteral op, typename T, typename U, typen
             console.log<true, false, rhs_type_name + "{?}`\n"_sl>();
         }
     }
-    std::exit(1);
+    __builtin_trap();
 }
 
 #define CSSERT(LHS, OP, RHS, ...)                                                                                                                              \
