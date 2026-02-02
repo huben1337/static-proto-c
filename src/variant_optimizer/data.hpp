@@ -9,40 +9,6 @@
 #include "../estd/ranges.hpp"
 #include "../estd/integral_pair.hpp"
 
-struct FixedLeaf : private estd::u48_u16_pair {
-    FixedLeaf () = default;
-
-    constexpr explicit FixedLeaf (uint64_t data)
-    : u48_u16_pair(data)
-    {}
-
-    constexpr FixedLeaf (uint64_t size, uint16_t map_idx)
-    : u48_u16_pair(size, map_idx)
-    {}
-
-    [[nodiscard]] constexpr uint16_t get_map_idx () const { return get_u16(); }
-
-    constexpr void set_map_idx (uint16_t value) { set_u16(value); }
-
-    [[nodiscard]] constexpr uint64_t get_size () const { return get_u48(); }
-
-    constexpr void set_size (uint64_t value) { set_u48(value); }
-
-    constexpr void increment_size_unsafe (uint64_t value) { data += value; };
-
-    [[nodiscard]] constexpr bool operator == (const FixedLeaf& other) const {
-        return data == other.data;
-    }
-
-    constexpr void set_zero () {
-        data = 0;
-    }
-
-    [[nodiscard]] constexpr bool is_zero () const {
-        return data == 0;
-    }
-};
-
 struct FixedOffset {
     FixedOffset () = default;
 
@@ -172,4 +138,8 @@ struct QueuedField {
     constexpr QueuedField () = default;
 
     constexpr QueuedField (uint64_t size, info_t info) : size(size), info(info) {}
+};
+
+struct PendingVariantFieldPacks : lexer::AlignMembersBase<std::pair<uint64_t, estd::integral_range<uint16_t>>, lexer::SIZE::SIZE_8, PendingVariantFieldPacks> {
+    using AlignMembersBase::AlignMembersBase;
 };
