@@ -190,173 +190,6 @@ struct TypeVisitor {
         } */
     }
 
-    template <lexer::SIZE alignment>
-    void apply_layout (
-        const std::span<QueuedField> queued_fields_buffer,
-        const variant_layout::Layout& layout,
-        const uint16_t variant_count,
-        VariantLeafMeta* const variant_leaf_metas,
-        const uint16_t fixed_offset_idx_begin,
-        lexer::AlignMembersBase<std::pair<uint64_t, estd::integral_range<uint16_t>>> packs
-    ) const {
-        if constexpr (alignment == lexer::SIZE::SIZE_1) {
-            BSSERT(layout.align1 != 0, "This should not happen. layout for alignemnt 1 is always defined as long as higher alignments are defined");
-        } else {
-            // TODO: This doesnt't respect variants where some algiments simply are not present.
-            if (layout.get<alignment>() == 0) {
-                if constexpr (alignment != lexer::SIZE::SIZE_8) {
-                    // We could template this with something like: bool had_fields. Then we could simply disallow 0 layout offset when we have already had fields.
-                    BSSERT(layout.get<lexer::next_bigger_size<alignment>>() == 0, "Non perfect variant layouts disabled for now!");
-                }
-                // state.template next_variant_pack<alignment>(0, {0, 0});
-                packs.get<alignment>() = {0, {0, 0}};
-                return apply_layout<lexer::next_smaller_size<alignment>>(
-                    queued_fields_buffer,
-                    layout,
-                    variant_count,
-                    variant_leaf_metas,
-                    fixed_offset_idx_begin,
-                    packs
-                );
-            }
-        }
-
-        const std::span<FixedOffset>& fixed_offsets = state.const_state.shared().fixed_offsets;
-        const std::span<FixedOffset>& tmp_fixed_offsets = state.const_state.shared().tmp_fixed_offsets;
-        
-        // const uint16_t ordered_idx_begin = ordered_idx;
-        console.debug("[apply_layout] alignemnt: ", alignment.byte_size());
-        //const uint16_t fixed_offset_idx_begin = state.get_fixed_offset_idx();
-        uint16_t fixed_offset_idx = fixed_offset_idx_begin;
-        uint64_t max_offset = 0;
-        for (VariantLeafMeta& meta : std::ranges::subrange{
-            variant_leaf_metas,
-            variant_leaf_metas + variant_count
-        }) {            
-            uint64_t required = 0;
-            uint64_t offset = 0;
-
-            std::conditional_t<alignment != lexer::SIZE::SIZE_1, 
-                std::vector<std::pair<uint16_t, uint64_t>>,
-                estd::empty> pre_selected;
-
-            // TODO: Do this with stack allocation only
-            if constexpr (alignment != lexer::SIZE::SIZE_1) {
-                pre_selected.reserve(meta.left_fields.get<alignment>());
-            }
-
-            for (const uint16_t& field_idx : meta.field_idxs) {
-                // console.debug("pre select checking field at: ", field_idx);
-                QueuedField& field = queued_fields_buffer[field_idx];
-                BSSERT(field.size != ~uint64_t{0});
-                if constexpr (alignment != lexer::SIZE::SIZE_8) {
-                    if (field.size == 0) continue;
-                } else {
-                    BSSERT(field.size != 0);
-                }
-                const bool not_target_alignment = std::visit([]<typename T>(T& arg) -> bool {
-                    if constexpr (
-                           std::is_same_v<SimpleField, T>
-                        || std::is_same_v<VariantFieldPack, T>
-                        || std::is_same_v<ArrayFieldPack, T>
-                    ) {
-                        return arg.get_alignment() != alignment;
-                    } else {
-                        static_assert(false);
-                    }
-                }, field.info);
-                if (not_target_alignment) continue;
-                console.debug("pre selected field with size: ", field.size, " from idx: ", field_idx);
-                required += field.size;
-                if constexpr (alignment != lexer::SIZE::SIZE_1) {
-                    pre_selected.emplace_back(field_idx, field.size);
-                    // Mark as tracked
-                    field.size = 0;
-                } else {
-                    // Field gets marked as tracked in this called function. But that doesnt really matter since we are done after applying the layout for alignment 1
-                    std::tie(fixed_offset_idx, offset) = subset_sum_perfect::apply_field<alignment>(
-                        field,
-                        offset,
-                        fixed_offset_idx,
-                        fixed_offsets,
-                        tmp_fixed_offsets
-                    );
-                }
-                // TODO: We do not need to track this for alinemnt 1.
-                meta.left_fields.get<alignment>()--;
-            }
-            BSSERT(meta.left_fields.get<alignment>() == 0);
-            // console.debug("[apply_layout] alignemnt: ", alignment.byte_size(), " i: ", i);
-            const uint64_t layout_space = layout.get_space<alignment>();
-            
-            BSSERT(layout_space >= required, "The layout doesn't fulfill space requirements for "_sl + string_literal::from<alignment.byte_size()> + " byte aligned section of Variant "_sl, layout_space, " >= ", required);
-
-            if constexpr (alignment != lexer::SIZE::SIZE_1) {
-                const auto used_space = meta.used_spaces.get<alignment>();
-                console.debug("meta.required_space: ", meta.required_space, ", layout_space: ", layout_space, ", used_space: ", used_space, ", required: ", required);
-                const uint64_t target = std::min<uint64_t>(layout_space - required, meta.required_space - required);
-                console.debug("meta.left_fields: ", meta.left_fields);
-                const lexer::SIZE largest_align = meta.left_fields.largest_align<alignment.next_smaller()>();
-                // CSSERT(meta.left_fields.largest_align(), ==, largest_align); // Asserts that we count left fields perfectly
-                CSSERT(largest_align, <, alignment); // Sanity check
-
-                if ((largest_align < alignment.next_smaller())) {
-                    console.debug("largest align checks are not useless");
-                }
-
-                if (target != 0) {
-                    std::tie(fixed_offset_idx, offset) = subset_sum_perfect::solve(
-                        target,
-                        largest_align,
-                        {
-                            offset,
-                            fixed_offset_idx,
-                            fixed_offsets,
-                            tmp_fixed_offsets,
-                            queued_fields_buffer
-                        },
-                        meta,
-                        pre_selected
-                    );
-                    // console.debug("target != 0  ", fixed_offset_idx, " ", offset);
-                } else {
-                    std::tie(fixed_offset_idx, offset) = subset_sum_perfect::apply_pre_selected<alignment>(
-                        pre_selected,
-                        offset,
-                        fixed_offset_idx,
-                        fixed_offsets,
-                        tmp_fixed_offsets,
-                        queued_fields_buffer
-                    );
-                }
-
-            }
-
-            meta.required_space -= offset;
-            max_offset = std::max(offset, max_offset);
-        }
-
-        // state.template next_variant_pack<alignment>(max_offset, {fixed_offset_idx_begin, fixed_offset_idx});
-        packs.get<alignment>() = {max_offset, {fixed_offset_idx_begin, fixed_offset_idx}};
-
-        if constexpr (alignment == lexer::SIZE::SIZE_1) {
-            state.template next_variant_pack<lexer::SIZE::SIZE_8>(packs.get<lexer::SIZE::SIZE_8>());
-            state.template next_variant_pack<lexer::SIZE::SIZE_4>(packs.get<lexer::SIZE::SIZE_4>());
-            state.template next_variant_pack<lexer::SIZE::SIZE_2>(packs.get<lexer::SIZE::SIZE_2>());
-            state.template next_variant_pack<lexer::SIZE::SIZE_1>(packs.get<lexer::SIZE::SIZE_1>());
-        } else {
-            static constexpr lexer::SIZE next_alignment = lexer::next_smaller_size<alignment>;
-            return apply_layout<next_alignment>(
-                queued_fields_buffer,
-                layout,
-                variant_count,
-                variant_leaf_metas,
-                fixed_offset_idx,
-                packs
-            );
-        }
-    }
-
     void on_fixed_variant (lexer::FixedVariantType* const fixed_variant_type) const {
         if constexpr (in_array && !in_fixed_size) {
             INTERNAL_ERROR("Fixed variants in variabl sized arrays not supported yet");
@@ -465,13 +298,17 @@ struct TypeVisitor {
 
         BSSERT(state.get_fixed_offset_idx() == fixed_offset_idx_begin_bak); // Inside variants no fixed_offsets should be added directy.
 
-        apply_layout<lexer::SIZE::SIZE_8>(
-            queued_fields_buffer,
-            layout,
-            variant_count,
-            variant_leaf_metas,
-            state.get_fixed_offset_idx(),
-            {}
+        state.template next_variant_packs<lexer::SIZE::SIZE_8>(
+            subset_sum_perfect::apply_layout<lexer::SIZE::SIZE_8>(
+                queued_fields_buffer,
+                state.const_state.shared().fixed_offsets,
+                state.const_state.shared().tmp_fixed_offsets,
+                layout,
+                variant_count,
+                variant_leaf_metas,
+                state.get_fixed_offset_idx(),
+                {}
+            )
         );
         }
     }
