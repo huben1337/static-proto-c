@@ -331,6 +331,17 @@ public:
     }
 
     template <lexer::SIZE alignment>
+    void next_variant_packs (
+        this const auto& self,
+        const PendingVariantFieldPacks packs
+    ) {
+        self.template next_variant_pack<lexer::SIZE::SIZE_8>(packs.get<lexer::SIZE::SIZE_8>());
+        self.template next_variant_pack<lexer::SIZE::SIZE_4>(packs.get<lexer::SIZE::SIZE_4>());
+        self.template next_variant_pack<lexer::SIZE::SIZE_2>(packs.get<lexer::SIZE::SIZE_2>());
+        self.template next_variant_pack<lexer::SIZE::SIZE_1>(packs.get<lexer::SIZE::SIZE_1>());
+    }
+
+    template <lexer::SIZE alignment>
     void next_variant_pack (
         this const auto& self,
         const std::pair<uint64_t, estd::integral_range<uint16_t>> pack
@@ -581,7 +592,7 @@ public:
             chain_idx -= modulated_field_size;
         } while (chain_idx > 0);
 
-        console.log("enqueueing for level: ", NAMEOF_ENUM(state_type), ", target align: ", target_align);
+        console.debug("enqueueing for level: ", NAMEOF_ENUM(state_type), ", target align: ", target_align);
         // BSSERT(fields.template get<target_align>().idxs.size() == 0);
         // for (const uint16_t idx : fields.template get<target_align>().idxs) {
         //     
