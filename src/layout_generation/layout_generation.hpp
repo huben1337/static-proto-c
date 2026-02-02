@@ -7,30 +7,25 @@
 #include <gsl/pointers>
 #include <gsl/util>
 #include <memory>
-#include <ranges>
 #include <span>
-#include <tuple>
 #include <type_traits>
 #include <utility>
-#include <variant>
 #include <vector>
 
-#include "./parser/lexer_types.hpp"
-#include "./estd/ranges.hpp"
-#include "./container/memory.hpp"
-#include "./util/logger.hpp"
-#include "./helper/internal_error.hpp"
-#include "./helper/alloca.hpp"
-#include "./variant_optimizer/perfect_st.hpp"
-#include "estd/empty.hpp"
-#include "estd/utility.hpp"
-#include "subset_sum_solving/subset_sum_perfect.hpp"
-#include "util/string_literal.hpp"
-#include "variant_optimizer/data.hpp"
+#include "../parser/lexer_types.hpp"
+#include "../container/memory.hpp"
+#include "../util/logger.hpp"
+#include "../helper/internal_error.hpp"
+#include "../helper/alloca.hpp"
+#include "./variant_layout/perfect_st.hpp"
+#include "../estd/utility.hpp"
+#include "../common_data.hpp"
+#include "./layout_data.hpp"
+#include "./variant_layout/variant_layout.hpp"
 #include "./tvs.hpp"
 
 
-namespace generate_offsets {
+namespace layout_generation {
 
 [[nodiscard]] constexpr lexer::LeafCounts::Counts create_positions (const lexer::LeafCounts::Counts& counts, uint16_t offset = 0) {
     return {
@@ -299,7 +294,7 @@ struct TypeVisitor {
         BSSERT(state.get_fixed_offset_idx() == fixed_offset_idx_begin_bak); // Inside variants no fixed_offsets should be added directy.
 
         state.template next_variant_packs<lexer::SIZE::SIZE_8>(
-            subset_sum_perfect::apply_layout<lexer::SIZE::SIZE_8>(
+            variant_layout::apply_layout<lexer::SIZE::SIZE_8>(
                 queued_fields_buffer,
                 state.const_state.shared().fixed_offsets,
                 state.const_state.shared().tmp_fixed_offsets,

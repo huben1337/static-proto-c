@@ -11,20 +11,19 @@
 #include <variant>
 #include <vector>
 
-
-#include "./parser/lexer_types.hpp"
-#include "./variant_optimizer/data.hpp"
-#include "container/memory.hpp"
-#include "estd/class_constraints.hpp"
-#include "estd/empty.hpp"
-#include "estd/ranges.hpp"
-#include "estd/vector.hpp"
-#include "math/mod1.hpp"
 #include "nameof.hpp"
-#include "parser/lexer_types.hpp"
-#include "subset_sum_solving/dp_bitset_base.hpp"
-#include "util/logger.hpp"
-#include "helper/alloca.hpp"
+#include "../parser/lexer_types.hpp"
+#include "../common_data.hpp"
+#include "./layout_data.hpp"
+#include "../container/memory.hpp"
+#include "../estd/class_constraints.hpp"
+#include "../estd/empty.hpp"
+#include "../estd/ranges.hpp"
+#include "../estd/vector.hpp"
+#include "../math/mod1.hpp"
+#include "../subset_sum_solving/dp_bitset_base.hpp"
+#include "../util/logger.hpp"
+#include "../helper/alloca.hpp"
 
 struct AlignedFields {
     std::vector<uint16_t> idxs;

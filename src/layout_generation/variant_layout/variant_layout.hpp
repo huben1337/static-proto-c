@@ -9,12 +9,13 @@
 #include <variant>
 #include <vector>
 
-#include "../util/logger.hpp"
-#include "../variant_optimizer/data.hpp"
-#include "../variant_optimizer/perfect_st.hpp"
+#include "../../util/logger.hpp"
+#include "../../common_data.hpp"
+#include "../layout_data.hpp"
 #include "../tvs.hpp"
+#include "./perfect_st.hpp"
 
-namespace subset_sum_perfect {
+namespace variant_layout {
 
 static constexpr uint16_t empty_chain_link = -1;
 
@@ -231,7 +232,7 @@ requires (alignment != lexer::SIZE::SIZE_1)
     std::vector<std::pair<uint16_t, uint64_t>>& pre_selected
 ) {
     // NOLINTNEXTLINE(readability-simplify-boolean-expr)
-    BSSERT(target != 0, "[subset_sum_perfect::solve] invalid target: ", target);
+    BSSERT(target != 0, "invalid target: ", target);
     //std::cout << "FINDING " << target << "\n";
 
     const std::unique_ptr<const uint16_t[]> sum_chains = generate_sum_subset_chains(target, field_consumer.queued_fields_buffer, meta.field_idxs);
@@ -296,7 +297,7 @@ template <lexer::SIZE alignment>
     const std::span<QueuedField> queued_fields_buffer,
     const std::span<FixedOffset> fixed_offsets,
     const std::span<FixedOffset> tmp_fixed_offsets,
-    const variant_layout::Layout layout,
+    const Layout layout,
     const uint16_t variant_count,
     VariantLeafMeta* const variant_leaf_metas,
     const uint16_t fixed_offset_idx_begin,
@@ -458,4 +459,4 @@ template <lexer::SIZE alignment>
     }
 }
 
-} // namespace subset_sum_perfect
+} // namespace variant_layout

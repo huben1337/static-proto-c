@@ -1,7 +1,7 @@
 #pragma once
 
-#include "./dp_bitset_base.hpp"
-#include "../variant_optimizer/data.hpp"
+#include "../../subset_sum_solving/dp_bitset_base.hpp"
+#include "../layout_data.hpp"
 
 namespace sum_intersection_dp_bitset {
 

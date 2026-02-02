@@ -1,12 +1,11 @@
 #pragma once
 
 #include <cstdint>
-#include <cstdlib>
 #include <memory>
-#include "./data.hpp"
+#include "../layout_data.hpp"
 
-#include "../subset_sum_solving/sum_intersection_dp_bitset.hpp"
-#include "../parser/lexer_types.hpp"
+#include "./sum_intersection_dp_bitset.hpp"
+#include "../../parser/lexer_types.hpp"
 
 namespace variant_layout {
 
@@ -68,7 +67,7 @@ constexpr Layout find_st_check_target_loop (
             // make sure all variants which reach to the same space are also conjected into the bitset
             while (true) {
                 const VariantLeafMeta& meta = variant_leaf_metas[applied_variants];
-                auto used_space = meta.required_space;
+                const uint64_t used_space = meta.required_space;
                 if (used_space < target) break;
                 auto to_apply_word_count = dp_bitset_base::bitset_word_count(target);
                 sum_intersection_dp_bitset::generate_bits(to_apply_bits, to_apply_word_count, used_space, queued_fields_buffer, meta);

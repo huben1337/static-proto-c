@@ -27,9 +27,9 @@
 #include "./fast_math/sum_of_digits.hpp"
 #include "./fast_math/log.hpp"
 #include "./code_gen_stuff.hpp"
-#include "./generate_offsets.hpp"
-#include "estd/empty.hpp"
-#include "variant_optimizer/data.hpp"
+#include "./layout_generation/layout_generation.hpp"
+#include "./estd/empty.hpp"
+#include "./common_data.hpp"
 
 namespace decode_code {
 
@@ -1318,7 +1318,7 @@ void generate (
     ALLOCA_SAFE_SPAN(pack_infos, ArrayPackInfo, target_struct->pack_count);
     std::ranges::uninitialized_fill(pack_infos, ArrayPackInfo{0, static_cast<uint16_t>(-1)});
 
-    auto generate_offsets_result = generate_offsets::generate(
+    auto generate_offsets_result = layout_generation::generate(
         target_struct,
         ast_buffer,
         fixed_offsets,
