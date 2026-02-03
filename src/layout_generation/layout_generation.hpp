@@ -214,7 +214,7 @@ struct TypeVisitor {
 
         uint64_t max_used_space = 0;
         // variant_count > 0 is asserted during lexing
-        VariantLeafMeta variant_leaf_metas[variant_count];
+        ALLOCA_UNSAFE_SPAN(variant_leaf_metas, VariantLeafMeta, variant_count);
         ALLOCA_SAFE_SPAN(queued_fields_buffer, QueuedField, total_fixed_leafs + fixed_field_packs_total);
         uint16_t queued_fields_base = 0;
 
@@ -278,14 +278,14 @@ struct TypeVisitor {
             max_used_space = std::max(used_space, max_used_space);
         }
 
-        std::sort(variant_leaf_metas, variant_leaf_metas + variant_count, [](const VariantLeafMeta& a, const VariantLeafMeta& b) {
+        std::ranges::sort(variant_leaf_metas, [](const VariantLeafMeta& a, const VariantLeafMeta& b) {
             return a.required_space > b.required_space;
         });
         console.debug("max_used_space: ", max_used_space);
         BSSERT(variant_leaf_metas[0].required_space == max_used_space, "Sorting of variants' leaf metadata invalid")
           
         // try perferect layout
-        const variant_layout::Layout layout = variant_layout::perfect::find_st(variant_leaf_metas, queued_fields_buffer.data(), variant_count);
+        const variant_layout::Layout layout = variant_layout::perfect::find_st(variant_leaf_metas, queued_fields_buffer);
         console.debug("layout: ", layout);
         if (layout.align1 != max_used_space) {
             console.warn("Could not find perfect layout for variant.");
@@ -299,7 +299,6 @@ struct TypeVisitor {
                 state.const_state.shared().fixed_offsets,
                 state.const_state.shared().tmp_fixed_offsets,
                 layout,
-                variant_count,
                 variant_leaf_metas,
                 state.get_fixed_offset_idx(),
                 {}
@@ -411,23 +410,7 @@ GenerateResult generate (
     console.debug("queued size: ", top_level_mutable_state_data.level.queued.fields.size());
 
     if (total_var_leafs > 0) {
-        uint8_t max_var_leaf_align;
-        if (var_leaf_counts.align8 > 0) {
-            max_var_leaf_align = 8;
-        } else if (var_leaf_counts.align4 > 0) {
-            max_var_leaf_align = 4;
-        } else if (var_leaf_counts.align2 > 0) {
-            max_var_leaf_align = 2;
-        } else {
-            goto done;
-        }
-        {
-            // Add padding based on alignment
-            const size_t mod = offset % max_var_leaf_align;
-            const size_t padding = (max_var_leaf_align - mod) & (max_var_leaf_align - 1);
-            offset += padding;
-        }
-        done:;
+        offset = lexer::next_multiple(offset, var_leaf_counts.largest_align());
     }
 
     // visitor_state.set_var_offsets(total_var_leafs, level_size_leafs_count, 0);

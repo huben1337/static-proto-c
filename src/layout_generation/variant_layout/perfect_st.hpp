@@ -1,5 +1,6 @@
 #pragma once
 
+#include <algorithm>
 #include <cstdint>
 #include <memory>
 #include "../layout_data.hpp"
@@ -35,28 +36,24 @@ namespace perfect {
 namespace {
 
 template <lexer::SIZE alignment, bool applied_all_variants>
-constexpr Layout find_st_ (
-    // const lexer::LeafSizes& max_fixed_leaf_sizes,
-    VariantLeafMeta* variant_leaf_metas,
-    const QueuedField* queued_fields_buffer,
+[[nodiscard]] inline Layout find_st_ (
+    std::span<VariantLeafMeta> variant_leaf_metas,
+    std::span<const QueuedField> queued_fields_buffer,
     dp_bitset_base::word_t* current_bits,
     dp_bitset_base::word_t* to_apply_bits,
     uint64_t max_used_space,
-    uint16_t variant_count,
     uint16_t applied_variants,
     Layout layout
 );
 
 template <lexer::SIZE alignment, bool applied_all_variants>
 requires (alignment > lexer::SIZE::SIZE_1)
-constexpr Layout find_st_check_target_loop (
-    // const lexer::LeafSizes& max_fixed_leaf_sizes,
-    VariantLeafMeta* const variant_leaf_metas,
-    const QueuedField* const queued_fields_buffer,
+[[nodiscard]] inline Layout find_st_check_target_loop (
+    const std::span<VariantLeafMeta> variant_leaf_metas,
+    const std::span<const QueuedField> queued_fields_buffer,
     dp_bitset_base::word_t* const current_bits,
     dp_bitset_base::word_t* const to_apply_bits,
     const uint64_t max_used_space,
-    const uint16_t variant_count,
     uint16_t applied_variants,
     Layout layout,
     const uint64_t min_offset,
@@ -73,15 +70,13 @@ constexpr Layout find_st_check_target_loop (
                 sum_intersection_dp_bitset::generate_bits(to_apply_bits, to_apply_word_count, used_space, queued_fields_buffer, meta);
                 dp_bitset_base::and_merge(current_bits, to_apply_bits, to_apply_word_count);
                 applied_variants++;
-                if (applied_variants == variant_count) {
+                if (applied_variants == variant_leaf_metas.size()) {
                     return find_st_check_target_loop<alignment, true>(
-                        // max_fixed_leaf_sizes,
                         variant_leaf_metas,
                         queued_fields_buffer,
                         current_bits,
                         to_apply_bits,
                         max_used_space,
-                        variant_count,
                         applied_variants,
                         layout,
                         min_offset,
@@ -108,13 +103,11 @@ constexpr Layout find_st_check_target_loop (
                 return layout;
             }
             return find_st_<alignment.next_smaller(), applied_all_variants>(
-                // max_fixed_leaf_sizes,
                 variant_leaf_metas,
                 queued_fields_buffer,
                 current_bits,
                 to_apply_bits,
                 max_used_space,
-                variant_count,
                 applied_variants,
                 layout
             );
@@ -126,15 +119,28 @@ constexpr Layout find_st_check_target_loop (
         target -= alignement_bytes;
     }
 }
+
+template <lexer::SIZE alignment>
+[[nodiscard]] inline uint64_t get_min_offset (
+    const std::span<VariantLeafMeta> variant_leaf_metas,
+    const Layout layout
+) {
+    if constexpr (alignment == lexer::SIZE::SIZE_8) {
+        return std::ranges::max(
+            std::views::transform(variant_leaf_metas, [](const VariantLeafMeta& e) { return e.used_spaces.align8; })
+        );
+    } else {
+        return layout.get<alignment.next_bigger()>() + alignment.byte_size();
+    }
+}
+
 template <lexer::SIZE alignment, bool applied_all_variants>
-constexpr Layout find_st_ (
-    // const lexer::LeafSizes& max_fixed_leaf_sizes,
-    VariantLeafMeta* const variant_leaf_metas,
-    const QueuedField* const queued_fields_buffer,
+[[nodiscard]] inline Layout find_st_ (
+    const std::span<VariantLeafMeta> variant_leaf_metas,
+    const std::span<const QueuedField> queued_fields_buffer,
     dp_bitset_base::word_t* const current_bits,
     dp_bitset_base::word_t* const to_apply_bits,
     const uint64_t max_used_space,
-    const uint16_t variant_count,
     uint16_t applied_variants,
     Layout layout
 ) {
@@ -142,135 +148,44 @@ constexpr Layout find_st_ (
         layout.align1 = max_used_space;
         return layout;
     } else {
-        uint64_t min_offset;
         constexpr uint8_t alignement_bytes = alignment.byte_size();
-        #if 0
-        if constexpr (alignment == lexer::SIZE::SIZE_8) {
-            uint64_t max_align8_space = 0;
-            for (uint16_t i = 0; i < variant_count; i++) {
-                const VariantLeafMeta& meta = variant_leaf_metas[i];
-                max_align8_space = std::max(meta.used_spaces.align8, max_align8_space);
-            }
-            if (max_align8_space == 0) goto empty;
-            min_offset = max_align8_space;
-        } else if constexpr (alignment == lexer::SIZE::SIZE_4) {
-            uint64_t max_align4_space = 0;
-            for (uint16_t i = 0; i < variant_count; i++) {
-                const VariantLeafMeta& meta = variant_leaf_metas[i];
-                auto sponge_space = layout.align8 - meta.used_spaces.align8;
-                if (sponge_space == 0) {
-                    // Nothing is absorbed
-                    max_align4_space = std::max(meta.used_spaces.align4, max_align4_space);
-                    continue;
-                }
-                auto absorbed = subset_sum_absorbed::solve(
-                    sponge_space,
-                    meta.fixed_leafs + meta.fixed_leaf_ends.align8,
-                    meta.fixed_leaf_ends.align4,
-                    meta.fixed_leaf_ends.align1
-                );
-                auto align4_required_space = meta.used_spaces.align4 - absorbed;
-                max_align4_space = std::max(align4_required_space, max_align4_space);
-            }
-            if (max_align4_space == 0) {
-                layout.align4 = layout.align8;
-                goto empty;
-            }
-            min_offset = layout.align8 + max_align4_space;
-        } else if constexpr (alignment == lexer::SIZE::SIZE_2) {
-            uint64_t max_align2_space = 0;
-            for (uint16_t i = 0; i < variant_count; i++) {
-                const VariantLeafMeta& meta = variant_leaf_metas[i];
-                auto sponge_space = layout.align4 - meta.used_spaces.align8 - meta.used_spaces.align4;
-                if (sponge_space == 0) {
-                    // Nothing is absorbed
-                    max_align2_space = std::max(meta.used_spaces.align2, max_align2_space);
-                    continue;
-                }
-                auto absorbed = subset_sum_absorbed::solve(
-                    sponge_space,
-                    meta.fixed_leafs + meta.fixed_leaf_ends.align4,
-                    meta.fixed_leaf_ends.align2,
-                    meta.fixed_leaf_ends.align1
-                );
-                auto align2_required_space = meta.used_spaces.align2 - absorbed;
-                max_align2_space = std::max(align2_required_space, max_align2_space);
-            }
-            if (max_align2_space == 0) {
-                layout.align2 = layout.align4;
-                goto empty;
-            }
-            min_offset = layout.align4 + max_align2_space;
-        } else if constexpr (alignment == lexer::SIZE::SIZE_1) {
-            layout.align1 = max_used_space;
-            return layout;
-        }
-        #endif
-        if constexpr (alignment == lexer::SIZE::SIZE_8) {
-            uint64_t max_align8_space = 0;
-            for (uint16_t i = 0; i < variant_count; i++) {
-                const VariantLeafMeta& meta = variant_leaf_metas[i];
-                max_align8_space = std::max(meta.used_spaces.align8, max_align8_space);
-            }
-            if (max_align8_space == 0) {
-                goto empty;
-            }
-            console.debug("alig8 min_offset: ", max_align8_space);
-            min_offset = max_align8_space;
-            // BSSERT(min_offset != max_used_space, "should be done in ez perfect layout");
-        } else if constexpr (alignment == lexer::SIZE::SIZE_4) {
-            uint64_t max_align4_space = 0;
-            for (uint16_t i = 0; i < variant_count; i++) {
-                const VariantLeafMeta& meta = variant_leaf_metas[i];
-                max_align4_space = std::max(meta.used_spaces.align4, max_align4_space);
-            }
-            if (max_align4_space == 0) {
-                layout.align4 = layout.align8;
-                goto empty;
-            }
-            min_offset = layout.align8 + alignement_bytes;
-        } else if constexpr (alignment == lexer::SIZE::SIZE_2) {
-            uint64_t max_align2_space = 0;
-            for (uint16_t i = 0; i < variant_count; i++) {
-                const VariantLeafMeta& meta = variant_leaf_metas[i];
-                max_align2_space = std::max(meta.used_spaces.align2, max_align2_space);
-            }
-            if (max_align2_space == 0) {
-                layout.align2 = layout.align4;
-                goto empty;
-            }
-            min_offset = layout.align4 + alignement_bytes;
-        } else {
-            static_assert(false);
-        }
-        // min_offset += lexer::get_size<alignment>(max_fixed_leaf_sizes);
-        BSSERT(min_offset >= alignement_bytes, "Expected min_offset to be at least ")
-
-        return find_st_check_target_loop<alignment, applied_all_variants>(
-            // max_fixed_leaf_sizes,
-            variant_leaf_metas,
-            queued_fields_buffer,
-            current_bits,
-            to_apply_bits,
-            max_used_space,
-            variant_count,
-            applied_variants,
-            layout,
-            min_offset,
-            max_used_space & ~(uint64_t{alignement_bytes} - 1)
-        );
-
-        empty: {
-            console.debug("skipped empty align", alignement_bytes);
+        if constexpr (alignment != lexer::SIZE::SIZE_8) {
             static_assert(alignment != lexer::SIZE::SIZE_1);
-            return find_st_<alignment.next_smaller(), applied_all_variants>(
-                // max_fixed_leaf_sizes,
+            if (std::ranges::all_of(variant_leaf_metas, [](const VariantLeafMeta& e) {
+                return e.used_spaces.get<alignment>() == 0;
+            })) {
+                layout.get<alignment>() = layout.get<alignment.next_bigger()>();
+                goto empty;
+            }
+        }
+
+        {
+            const uint64_t min_offset = get_min_offset<alignment>(variant_leaf_metas, layout);
+            if constexpr (alignment == lexer::SIZE::SIZE_8) {
+                if (min_offset == 0) goto empty;
+            }
+
+            return find_st_check_target_loop<alignment, applied_all_variants>(
                 variant_leaf_metas,
                 queued_fields_buffer,
                 current_bits,
                 to_apply_bits,
                 max_used_space,
-                variant_count,
+                applied_variants,
+                layout,
+                min_offset,
+                max_used_space & ~(uint64_t{alignement_bytes} - 1)
+            );
+        }
+
+        empty: {
+            console.debug("skipped empty align", alignement_bytes);
+            return find_st_<alignment.next_smaller(), applied_all_variants>(
+                variant_leaf_metas,
+                queued_fields_buffer,
+                current_bits,
+                to_apply_bits,
+                max_used_space,
                 applied_variants,
                 layout
             );
@@ -282,12 +197,11 @@ constexpr Layout find_st_ (
 
 
 
-constexpr Layout find_st (
-    VariantLeafMeta* const variant_leaf_metas,
-    const QueuedField* const queued_fields_buffer,
-    const uint16_t variant_count
+[[nodiscard]] inline Layout find_st (
+    const std::span<VariantLeafMeta> variant_leaf_metas,
+    const std::span<const QueuedField> queued_fields_buffer
 ) {
-    BSSERT(variant_count >= 2, "find_perfect_variant_layout_st: variant_count shouldn't be less than 2")
+    BSSERT(variant_leaf_metas.size() >= 2, "find_perfect_variant_layout_st: variant_count shouldn't be less than 2")
     VariantLeafMeta biggest_variant_leaf_meta = variant_leaf_metas[0];
 
     auto biggest_word_count = dp_bitset_base::bitset_word_count(biggest_variant_leaf_meta.required_space);
@@ -304,13 +218,11 @@ constexpr Layout find_st (
     );
 
     return find_st_<lexer::SIZE::SIZE_8, false>(
-        // max_fixed_leaf_sizes,
         variant_leaf_metas,
         queued_fields_buffer,
         current_bits.get(),
         current_bits.get() + biggest_word_count,
         biggest_variant_leaf_meta.required_space,
-        variant_count,
         1,
         Layout::zero()
     );

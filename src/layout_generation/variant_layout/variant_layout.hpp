@@ -298,8 +298,7 @@ template <lexer::SIZE alignment>
     const std::span<FixedOffset> fixed_offsets,
     const std::span<FixedOffset> tmp_fixed_offsets,
     const Layout layout,
-    const uint16_t variant_count,
-    VariantLeafMeta* const variant_leaf_metas,
+    const std::span<VariantLeafMeta> variant_leaf_metas,
     const uint16_t fixed_offset_idx_begin,
     PendingVariantFieldPacks packs
 ) {
@@ -319,7 +318,6 @@ template <lexer::SIZE alignment>
                 fixed_offsets,
                 tmp_fixed_offsets,
                 layout,
-                variant_count,
                 variant_leaf_metas,
                 fixed_offset_idx_begin,
                 packs
@@ -332,10 +330,7 @@ template <lexer::SIZE alignment>
     //const uint16_t fixed_offset_idx_begin = state.get_fixed_offset_idx();
     uint16_t fixed_offset_idx = fixed_offset_idx_begin;
     uint64_t max_offset = 0;
-    for (VariantLeafMeta& meta : std::ranges::subrange{
-        variant_leaf_metas,
-        variant_leaf_metas + variant_count
-    }) {            
+    for (VariantLeafMeta& meta : variant_leaf_metas) {            
         uint64_t required = 0;
         uint64_t offset = 0;
 
@@ -451,7 +446,6 @@ template <lexer::SIZE alignment>
             fixed_offsets,
             tmp_fixed_offsets,
             layout,
-            variant_count,
             variant_leaf_metas,
             fixed_offset_idx,
             packs

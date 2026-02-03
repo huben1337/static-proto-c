@@ -11,7 +11,7 @@ inline void generate_bits (
     word_t* const bits,
     const num_t bitset_words,
     const num_t target,
-    const QueuedField* const queued_fields_buffer,
+    const std::span<const QueuedField> queued_fields_buffer,
     const VariantLeafMeta& meta
 ) {
 
