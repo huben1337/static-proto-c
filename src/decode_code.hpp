@@ -10,7 +10,6 @@
 #include <gsl/util>
 #include <memory>
 #include <span>
-#include <array>
 #include <string_view>
 #include <type_traits>
 #include <utility>
@@ -26,7 +25,7 @@
 #include "./estd/meta.hpp"
 #include "./fast_math/sum_of_digits.hpp"
 #include "./fast_math/log.hpp"
-#include "./code_gen_stuff.hpp"
+#include "./code_generation_static_data.hpp"
 #include "./layout_generation/layout_generation.hpp"
 #include "./estd/empty.hpp"
 #include "./common_data.hpp"
@@ -116,26 +115,6 @@ struct OffsetsAccessor {
     default:
         INTERNAL_ERROR("[get_size_type_str] invalid size");
     }
-}
-
-struct ArrayCtorStrs {
-    std::string_view ctor_args;
-    std::string_view ctor_inits;
-    std::string_view ctor_used;
-    std::string_view el_ctor_used;
-};
-/* Lookup table for the first 65 elements. (65 = 64 + 1. Since fixed arrays can only be of length 2 or more 64 nested is the max and 1 more for a outer dynamic array. If bools are packed perfectly add 3 more)*/
-[[nodiscard]] constexpr ArrayCtorStrs make_array_ctor_strs (uint8_t array_depth) {
-    if (array_depth > array_ctor_strs_count) {
-        INTERNAL_ERROR("[make_array_ctor_strs] array depth too large");
-    }
-    auto [ctor_args, ctor_inits, ctor_used, el_ctor_used] = g_array_ctor_strs.strs_array[array_depth];
-    return ArrayCtorStrs{
-        {g_array_ctor_strs.data.data() + ctor_args.start, ctor_args.length},
-        {g_array_ctor_strs.data.data() + ctor_inits.start, ctor_inits.length},
-        {g_array_ctor_strs.data.data() + ctor_used.start, ctor_used.length},
-        {g_array_ctor_strs.data.data() + el_ctor_used.start, el_ctor_used.length}
-    };
 }
 
 struct ArrayLengths {
@@ -654,6 +633,8 @@ requires(!is_fixed && !std::is_reference_v<CodeT>)
     }
 }
 
+using code_generation_static_data::ArrayCtorStrs;
+
 template <typename ArgsT, typename UniqueNameT, typename CodeT>
 requires(!std::is_reference_v<CodeT>)
 [[nodiscard]] inline CodeT gen_field_access_method_no_array (
@@ -739,7 +720,7 @@ struct TypeVisitor {
         const uint32_t length = fixed_string_type->length;
         const std::string_view size_type_str =  get_size_type_str(fixed_string_type->length_size);
 
-        const ArrayCtorStrs array_ctor_strs = make_array_ctor_strs(array_depth);
+        const ArrayCtorStrs array_ctor_strs = ArrayCtorStrs::make(array_depth);
 
         auto unique_name = get_unique_name<"String">(additional_args);
 
@@ -792,7 +773,7 @@ struct TypeVisitor {
             const std::string_view size_type_str = get_size_type_str(size_size);
             const Buffer::View<uint64_t> size_chain = offsets_accessor.next_var_offset();
 
-            const ArrayCtorStrs array_ctor_strs = make_array_ctor_strs(array_depth);
+            const ArrayCtorStrs array_ctor_strs = ArrayCtorStrs::make(array_depth);
 
             const uint16_t size_leaf_idx = (*current_size_leaf_idx)++;
             // console.debug("STRING size_leaf_idx: ", size_leaf_idx);
@@ -851,7 +832,7 @@ struct TypeVisitor {
         const uint32_t length = fixed_array_type->length;
         const std::string_view size_type_str = get_size_type_str(fixed_array_type->size_size);
 
-        const ArrayCtorStrs array_ctor_strs = make_array_ctor_strs(array_depth);
+        const ArrayCtorStrs array_ctor_strs = ArrayCtorStrs::make(array_depth);
 
         uint16_t depth;
         if constexpr (std::is_same_v<Args, GenFixedArrayLeafArgs>) {
@@ -937,7 +918,7 @@ struct TypeVisitor {
             const lexer::SIZE stored_size_size = array_type->stored_size_size;
             const std::string_view size_type_str = get_size_type_str(size_size);
 
-            const ArrayCtorStrs array_ctor_strs = make_array_ctor_strs(0);
+            const ArrayCtorStrs array_ctor_strs = ArrayCtorStrs::make(0);
 
             auto unique_name = get_unique_name(additional_args);
 
@@ -1002,7 +983,7 @@ struct TypeVisitor {
 
         auto unique_name = get_unique_name<"Variant">(additional_args);
 
-        const ArrayCtorStrs array_ctor_strs = make_array_ctor_strs(array_depth);
+        const ArrayCtorStrs array_ctor_strs = ArrayCtorStrs::make(array_depth);
         
         auto&& variant_struct = std::move(code)
         ._struct(unique_name)
@@ -1092,7 +1073,7 @@ struct TypeVisitor {
 
             auto unique_name = get_unique_name<"DynamicVariant">(additional_args);
 
-            const ArrayCtorStrs array_ctor_strs = make_array_ctor_strs(array_depth);
+            const ArrayCtorStrs array_ctor_strs = ArrayCtorStrs::make(array_depth);
             
             auto&& variant_struct = std::move(code)
             ._struct(unique_name)
@@ -1216,7 +1197,7 @@ struct TypeVisitor {
         }
         const auto* const struct_type = identifier->data()->as_struct();
 
-        const ArrayCtorStrs array_ctor_strs = make_array_ctor_strs(array_depth);
+        const ArrayCtorStrs array_ctor_strs = ArrayCtorStrs::make(array_depth);
 
         auto unique_name = get_unique_name(additional_args, [&struct_type]() { return struct_type->name; });
         
