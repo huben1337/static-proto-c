@@ -68,8 +68,56 @@ namespace estd {
         return reinterpret_cast<To>(from);
     }
 
+    template <auto v>
+    struct value_t {
+        static constexpr auto value = v;
+    };
+
     template <size_t N, typename... T>
-    using nth_type_t = std::_Nth_type<N, T...>::type;
+    using nth_t = std::_Nth_type<N, T...>::type;
+
+    template <size_t N, auto... v>
+    constexpr auto nth_v = std::_Nth_type<N, value_t<v>...>::type::value;
+
+    template <auto first, auto... rest>
+    constexpr bool are_distinct_v = ((first != rest) && ...) && are_distinct_v<rest...>;
+
+    template <auto v>
+    constexpr bool are_distinct_v<v> = true;
+
+    template <typename... T>
+    struct variadic_t {
+    private:
+        template <typename... U>
+        [[nodiscard]] variadic_t<T..., U...> static consteval append_variadic_ (variadic_t<U...> /*unused*/) { return {}; }
+    public:
+
+        template <typename Other>
+        using append_variadic = decltype(append_variadic_(Other{}));
+
+        template <typename... U>
+        using append = variadic_t<T..., U...>;
+
+        template <size_t N>
+        using nth_t = estd::nth_t<N, T...>;
+    };
+
+    template <auto... v>
+    struct variadic_v {
+    private:
+        template <auto... w>
+        [[nodiscard]] variadic_v<v..., w...> static consteval append_variadic_ (variadic_v<w...> /*unused*/) { return {}; }
+    public:
+
+        template <typename Other>
+        using append_variadic = decltype(append_variadic_(Other{}));
+
+        template <auto... w>
+        using append = variadic_v<v..., w...>;
+
+        template <size_t N>
+        static constexpr auto nth_v = estd::nth_v<N, v...>;
+    };
 
     namespace {
         template <size_t N, typename TargetT, typename FirstT, typename... RestT>
