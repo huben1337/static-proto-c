@@ -719,7 +719,7 @@ struct make_flow_control<features, void> {
 };
 
 template <typename FlowControl, auto first, auto ... rest, typename F>
-constexpr auto controlled_for (F&& lambda) {
+constexpr auto for_ (F&& lambda) {
     static_assert(!FlowControl::features.has_none, "For loop control must not have `none` control kind.");
     static_assert(FlowControl::features.has_continue, "For loop control must have `continue` control kind.");
     static_assert(FlowControl::features.has_break, "For loop control must have `break` control kind.");
@@ -742,7 +742,7 @@ constexpr auto controlled_for (F&& lambda) {
 
         #define FLOW_CONTINUE() \
         if constexpr (sizeof...(rest) > 0) { \
-            return controlled_for<FlowControl, rest...>(std::forward<F>(lambda)); \
+            return for_<FlowControl, rest...>(std::forward<F>(lambda)); \
         } else { \
             return OutFlowControl::none_(); \
         }
@@ -810,7 +810,7 @@ constexpr auto controlled_for (F&& lambda) {
     } else {
         #define FLOW_CONTINUE() \
         if constexpr (sizeof...(rest) > 0) { \
-            return controlled_for<FlowControl, rest...>(std::forward<F>(lambda)); \
+            return for_<FlowControl, rest...>(std::forward<F>(lambda)); \
         } else { \
             return; \
         }
