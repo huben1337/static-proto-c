@@ -8,19 +8,6 @@
 
 namespace estd {
 
-    /* integer and index range */
-    namespace {
-        template<std::integral T, T N, T... seq>
-        consteval std::integer_sequence<T, N + seq ...> _integer_sequence_add_all (std::integer_sequence<T, seq...> /*unused*/) { return {}; }
-    }
-
-    template<typename T, T min, T max>
-    using make_integer_range = decltype(_integer_sequence_add_all<T, min>(std::make_integer_sequence<T, max - min>{}));
-
-    template<size_t min, size_t max>
-    using make_index_range = make_integer_range<size_t, min, max>;
-
-
     /* conditional forward */
     template <bool condition, typename T, typename U>
     requires (condition)
@@ -98,8 +85,13 @@ namespace estd {
         template <typename... U>
         using append = variadic_t<T..., U...>;
 
+        template <template <typename> typename MappedType>
+        using map = estd::variadic_t<typename MappedType<T>::type...>;
+
         template <size_t N>
         using nth_t = estd::nth_t<N, T...>;
+
+        static constexpr size_t size = sizeof...(T);
     };
 
     template <auto... v>
@@ -115,9 +107,31 @@ namespace estd {
         template <auto... w>
         using append = variadic_v<v..., w...>;
 
+        template <template <auto> typename MappedValue>
+        using map = estd::variadic_v<MappedValue<v>::value...>;
+
         template <size_t N>
         static constexpr auto nth_v = estd::nth_v<N, v...>;
+
+        static constexpr size_t size = sizeof...(v);
     };
+
+    namespace {
+        template<std::integral T, T N, T... seq>
+        consteval variadic_v<N + seq ...> _make_integer_range (std::integer_sequence<T, seq...> /*unused*/) { return {}; }
+    }
+
+    template<typename T, T min, T max>
+    using make_integer_range = decltype(_make_integer_range<T, min>(std::make_integer_sequence<T, max - min>{}));
+
+    template<size_t min, size_t max>
+    using make_index_range = make_integer_range<size_t, min, max>;
+
+    template<typename T, T max>
+    using make_integer_sequence = make_integer_range<T, 0, max>;
+
+    template<size_t max>
+    using make_index_sequence = make_integer_sequence<size_t, max>;
 
     namespace {
         template <size_t N, typename TargetT, typename FirstT, typename... RestT>
@@ -145,4 +159,15 @@ namespace estd {
 
     template <typename TargetT, typename... PossibleT>
     constexpr size_t variadic_type_index_v = variadic_type_index<TargetT, PossibleT...>::value;
+    
+    struct discouraged_annotation {
+    private:
+        consteval explicit discouraged_annotation () = default;
+    public:
+        static const discouraged_annotation value;
+    };
+
+    constexpr discouraged_annotation discouraged_annotation::value {};
+
+    constexpr discouraged_annotation discouraged = discouraged_annotation::value;
 }
