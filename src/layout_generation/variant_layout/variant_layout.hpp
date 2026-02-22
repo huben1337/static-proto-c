@@ -171,8 +171,34 @@ template <lexer::SIZE alignment, bool has_pre_selected>
 
         meta.left_fields.get<estd::discouraged>(field_alignment)--;
 
-        if (meta.left_fields.largest_align() < alignment) {
-            // console.warn("Could have downgraded target alignment in variant solver");
+        if constexpr (alignment > lexer::SIZE::SIZE_1) {
+            const lexer::SIZE largest_align = meta.left_fields.largest_align();
+            
+            if (largest_align < alignment) {
+            // Not completely perfect since we get the field_idx and field again in here.
+                meta.left_fields.get<estd::discouraged>(field_alignment)++;
+                return largest_align.visit<std::pair<uint16_t, uint64_t>>(
+                    typename estd::make_index_range<lexer::SIZE::SIZE_1, alignment>::template map<lexer::SIZE::Mapped>{},
+                    [&]<lexer::SIZE next_alignment>() {
+                        // TODO: Enqueue left fields.
+                        estd::make_index_range<next_alignment, alignment>::template map<lexer::SIZE::Mapped>::foreach([&]<lexer::SIZE v>() {
+                            CSSERT(fields.template get<v>().idxs.size(), ==, 0);
+                            // enqueueing_for_level<alignment>(field_consumer, fields.template get<v>().idxs);
+                        });
+                        CSSERT(fields.template get<alignment.next_smaller()>().idxs.size(), ==, 0);
+                        return apply_solution<next_alignment, has_pre_selected>(
+                            chain_idx,
+                            queued_fields_buffer,
+                            sum_chains,
+                            std::move(fields).template extract<next_alignment>(),
+                            meta,
+                            field_consumer,
+                            pre_selected_begin,
+                            pre_selected_end
+                        );
+                    }
+                );
+            }
         }
 
         if constexpr (has_pre_selected) {
