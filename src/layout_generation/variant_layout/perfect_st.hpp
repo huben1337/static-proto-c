@@ -27,7 +27,7 @@ struct Layout : lexer::AlignMembersBase<uint64_t, lexer::SIZE::SIZE_8, lexer::SI
         return get<alignment>() - get_offset<alignment>();
     }
     
-    [[nodiscard]] static consteval Layout zero () { return AlignMembersBase::zero<Layout>(); }
+    [[nodiscard]] static consteval Layout zero () { return AlignMembersBase::zero(); }
 };
 
 namespace perfect {

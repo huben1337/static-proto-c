@@ -216,6 +216,27 @@ public:
     #undef ALIGN_MEMBER_GET_RT_ARG
 
 private:
+    template <SIZE... alignments_to_check>
+    requires (std::is_integral_v<T> && sizeof...(alignments_to_check) > 0)
+    [[nodiscard]] constexpr SIZE largest_align_ (estd::variadic_v<alignments_to_check...> /*unused*/) const {
+        SIZE result;
+        const bool checked_matched = (((get<alignments_to_check>() != 0) ? (result = alignments_to_check, true) : false) || ...);
+        if (checked_matched) return result;
+        return SIZE::SIZE_1;
+    }
+
+public:
+    template <SIZE limit = max_alignment>
+    requires (std::is_integral_v<T> && limit >= min_alignment && limit <= max_alignment)
+    [[nodiscard]] constexpr SIZE largest_align () const {
+        if constexpr (min_alignment == max_alignment) {
+            return min_alignment;
+        } else {
+            return largest_align_(typename estd::make_index_range<min_alignment + 1, max_alignment + 1>::template map<SIZE::Mapped>{});
+        }
+    }
+
+private:
     template <typename writer_params, SIZE first, SIZE... rest>
     void log_ (const logger::writer<writer_params> w, estd::variadic_v<first, rest...> /*unused*/) const {
         if constexpr (sizeof...(rest) > 0) {
@@ -234,15 +255,17 @@ public:
     }
 
 private:
-    template <typename Result, SIZE... alignments>
-    [[nodiscard]] static consteval Result zero_ (estd::variadic_v<alignments...> /*unused*/) { return Result{(static_cast<void>(alignments), 0)...}; }
+    template <typename Result, typename U, SIZE... alignments>
+    [[nodiscard]] static constexpr Result of_ (U&& value, estd::variadic_v<alignments...> /*unused*/) { return Result{(static_cast<void>(alignments), std::forward<U>(value))...}; }
 
 public:
-    template <typename Result = AlignMembersBase>
-    [[nodiscard]] static consteval Result zero () { return zero_<Result>(alignments{}); }
-};
+    template <typename Result = outside_t, typename U>
+    [[nodiscard]] static constexpr Result of (U&& value) { return of_<Result, U>(std::forward<U>(value), alignments{}); }
 
-constexpr AlignMembersBase<int, SIZE::SIZE_4> amb = AlignMembersBase<int, SIZE::SIZE_4>::zero();;
+    template <typename Result = outside_t>
+    requires (std::is_integral_v<T>)
+    [[nodiscard]] static consteval Result zero () { return of<Result, T>(0); }
+};
 
 template <FIELD_TYPE field_type>
 [[nodiscard]] consteval SIZE get_type_alignment () {
@@ -330,25 +353,9 @@ struct LeafCounts {
         [[nodiscard]] constexpr uint16_t total () const {
             return get<SIZE::SIZE_1>() + get<SIZE::SIZE_2>() + get<SIZE::SIZE_4>() + get<SIZE::SIZE_8>();
         }
-
-    private:
-        template <SIZE... alignments_to_check>
-        [[nodiscard]] constexpr SIZE largest_align_ (estd::variadic_v<alignments_to_check...> /*unused*/) const {
-            SIZE result;
-            const bool checked_matched = (((get<alignments_to_check>() != 0) ? (result = alignments_to_check, true) : false) || ...);
-            if (checked_matched) return result;
-            return SIZE::SIZE_1;
-        }
-
-    public:
-        template <SIZE limit = lexer::SIZE::SIZE_8>
-        requires (limit >= SIZE::SIZE_1 && limit <= SIZE::SIZE_8)
-        [[nodiscard]] constexpr SIZE largest_align () const {
-            return largest_align_(estd::make_index_range<SIZE::SIZE_2, SIZE::SIZE_8 + 1>::map<SIZE::Mapped>{});
-        }
         
-        [[nodiscard]] static consteval Counts zero () { return AlignMembersBase::zero<Counts>(); }
-        [[nodiscard]] static constexpr Counts of (uint16_t value) { return {value, value, value, value}; }
+        [[nodiscard]] static consteval Counts zero () { return AlignMembersBase::zero(); }
+        [[nodiscard]] static constexpr Counts of (uint16_t value) { return AlignMembersBase::of(value); }
     };
 
     uint64_t data;
@@ -457,7 +464,7 @@ struct LeafSizes : AlignMembersBase<uint64_t, SIZE::SIZE_8, SIZE::SIZE_1, LeafSi
         return (... + get<alignments>());
     }
 
-    [[nodiscard]] static consteval LeafSizes zero () { return AlignMembersBase::zero<LeafSizes>(); }
+    [[nodiscard]] static consteval LeafSizes zero () { return AlignMembersBase::zero(); }
 
     template <SIZE size>
     [[nodiscard]] static constexpr LeafSizes from_size (uint32_t count) {
