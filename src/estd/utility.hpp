@@ -88,11 +88,35 @@ namespace estd {
         template <template <typename> typename MappedType>
         using map = estd::variadic_t<typename MappedType<T>::type...>;
 
+        template <template <typename...> typename Template>
+        using apply = Template<T...>;
+
         template <size_t N>
         using nth_t = estd::nth_t<N, T...>;
 
         static constexpr size_t size = sizeof...(T);
+
+        template <typename F>
+        static constexpr void foreach (F&& lambda) {
+            (std::forward<F>(lambda).template operator()<T>(), ...);
+        }
     };
+
+    template<typename... T>
+    struct reverse_variadic_t;
+
+    template<>
+    struct reverse_variadic_t<> {
+        using type = variadic_t<>;
+    };
+
+    template<typename First, typename... Rest>
+    struct reverse_variadic_t<First, Rest...> {
+        using type = reverse_variadic_t<Rest...>::type::template append<First>;
+    };
+
+    template<typename... T>
+    using reverse_variadic_t_t = reverse_variadic_t<T...>::type;
 
     template <auto... v>
     struct variadic_v {
@@ -110,11 +134,36 @@ namespace estd {
         template <template <auto> typename MappedValue>
         using map = estd::variadic_v<MappedValue<v>::value...>;
 
+        template <template <auto...> typename Template>
+        using apply = Template<v...>;
+        
         template <size_t N>
         static constexpr auto nth_v = estd::nth_v<N, v...>;
 
         static constexpr size_t size = sizeof...(v);
+
+        template <typename F>
+        static constexpr void foreach (F&& lambda) {
+            (std::forward<F>(lambda).template operator()<v>(), ...);
+        }
     };
+
+    template<auto... v>
+    struct reverse_variadic_v;
+
+    template<>
+    struct reverse_variadic_v<> {
+        using type = variadic_v<>;
+    };
+
+    template<auto first, auto... rest>
+    struct reverse_variadic_v<first, rest...> {
+        using type = reverse_variadic_v<rest...>::type::template append<first>;
+    };
+
+    template<auto... v>
+    using reverse_variadic_v_t = reverse_variadic_v<v...>::type;
+
 
     namespace {
         template<std::integral T, T N, T... seq>
