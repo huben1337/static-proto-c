@@ -64,8 +64,7 @@ namespace stringify {
     };
 
     template <std::unsigned_integral SizeT>
-    struct OverAllocatedGenerator : GeneratorBase<SizeT> {
-        using WriteResult = OverAllocatedGeneratorBase::WriteResult;
+    struct OverAllocatedGenerator : GeneratorBase<SizeT>, OverAllocatedGeneratorBase {
         virtual WriteResult write (char*) const = 0;
     };
 
