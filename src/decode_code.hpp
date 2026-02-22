@@ -137,7 +137,7 @@ struct ArrayLengths {
     uint8_t length;
 };
 
-struct SizeChainCodeGenerator : stringify::Generator<size_t> {
+struct SizeChainCodeGenerator {
     SizeChainCodeGenerator(
         const ReadOnlyBuffer& var_offset_buffer,
         const Buffer::View<uint64_t>& size_chain
@@ -157,7 +157,7 @@ struct SizeChainCodeGenerator : stringify::Generator<size_t> {
     const uint64_t* size_chain_data;
     Buffer::View<uint64_t>::length_t size_chain_length;
     
-    char* write(char* dst) const override {
+    char* write(char* dst) const {
         for (Buffer::index_t i = 0; i < size_chain_length; i++) {
             dst = stringify::write_string(dst, " + size"_sl);
             dst = stringify::write_string(dst, i);
@@ -171,7 +171,7 @@ struct SizeChainCodeGenerator : stringify::Generator<size_t> {
         return dst;
     }
 
-    [[nodiscard]] size_t get_size() const override {
+    [[nodiscard]] size_t get_size() const {
         size_t offset_str_size = ( size_chain_length * (" + size"_sl.size() + "(base)"_sl.size()) ) + fast_math::sum_of_digits_unsafe(size_chain_length);
         for (Buffer::index_t i = 0; i < size_chain_length; i++) {
             const uint64_t size = size_chain_data[i];
@@ -184,7 +184,7 @@ struct SizeChainCodeGenerator : stringify::Generator<size_t> {
 };
 
 template <bool no_multiply, bool last_is_direct = false>
-struct IdxCalcCodeGenerator : stringify::OverAllocatedGenerator<Buffer::index_t> {
+struct IdxCalcCodeGenerator : stringify::OverAllocatedGeneratorBase {
 private:
     std::span<const ArrayPackInfo> pack_infos;
     ArrayPackInfo pack_info;
@@ -226,7 +226,7 @@ public:
     IdxCalcCodeGenerator (const std::span<const ArrayPackInfo>& pack_infos, const uint16_t pack_info_idx, const uint8_t array_depth)
         : IdxCalcCodeGenerator{pack_infos, pack_infos[pack_info_idx], array_depth} {}
     
-    WriteResult write (char* dst) const override {
+    WriteResult write (char* dst) const {
         char* const start = dst;
         if (array_depth == 1) {
             if constexpr (last_is_direct) {
@@ -268,7 +268,7 @@ public:
         return {dst, over_allocation};
     }
 
-    [[nodiscard]] Buffer::index_t get_size () const override {
+    [[nodiscard]] Buffer::index_t get_size () const {
         return estimated_size;
     }
 };
@@ -314,31 +314,25 @@ concept LeafArgs = std::same_as<T, GenStructLeafArgs>
                 || std::same_as<T, GenFixedVariantLeafArgs>
                 || std::same_as<T, GenDynamicVariantLeafArgs>;
 
-template <LeafArgs ArgsT>
-constexpr bool is_array_element = std::is_same_v<ArgsT, GenArrayLeafArgs> || std::is_same_v<ArgsT, GenFixedArrayLeafArgs>;
+template <typename T>
+constexpr bool is_array_element = std::is_same_v<T, GenArrayLeafArgs> || std::is_same_v<T, GenFixedArrayLeafArgs>;
 
-template <LeafArgs ArgsT>
-constexpr bool is_fixed_variant_element = std::is_same_v<ArgsT, GenFixedVariantLeafArgs>;
+template <typename T>
+constexpr bool is_fixed_variant_element = std::is_same_v<T, GenFixedVariantLeafArgs>;
 
 
-template <LeafArgs ArgsT>
-constexpr bool is_dynamic_variant_element = std::is_same_v<ArgsT, GenDynamicVariantLeafArgs>;
+template <typename T>
+constexpr bool is_dynamic_variant_element = std::is_same_v<T, GenDynamicVariantLeafArgs>;
 
-template <LeafArgs ArgsT>
-constexpr bool is_variant_element = is_fixed_variant_element<ArgsT> || is_dynamic_variant_element<ArgsT>;
+template <typename T>
+constexpr bool is_variant_element = is_fixed_variant_element<T> || is_dynamic_variant_element<T>;
 
-template <LeafArgs ArgsT>
-constexpr bool is_struct_element = std::is_same_v<ArgsT, GenStructLeafArgs>;
+template <typename T>
+constexpr bool is_struct_element = std::is_same_v<T, GenStructLeafArgs>;
 
-[[nodiscard]] constexpr auto get_unique_name (const GenStructLeafArgs& additional_args) {
-    return codegen::StringParts{additional_args.name, "_"_sl, additional_args.depth};
-}
-template <StringLiteral element_name>
-[[nodiscard]] constexpr auto get_unique_name (const GenStructLeafArgs& additional_args) {
-    return codegen::StringParts{additional_args.name, "_"_sl, additional_args.depth};
-}
-template <typename F>
-[[nodiscard]] constexpr auto get_unique_name (const GenStructLeafArgs& additional_args, F&& /*unused*/) {
+
+template <StringLiteral element_name = string_literal::empty, typename F = estd::empty>
+[[nodiscard]] constexpr auto get_unique_name (const GenStructLeafArgs& additional_args, F&& /*unused*/ = estd::empty{}) {
     return codegen::StringParts{additional_args.name, "_"_sl, additional_args.depth};
 }
 
@@ -377,52 +371,43 @@ requires(!std::is_reference_v<F>)
     return on_element();
 }
 
-[[nodiscard]] constexpr auto get_unique_name (const GenVariantLeafArgsBase& additional_args) {
-    return codegen::StringParts{"as_"_sl, additional_args.variant_depth, "_"_sl, additional_args.variant_id};
-}
-template <StringLiteral element_name>
-[[nodiscard]] constexpr auto get_unique_name (const GenVariantLeafArgsBase& additional_args) {
-    return codegen::StringParts{"as_"_sl, additional_args.variant_depth, "_"_sl, additional_args.variant_id};
-}
-template <typename F>
-[[nodiscard]] constexpr auto get_unique_name (const GenVariantLeafArgsBase& additional_args, F&& /*unused*/) {
+template <StringLiteral element_name = string_literal::empty, typename F = estd::empty>
+[[nodiscard]] constexpr auto get_unique_name (const GenVariantLeafArgsBase& additional_args, F&& /*unused*/ = estd::empty{}) {
     return codegen::StringParts{"as_"_sl, additional_args.variant_depth, "_"_sl, additional_args.variant_id};
 }
 
+
+template <typename T = estd::empty>
 [[nodiscard]] constexpr const std::string_view& get_name (const GenStructLeafArgs& additional_args) {
     return additional_args.name;
 }
-template <typename T>
-[[nodiscard]] constexpr const std::string_view& get_name (const GenStructLeafArgs& additional_args, T /*unused*/) {
-    return additional_args.name;
-}
 
-[[nodiscard]] constexpr auto get_name (const GenVariantLeafArgsBase& additional_args) {
-    return codegen::StringParts{"as_"_sl, additional_args.variant_id};
-}
-template <typename T>
-[[nodiscard]] constexpr auto get_name (const GenVariantLeafArgsBase& additional_args, T /*unused*/) {
+[[nodiscard]] constexpr auto get_variant_name (const GenVariantLeafArgsBase& additional_args) {
     return codegen::StringParts{"as_"_sl, additional_args.variant_id};
 }
 
-template <LeafArgs ArgsT, typename T>
-requires (!(std::is_same_v<ArgsT, GenStructLeafArgs> || std::is_same_v<ArgsT, GenVariantLeafArgsBase> || std::is_same_v<ArgsT, GenDynamicVariantLeafArgs>))
-[[nodiscard]] constexpr T&& get_name (ArgsT /*unused*/, T&& unique_name) {
-    return std::forward<T>(unique_name);
+template <typename T = estd::empty>
+[[nodiscard]] constexpr auto get_name (const GenDynamicVariantLeafArgs& additional_args) {
+    return get_variant_name(additional_args);
 }
 
-template <typename NameT>
-requires (!LeafArgs<std::remove_cvref_t<NameT>>)
-[[nodiscard]] constexpr NameT&& get_name (NameT&& name) {
-    return std::forward<NameT>(name);
+template <typename T = estd::empty>
+[[nodiscard]] constexpr auto get_name (const GenFixedVariantLeafArgs& additional_args) {
+    return get_variant_name(additional_args);
+}
+
+template <typename Name>
+[[nodiscard]] constexpr Name get_name (Name&& name) {
+    static_assert(!LeafArgs<std::remove_cvref_t<Name>>);
+    return std::forward<Name>(name);
 }
 
 
-template <estd::conceptify<estd::is_not<std::is_reference>::type> CodeT>
-[[nodiscard]] inline CodeT&& add_size_leafs (
+template <estd::conceptify<estd::is_not<std::is_reference>::type> Code>
+[[nodiscard]] inline Code add_size_leafs (
     const std::span<SizeLeaf> level_size_leafs,
     const std::span<const FixedOffset> fixed_offsets,
-    CodeT&& struct_code
+    Code&& struct_code
 ) {
     for (size_t i = 0; i < level_size_leafs.size(); i++) {
         auto [min_size, idx, size_size, stored_size_size] = level_size_leafs[i];
@@ -515,10 +500,10 @@ template <
     lexer::SIZE type_size,
     bool is_direct_pack = false,
     typename ArgsT,
-    estd::conceptify<estd::is_not<std::is_reference>::type> CodeT>
+    estd::conceptify<estd::is_not<std::is_reference>::type> Code>
 requires(is_fixed)
-[[nodiscard]] inline CodeT gen_value_leaf (
-    CodeT&& code,
+[[nodiscard]] inline Code gen_value_leaf (
+    Code&& code,
     const OffsetsAccessor& offsets_accessor,
     ArgsT&& name_providing_args,
     const uint16_t pack_info_idx,
@@ -612,10 +597,10 @@ template <
     lexer::SIZE type_size,
     bool is_direct_pack = false,
     typename ArgsT, 
-    estd::conceptify<estd::is_not<std::is_reference>::type> CodeT>
+    estd::conceptify<estd::is_not<std::is_reference>::type> Code>
 requires(!is_fixed)
-[[nodiscard]] inline CodeT gen_value_leaf (
-    CodeT&& code,
+[[nodiscard]] inline Code gen_value_leaf (
+    Code&& code,
     const OffsetsAccessor& offsets_accessor,
     ArgsT&& name_providing_args,
     const uint16_t pack_info_idx,
@@ -658,15 +643,15 @@ requires(!is_fixed)
 
 using code_generation_static_data::ArrayCtorStrs;
 
-template <typename ArgsT, typename UniqueNameT, estd::conceptify<estd::is_not<std::is_reference>::type> CodeT>
-[[nodiscard]] inline CodeT gen_field_access_method_no_array (
-    CodeT&& code,
+template <typename ArgsT, typename UniqueNameT, estd::conceptify<estd::is_not<std::is_reference>::type> Code>
+[[nodiscard]] inline Code gen_field_access_method_no_array (
+    Code&& code,
     const ArgsT& additional_args,
     const std::string_view& ctor_used,
     const UniqueNameT& unique_name
 ) {
     auto&& field_method = std::move(code)
-    .method(unique_name, get_name(additional_args, unique_name));
+    .method(unique_name, get_name(additional_args));
     if constexpr (is_dynamic_variant_element<ArgsT>) {
         if (additional_args.offset.empty()) {
             // console.debug("[gen_field_access_method_no_array] additional_args.offset is empty");
