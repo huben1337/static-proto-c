@@ -70,8 +70,8 @@ struct SIZE : estd::ENUM_CLASS<uint8_t, SIZE> {
         return value_t{1} << value;
     }
 
-    template <typename Result, auto... target_sizes, typename Visitor>
-    [[nodiscard]] constexpr Result visit (this const SIZE& self, estd::variadic_v<target_sizes...> /*unused*/, Visitor&& visitor);
+    template <typename Result, auto... target_sizes, typename... U, typename Visitor>
+    [[nodiscard]] constexpr Result visit (this const SIZE& self, estd::variadic_v<target_sizes...> /*unused*/, Visitor&& visitor, U&&... args);
 
 private:
     static void next_smaller_is_invalid_for_this_size () {}
@@ -128,14 +128,14 @@ struct SIZE::Mapped {
 //     };
 // }
 
-template <typename Result, auto... target_sizes, typename Visitor>
-[[nodiscard]] constexpr Result SIZE::visit (this const SIZE& self, estd::variadic_v<target_sizes...> /*unused*/, Visitor&& visitor) {
+template <typename Result, auto... target_sizes, typename... U, typename Visitor>
+[[nodiscard]] constexpr Result SIZE::visit (this const SIZE& self, estd::variadic_v<target_sizes...> /*unused*/, Visitor&& visitor, U&&... args) {
     switch (self.value) {
-        case SIZE_1: if constexpr (((target_sizes == SIZE_1) || ...)) { return visitor.template operator()<SIZE_1>(); } else { std::unreachable(); };
-        case SIZE_2: if constexpr (((target_sizes == SIZE_2) || ...)) { return visitor.template operator()<SIZE_2>(); } else { std::unreachable(); };
-        case SIZE_4: if constexpr (((target_sizes == SIZE_4) || ...)) { return visitor.template operator()<SIZE_4>(); } else { std::unreachable(); };
-        case SIZE_8: if constexpr (((target_sizes == SIZE_8) || ...)) { return visitor.template operator()<SIZE_8>(); } else { std::unreachable(); };
-        case SIZE_0: if constexpr (((target_sizes == SIZE_0) || ...)) { return visitor.template operator()<SIZE_0>(); } else { std::unreachable(); };
+        case SIZE_1: if constexpr (((target_sizes == SIZE_1) || ...)) { return visitor.template operator()<SIZE_1>(std::forward<U>(args)...); } else { std::unreachable(); };
+        case SIZE_2: if constexpr (((target_sizes == SIZE_2) || ...)) { return visitor.template operator()<SIZE_2>(std::forward<U>(args)...); } else { std::unreachable(); };
+        case SIZE_4: if constexpr (((target_sizes == SIZE_4) || ...)) { return visitor.template operator()<SIZE_4>(std::forward<U>(args)...); } else { std::unreachable(); };
+        case SIZE_8: if constexpr (((target_sizes == SIZE_8) || ...)) { return visitor.template operator()<SIZE_8>(std::forward<U>(args)...); } else { std::unreachable(); };
+        case SIZE_0: if constexpr (((target_sizes == SIZE_0) || ...)) { return visitor.template operator()<SIZE_0>(std::forward<U>(args)...); } else { std::unreachable(); };
         default: std::unreachable();
     }
 }
