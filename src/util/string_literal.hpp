@@ -15,33 +15,31 @@ struct StringLiteral {
 
     template <char... chars>
     consteval StringLiteral()
-    : data{chars...}
-    {}
+        : data{chars...} {}
 
 private:
     template<size_t L, size_t M, size_t ...Indecies1, size_t ...Indecies2>
     consteval StringLiteral(const char (&str1)[L], const char (&str2)[M], std::index_sequence<Indecies1...> /*unused*/, std::index_sequence<Indecies2...> /*unused*/)
-    : data{str1[Indecies1]..., str2[Indecies2]...}
-    {}
+        : data{str1[Indecies1]..., str2[Indecies2]...} {}
 
     template<size_t M, size_t ...Indecies>
     consteval StringLiteral(const char (&str)[M], std::index_sequence<Indecies...> /*unused*/)
-    : data{str[Indecies]...}
-    {}
+        : data{str[Indecies]...} {}
 
     static void expected_null_terminated_char_array () {}
 
 public:
     // NOLINTNEXTLINE(google-explicit-constructor)
     consteval StringLiteral(const char (&str)[N])
-    : StringLiteral{str, std::make_index_sequence<N - 1>{}}
-    {
+        : StringLiteral{str, std::make_index_sequence<N - 1>{}} {
         if(str[N - 1] != 0) expected_null_terminated_char_array();
     }
 
     consteval explicit StringLiteral(const char c)
-        : data{c, '\0'}
-    {}
+        : data{c, '\0'} {}
+
+    consteval StringLiteral()
+        : data{'\0'} {}
 
     char data[N];
 
@@ -134,7 +132,10 @@ template <typename T>
 constexpr bool is_string_literal_v = is_string_literal<T>::value;
 
 namespace string_literal {
-    namespace {
+
+    constexpr StringLiteral<1> empty {};
+
+    namespace _detail {
         template <char c, size_t N, size_t... Indecies>
         consteval StringLiteral<N + 1> _of (std::index_sequence<Indecies...> /*unused*/) {
             return {{((void)Indecies, c)..., '\0'}};
@@ -161,10 +162,10 @@ namespace string_literal {
     }
 
     template <char c, size_t N>
-    constexpr StringLiteral<N + 1> of = _of<c, N>(std::make_index_sequence<N>{});
+    constexpr StringLiteral<N + 1> of = _detail::_of<c, N>(std::make_index_sequence<N>{});
 
     template <auto... values>
-    constexpr auto from = _from<values...>();
+    constexpr auto from = _detail::_from<values...>();
 
     template <typename T>
     requires (std::is_invocable_r_v<std::string_view, T>)
