@@ -181,10 +181,10 @@ template <lexer::SIZE alignment, bool has_pre_selected>
                     typename estd::make_index_range<lexer::SIZE::SIZE_1, alignment>::template map<lexer::SIZE::Mapped>{},
                     [&]<lexer::SIZE next_alignment>() {
                         // TODO: Enqueue left fields.
-                        estd::make_index_range<next_alignment, alignment>::template map<lexer::SIZE::Mapped>::foreach([&]<lexer::SIZE v>() {
+                        estd::make_index_range<next_alignment, alignment>::template map<lexer::SIZE::Mapped>::foreach([]<lexer::SIZE v>(Fields<alignment>& fields) {
                             CSSERT(fields.template get<v>().idxs.size(), ==, 0);
                             // enqueueing_for_level<alignment>(field_consumer, fields.template get<v>().idxs);
-                        });
+                        }, fields);
                         CSSERT(fields.template get<alignment.next_smaller()>().idxs.size(), ==, 0);
                         return apply_solution<next_alignment, has_pre_selected>(
                             chain_idx,

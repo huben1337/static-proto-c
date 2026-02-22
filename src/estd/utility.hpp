@@ -96,9 +96,9 @@ namespace estd {
 
         static constexpr size_t size = sizeof...(T);
 
-        template <typename F>
-        static constexpr void foreach (F&& lambda) {
-            (std::forward<F>(lambda).template operator()<T>(), ...);
+        template <typename... U, typename F>
+        static constexpr void foreach (F&& lambda, U&... args) {
+            (std::forward<F>(lambda).template operator()<T>(args...), ...);
         }
     };
 
@@ -142,9 +142,9 @@ namespace estd {
 
         static constexpr size_t size = sizeof...(v);
 
-        template <typename F>
-        static constexpr void foreach (F&& lambda) {
-            (std::forward<F>(lambda).template operator()<v>(), ...);
+        template <typename... U, typename F>
+        static constexpr void foreach (F&& lambda, U&... args) {
+            (std::forward<F>(lambda).template operator()<v>(args...), ...);
         }
     };
 
