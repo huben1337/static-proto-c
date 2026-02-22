@@ -25,12 +25,23 @@ namespace estd {
     template <typename T>
     using is_same_meta = meta<std::is_same, T>;
 
-    template <typename T>
+    template <typename... T>
     using is_any_t = std::true_type;
 
     template <template <typename...> typename... T>
     struct is_any_of {
+        template <typename... U>
+        using type = std::disjunction<T<U...>...>;
+    };
+    template <template <typename> typename... T>
+    struct is_any_of<T...> {
         template <typename U>
         using type = std::disjunction<T<U>...>;
+    };
+
+    template <template <typename...> typename TemplateT>
+    struct is_not {
+        template <typename... T>
+        using type = std::bool_constant<!TemplateT<T...>::value>;
     };
 }
