@@ -29,9 +29,9 @@ namespace layout_generation {
 
 [[nodiscard]] constexpr lexer::LeafCounts::Counts create_positions (const lexer::LeafCounts::Counts& counts, uint16_t offset = 0) {
     return {
-        gsl::narrow_cast<uint16_t>(offset + counts.align8 + counts.align4 + counts.align2),
-        gsl::narrow_cast<uint16_t>(offset + counts.align8 + counts.align4),
-        gsl::narrow_cast<uint16_t>(offset + counts.align8),
+        gsl::narrow_cast<uint16_t>(offset + counts.get<lexer::SIZE::SIZE_8>() + counts.get<lexer::SIZE::SIZE_4>() + counts.get<lexer::SIZE::SIZE_2>()),
+        gsl::narrow_cast<uint16_t>(offset + counts.get<lexer::SIZE::SIZE_8>() + counts.get<lexer::SIZE::SIZE_4>()),
+        gsl::narrow_cast<uint16_t>(offset + counts.get<lexer::SIZE::SIZE_8>()),
         offset
     };
 }
@@ -287,7 +287,7 @@ struct TypeVisitor {
         // try perferect layout
         const variant_layout::Layout layout = variant_layout::perfect::find_st(variant_leaf_metas, queued_fields_buffer);
         console.debug("layout: ", layout);
-        if (layout.align1 != max_used_space) {
+        if (layout.get<lexer::SIZE::SIZE_1>() != max_used_space) {
             console.warn("Could not find perfect layout for variant.");
         }
 

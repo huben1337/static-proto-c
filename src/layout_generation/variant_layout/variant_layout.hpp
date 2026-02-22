@@ -169,7 +169,7 @@ template <lexer::SIZE alignment, bool has_pre_selected>
             }
         }, field.info);
 
-        meta.left_fields.get(field_alignment)--;
+        meta.left_fields.get<estd::discouraged>(field_alignment)--;
 
         if (meta.left_fields.largest_align() < alignment) {
             // console.warn("Could have downgraded target alignment in variant solver");
@@ -210,14 +210,14 @@ template <lexer::SIZE alignment, bool has_pre_selected>
     }
     // For variants which dont use all the layout space we can either dump all fields in a way which garuentees correct alignment, or better track what alignments still have fields to be aligned
     if constexpr (alignment > lexer::SIZE::SIZE_4) {
-        CSSERT(fields.align4.idxs.size(), ==, 0);
+        CSSERT(fields.template get<lexer::SIZE::SIZE_4>().idxs.size(), ==, 0);
     }
     if constexpr (alignment > lexer::SIZE::SIZE_2) {
-        CSSERT(fields.align2.idxs.size(), ==, 0);
+        CSSERT(fields.template get<lexer::SIZE::SIZE_2>().idxs.size(), ==, 0);
     }
     if constexpr (alignment > lexer::SIZE::SIZE_1) {
-        enqueueing_for_level<alignment>(field_consumer, fields.align1.idxs);
-        // CSSERT(fields.align1.idxs.size(), ==, 0);
+        enqueueing_for_level<alignment>(field_consumer, fields.template get<lexer::SIZE::SIZE_1>().idxs);
+        // CSSERT(fields.get<lexer::SIZE::SIZE_1>().idxs.size(), ==, 0);
     }
     return {field_consumer.fixed_offset_idx, field_consumer.offset};
 }
@@ -303,13 +303,13 @@ template <lexer::SIZE alignment>
     PendingVariantFieldPacks packs
 ) {
     if constexpr (alignment == lexer::SIZE::SIZE_1) {
-        BSSERT(layout.align1 != 0, "This should not happen. layout for alignemnt 1 is always defined as long as higher alignments are defined");
+        BSSERT(layout.get<lexer::SIZE::SIZE_1>() != 0, "This should not happen. layout for alignemnt 1 is always defined as long as higher alignments are defined");
     } else {
         // TODO: This doesnt't respect variants where some algiments simply are not present.
         if (layout.get<alignment>() == 0) {
             if constexpr (alignment != lexer::SIZE::SIZE_8) {
                 // We could template this with something like: bool had_fields. Then we could simply disallow 0 layout offset when we have already had fields.
-                BSSERT(layout.get<lexer::next_bigger_size<alignment>>() == 0, "Non perfect variant layouts disabled for now!");
+                BSSERT(layout.get<alignment.next_bigger()>() == 0, "Non perfect variant layouts disabled for now!");
             }
             // state.template next_variant_pack<alignment>(0, {0, 0});
             packs.get<alignment>() = {0, {0, 0}};

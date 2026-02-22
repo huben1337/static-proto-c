@@ -87,6 +87,6 @@ struct QueuedField {
     constexpr QueuedField (uint64_t size, info_t info) : size(size), info(info) {}
 };
 
-struct PendingVariantFieldPacks : lexer::AlignMembersBase<std::pair<uint64_t, estd::integral_range<uint16_t>>, lexer::SIZE::SIZE_8, PendingVariantFieldPacks> {
+struct PendingVariantFieldPacks : lexer::AlignMembersBase<std::pair<uint64_t, estd::integral_range<uint16_t>>, lexer::SIZE::SIZE_8, lexer::SIZE::SIZE_1, PendingVariantFieldPacks> {
     using AlignMembersBase::AlignMembersBase;
 };

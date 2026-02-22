@@ -10,22 +10,21 @@
 
 namespace variant_layout {
 
-struct Layout : lexer::AlignMembersBase<uint64_t, lexer::SIZE::SIZE_8, Layout>{
+struct Layout : lexer::AlignMembersBase<uint64_t, lexer::SIZE::SIZE_8, lexer::SIZE::SIZE_1, Layout>{
     using AlignMembersBase::AlignMembersBase;
 
     template <lexer::SIZE alignment>
-    [[nodiscard]] constexpr uint64_t get_space () const {
+    [[nodiscard]] constexpr uint64_t get_offset () const {
         if constexpr (alignment == lexer::SIZE::SIZE_8) {
-            return align8;
-        } else if constexpr (alignment == lexer::SIZE::SIZE_4) {
-            return align4 - align8;
-        } else if constexpr (alignment == lexer::SIZE::SIZE_2) {
-            return align2 - align4;
-        } else if constexpr (alignment == lexer::SIZE::SIZE_1) {
-            return align1 - align2;
+            return 0;
         } else {
-            static_assert(false, "Invalid alignment");
+            return get<alignment.next_bigger()>();
         }
+    }
+
+    template <lexer::SIZE alignment>
+    [[nodiscard]] constexpr uint64_t get_space () const {
+        return get<alignment>() - get_offset<alignment>();
     }
     
     [[nodiscard]] static consteval Layout zero () { return AlignMembersBase::zero<Layout>(); }
@@ -92,13 +91,13 @@ requires (alignment > lexer::SIZE::SIZE_1)
             layout.get<alignment>() = target;
             if (target == max_used_space) {
                 if constexpr (alignment > lexer::SIZE::SIZE_1) {
-                    layout.align1 = target;
+                    layout.get<lexer::SIZE::SIZE_1>() = target;
                 }
                 if constexpr (alignment > lexer::SIZE::SIZE_2) {
-                    layout.align2 = target;
+                    layout.get<lexer::SIZE::SIZE_2>() = target;
                 }
                 if constexpr (alignment > lexer::SIZE::SIZE_4) {
-                    layout.align4 = target;
+                    layout.get<lexer::SIZE::SIZE_4>() = target;
                 }
                 return layout;
             }
@@ -127,7 +126,7 @@ template <lexer::SIZE alignment>
 ) {
     if constexpr (alignment == lexer::SIZE::SIZE_8) {
         return std::ranges::max(
-            std::views::transform(variant_leaf_metas, [](const VariantLeafMeta& e) { return e.used_spaces.align8; })
+            std::views::transform(variant_leaf_metas, [](const VariantLeafMeta& e) { return e.used_spaces.get<lexer::SIZE::SIZE_8>(); })
         );
     } else {
         return layout.get<alignment.next_bigger()>() + alignment.byte_size();
@@ -145,7 +144,7 @@ template <lexer::SIZE alignment, bool applied_all_variants>
     Layout layout
 ) {
     if constexpr (alignment == lexer::SIZE::SIZE_1) {
-        layout.align1 = max_used_space;
+        layout.get<lexer::SIZE::SIZE_1>() = max_used_space;
         return layout;
     } else {
         constexpr uint8_t alignement_bytes = alignment.byte_size();

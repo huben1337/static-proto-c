@@ -2,7 +2,6 @@
 
 #include <bit>
 #include <concepts>
-#include <cstddef>
 #include <cstdint>
 #include <gsl/util>
 #include <type_traits>
@@ -14,6 +13,8 @@
 #include "../container/memory.hpp"
 #include "./memory_helpers.hpp"
 #include "../estd/enum.hpp"
+#include "../estd/utility.hpp"
+#include "../util/logger.hpp"
 
 namespace lexer {
 
@@ -52,6 +53,9 @@ struct SIZE : estd::ENUM_CLASS<uint8_t, SIZE> {
     friend struct size_helper;
 
     using ENUM_CLASS::ENUM_CLASS;
+
+    template <value_t v>
+    struct Mapped;
     
     static const SIZE SIZE_1;
     static const SIZE SIZE_2;
@@ -101,6 +105,19 @@ constexpr SIZE SIZE::SIZE_0{static_cast<value_t>(-1)};
 constexpr SIZE SIZE::MIN   {SIZE::SIZE_1};
 constexpr SIZE SIZE::MAX   {SIZE::SIZE_8};
 
+template <SIZE::value_t v>
+struct SIZE::Mapped {
+    static constexpr SIZE value {v};
+
+    static_assert(
+        value == SIZE::SIZE_0
+     || value == SIZE::SIZE_1
+     || value == SIZE::SIZE_2
+     || value == SIZE::SIZE_4
+     || value == SIZE::SIZE_8
+    );
+};
+
 namespace {
     struct size_helper {
         template <SIZE size>
@@ -113,30 +130,6 @@ namespace {
     };
 }
 
-// namespace {
-//     template <SIZE size>
-//     consteval SIZE next_smaller_size_ () {
-//         if constexpr (size == SIZE::SIZE_8) {
-//             return SIZE::SIZE_4;
-//         } else if constexpr (size == SIZE::SIZE_4) {
-//             return SIZE::SIZE_2;
-//         } else if constexpr (size == SIZE::SIZE_2) {
-//             return SIZE::SIZE_1;
-//         }
-//     }
-
-//     template <SIZE size>
-//     consteval SIZE next_bigger_size_ () {
-//         if constexpr (size == SIZE::SIZE_4) {
-//             return SIZE::SIZE_8;
-//         } else if constexpr (size == SIZE::SIZE_2) {
-//             return SIZE::SIZE_4;
-//         } else if constexpr (size == SIZE::SIZE_1) {
-//             return SIZE::SIZE_2;
-//         }
-//     }
-// }
-
 template <SIZE size>
 requires (size != SIZE::SIZE_0 && size != SIZE::SIZE_1)
 constexpr SIZE next_smaller_size = size_helper::next_smaller_size<size>;
@@ -145,69 +138,73 @@ template <SIZE size>
 requires (size != SIZE::SIZE_0 && size != SIZE::SIZE_8)
 constexpr SIZE next_bigger_size = size_helper::next_bigger_size<size>;
 
-namespace {
+template<typename T, SIZE max_alignment = SIZE::SIZE_8, SIZE min_alignment = SIZE::SIZE_1, typename Outside = void>
+requires (max_alignment != SIZE::SIZE_0 && min_alignment != SIZE::SIZE_0)
+struct AlignMembersBase {
+    static_assert(max_alignment >= min_alignment, "max_alignment can not be smaller than min_alignment");
+    
+    using alignments = estd::make_index_range<min_alignment, max_alignment + 1>::template map<SIZE::Mapped>;
 
-    template <typename Outside>
-    constexpr StringLiteral align_members_outside_name = string_literal::from_([](){ return nameof::nameof_type<Outside>(); });
+private:
+    static constexpr size_t alignments_count = alignments::size;
 
-    template <>
-    constexpr StringLiteral align_members_outside_name<void> = "AlignMembersBase<>";
-
-    template <typename Self, typename Outside>
-    struct align_members_outside {
+    template <typename Outside_>
+    struct outside {
         using type = Outside;
     };
 
-    template <typename Self>
-    struct align_members_outside<Self, void> {
-        using type = Self;
+    template <>
+    struct outside<void> {
+        using type = AlignMembersBase;
     };
 
-    template <typename Self, typename Outside>
-    using align_members_outside_t = align_members_outside<Self, Outside>::type;
-}
+    template <typename Outside_>
+    static constexpr StringLiteral outside_name_v = string_literal::from_([](){ return nameof::nameof_type<Outside>(); });
 
-template<typename T, SIZE max_align = SIZE::SIZE_8, typename Outside = void>
-struct AlignMembersBase {
-    T align1;
-    T align2;
-    T align4;
-    T align8;
+    template <>
+    constexpr StringLiteral outside_name_v<void> = "AlignMembersBase<>";
 
+    using outside_t = outside<Outside>::type;
+    static constexpr StringLiteral outside_name = outside_name_v<Outside>;
+
+    T align[alignments_count];
+
+public:
     // NOLINTNEXTLINE(bugprone-crtp-constructor-accessibility) FALSE POSITIVE. WE DONT USE CRTP
     constexpr AlignMembersBase() = default;
 
     // NOLINTNEXTLINE(bugprone-crtp-constructor-accessibility) FALSE POSITIVE. WE DONT USE CRTP
-    constexpr AlignMembersBase (const T& align1, const T& align2, const T& align4, const T& align8)
-        : align1(align1), align2(align2), align4(align4), align8(align8) {}
+    constexpr explicit AlignMembersBase (const T (&align)[alignments_count])
+        : align(align) {}
 
-    #define ALIGN_MEMBER_GET_CT_ARG(RETURN_TYPE, CONST_ATTR)            \
-    template <SIZE size>                                                \
-    /* NOLINTNEXTLINE(bugprone-macro-parentheses) */                    \
-    [[nodiscard]] constexpr CONST_ATTR RETURN_TYPE& get () CONST_ATTR { \
-        if constexpr (size == SIZE::SIZE_8) {                           \
-            return align8;                                              \
-        } else if constexpr (size == SIZE::SIZE_4) {                    \
-            return align4;                                              \
-        } else if constexpr (size == SIZE::SIZE_2) {                    \
-            return align2;                                              \
-        } else if constexpr (size == SIZE::SIZE_1) {                    \
-            return align1;                                              \
-        } else {                                                        \
-            static_assert(false, "Invalid size");                       \
-        }                                                               \
+    /**
+     * @param aligns Values for alignments in ascending order.
+     */
+    template <typename... U>
+    requires (alignments_count > 1 && sizeof...(U) == alignments_count)
+    // NOLINTNEXTLINE(google-explicit-constructor)
+    constexpr AlignMembersBase (U&&... aligns)
+        : align(std::forward<U>(aligns) ...) {}
+
+    template <typename U>
+    requires (alignments_count == 1)
+    constexpr explicit AlignMembersBase (U&& align)
+        : align(std::forward<U>(align)) {}
+
+    #define ALIGN_MEMBER_GET_CT_ARG(RETURN_TYPE, CONST_ATTR)                        \
+    template <SIZE alignment>                                                       \
+    /* NOLINTNEXTLINE(bugprone-macro-parentheses) */                                \
+    [[nodiscard]] constexpr CONST_ATTR RETURN_TYPE& get () CONST_ATTR {             \
+        static_assert(alignment <= max_alignment && alignment >= min_alignment);    \
+        return align[alignment - min_alignment];                                    \
     }
 
-    #define ALIGN_MEMBER_GET_RT_ARG(RETURN_TYPE, CONST_ATTR)                        \
-    /* NOLINTNEXTLINE(bugprone-macro-parentheses) */                                \
-    [[nodiscard]] constexpr CONST_ATTR RETURN_TYPE& get (SIZE size) CONST_ATTR {    \
-        switch (size) {                                                             \
-            case SIZE::SIZE_1: return align1;                                       \
-            case SIZE::SIZE_2: return align2;                                       \
-            case SIZE::SIZE_4: return align4;                                       \
-            case SIZE::SIZE_8: return align8;                                       \
-            default: std::unreachable();                                            \
-        }                                                                           \
+    #define ALIGN_MEMBER_GET_RT_ARG(RETURN_TYPE, CONST_ATTR)                            \
+    template <estd::discouraged_annotation>                                             \
+    /* NOLINTNEXTLINE(bugprone-macro-parentheses) */                                    \
+    [[nodiscard]] constexpr CONST_ATTR RETURN_TYPE& get (SIZE alignment) CONST_ATTR {   \
+        BSSERT(alignment <= max_alignment && alignment >= min_alignment);               \
+        return align[alignment - min_alignment];                                        \
     }
 
     ALIGN_MEMBER_GET_CT_ARG(T, )
@@ -218,182 +215,34 @@ struct AlignMembersBase {
     #undef ALIGN_MEMBER_GET_CT_ARG
     #undef ALIGN_MEMBER_GET_RT_ARG
 
+private:
+    template <typename writer_params, SIZE first, SIZE... rest>
+    void log_ (const logger::writer<writer_params> w, estd::variadic_v<first, rest...> /*unused*/) const {
+        if constexpr (sizeof...(rest) > 0) {
+            w.template write<true, false>(outside_name + "{align"_sl + string_literal::from<first.byte_size()> + ": "_sl, get<first>());
+            (w.template write<false, false>(", align"_sl + string_literal::from<rest.byte_size()> + ": "_sl , get<rest>()), ...);
+            w.template write<false, true>("}");
+        } else {
+            w.template write<true, true>(outside_name + "{align"_sl + string_literal::from<first.byte_size()> + ": "_sl, get<first>(), "}");
+        }
+    }
+
+public:
     template <typename writer_params>
     void log (const logger::writer<writer_params> w) const {
-        w.template write<true, true>(align_members_outside_name<Outside> + "{align1: "_sl, align1, ", align2: ", align2, ", align4: ", align4, ", align8: ", align8, "}");
+        log_(w, alignments{});
     }
 
+private:
+    template <typename Result, SIZE... alignments>
+    [[nodiscard]] static consteval Result zero_ (estd::variadic_v<alignments...> /*unused*/) { return Result{(static_cast<void>(alignments), 0)...}; }
+
+public:
     template <typename Result = AlignMembersBase>
-    [[nodiscard]] static consteval Result zero () { return Result{0, 0, 0, 0}; }
-};
-template<typename T, typename Outside>
-struct AlignMembersBase<T, SIZE::SIZE_4, Outside> {
-    T align1;
-    T align2;
-    T align4;
-
-    // NOLINTNEXTLINE(bugprone-crtp-constructor-accessibility) FALSE POSITIVE. WE DONT USE CRTP
-    constexpr AlignMembersBase() = default;
-
-    // NOLINTNEXTLINE(bugprone-crtp-constructor-accessibility) FALSE POSITIVE. WE DONT USE CRTP
-    constexpr AlignMembersBase (const T& align1, const T& align2, const T& align4)
-        : align1(align1), align2(align2), align4(align4) {}
-
-    #define ALIGN_MEMBER_GET_CT_ARG(RETURN_TYPE, CONST_ATTR)            \
-    template <SIZE size>                                                \
-    /* NOLINTNEXTLINE(bugprone-macro-parentheses) */                    \
-    [[nodiscard]] constexpr CONST_ATTR RETURN_TYPE& get () CONST_ATTR { \
-        if constexpr (size == SIZE::SIZE_4) {                           \
-            return align4;                                              \
-        } else if constexpr (size == SIZE::SIZE_2) {                    \
-            return align2;                                              \
-        } else if constexpr (size == SIZE::SIZE_1) {                    \
-            return align1;                                              \
-        } else {                                                        \
-            static_assert(false, "Invalid size");                       \
-        }                                                               \
-    }
-
-    #define ALIGN_MEMBER_GET_RT_ARG(RETURN_TYPE, CONST_ATTR)                        \
-    /* NOLINTNEXTLINE(bugprone-macro-parentheses) */                                \
-    [[nodiscard]] constexpr CONST_ATTR RETURN_TYPE& get (SIZE size) CONST_ATTR {    \
-        switch (size) {                                                             \
-            case SIZE::SIZE_1: return align1;                                       \
-            case SIZE::SIZE_2: return align2;                                       \
-            case SIZE::SIZE_4: return align4;                                       \
-            default: std::unreachable();                                            \
-        }                                                                           \
-    }
-
-    ALIGN_MEMBER_GET_CT_ARG(T, )
-    ALIGN_MEMBER_GET_CT_ARG(T, const)
-    ALIGN_MEMBER_GET_RT_ARG(T, )
-    ALIGN_MEMBER_GET_RT_ARG(T, const)
-
-    #undef ALIGN_MEMBER_GET_CT_ARG
-    #undef ALIGN_MEMBER_GET_RT_ARG
-
-    template <typename writer_params>
-    void log (const logger::writer<writer_params> w) const {
-        w.template write<true, true>(align_members_outside_name<Outside> + "{align1: "_sl, align1, ", align2: ", align2, ", align4: ", align4, "}");
-    }
-
-    template <typename Result = AlignMembersBase>
-    [[nodiscard]] static consteval Result zero () { return Result{0, 0, 0}; }
-};
-template<typename T, typename Outside>
-struct AlignMembersBase<T, SIZE::SIZE_2, Outside> {
-    T align1;
-    T align2;
-
-    // NOLINTNEXTLINE(bugprone-crtp-constructor-accessibility) FALSE POSITIVE. WE DONT USE CRTP
-    constexpr AlignMembersBase() = default;
-
-    // NOLINTNEXTLINE(bugprone-crtp-constructor-accessibility) FALSE POSITIVE. WE DONT USE CRTP
-    constexpr AlignMembersBase (const T& align1, const T& align2)
-        : align1(align1), align2(align2) {}
-
-    #define ALIGN_MEMBER_GET_CT_ARG(RETURN_TYPE, CONST_ATTR)            \
-    template <SIZE size>                                                \
-    /* NOLINTNEXTLINE(bugprone-macro-parentheses) */                    \
-    [[nodiscard]] constexpr CONST_ATTR RETURN_TYPE& get () CONST_ATTR { \
-        if constexpr (size == SIZE::SIZE_2) {                           \
-            return align2;                                              \
-        } else if constexpr (size == SIZE::SIZE_1) {                    \
-            return align1;                                              \
-        } else {                                                        \
-            static_assert(false, "Invalid size");                       \
-        }                                                               \
-    }
-
-    #define ALIGN_MEMBER_GET_RT_ARG(RETURN_TYPE, CONST_ATTR)                        \
-    /* NOLINTNEXTLINE(bugprone-macro-parentheses) */                                \
-    [[nodiscard]] constexpr CONST_ATTR RETURN_TYPE& get (SIZE size) CONST_ATTR {    \
-        switch (size) {                                                             \
-            case SIZE::SIZE_1: return align1;                                       \
-            case SIZE::SIZE_2: return align2;                                       \
-            default: std::unreachable();                                            \
-        }                                                                           \
-    }
-
-    ALIGN_MEMBER_GET_CT_ARG(T, )
-    ALIGN_MEMBER_GET_CT_ARG(T, const)
-    ALIGN_MEMBER_GET_RT_ARG(T, )
-    ALIGN_MEMBER_GET_RT_ARG(T, const)
-
-    #undef ALIGN_MEMBER_GET_CT_ARG
-    #undef ALIGN_MEMBER_GET_RT_ARG
-
-    template <typename writer_params>
-    void log (const logger::writer<writer_params> w) const {
-        w.template write<true, true>(align_members_outside_name<Outside> + "{align1: "_sl, align1, ", align2: ", align2, "}");
-    }
-
-    template <typename Result = AlignMembersBase>
-    [[nodiscard]] static consteval Result zero () { return Result{0, 0}; }
-};
-template<typename T, typename Outside>
-struct AlignMembersBase<T, SIZE::SIZE_1, Outside> {
-    T align1;
-
-    // NOLINTNEXTLINE(bugprone-crtp-constructor-accessibility) FALSE POSITIVE. WE DONT USE CRTP
-    constexpr AlignMembersBase() = default;
-
-    // NOLINTNEXTLINE(bugprone-crtp-constructor-accessibility) FALSE POSITIVE. WE DONT USE CRTP
-    constexpr explicit AlignMembersBase (const T& align1)
-        : align1(align1) {}
-
-    #define ALIGN_MEMBER_GET_CT_ARG(RETURN_TYPE, CONST_ATTR)            \
-    template <SIZE size>                                                \
-    /* NOLINTNEXTLINE(bugprone-macro-parentheses) */                    \
-    [[nodiscard]] constexpr CONST_ATTR RETURN_TYPE& get () CONST_ATTR { \
-        if constexpr (size == SIZE::SIZE_1) {                           \
-            return align1;                                              \
-        } else {                                                        \
-            static_assert(false, "Invalid size");                       \
-        }                                                               \
-    }
-
-    #define ALIGN_MEMBER_GET_RT_ARG(RETURN_TYPE, CONST_ATTR)                        \
-    /* NOLINTNEXTLINE(bugprone-macro-parentheses) */                                \
-    [[nodiscard]] constexpr CONST_ATTR RETURN_TYPE& get (SIZE size) CONST_ATTR {    \
-        switch (size) {                                                             \
-            case SIZE::SIZE_1: return align1;                                       \
-            default: std::unreachable();                                            \
-        }                                                                           \
-    }
-
-    ALIGN_MEMBER_GET_CT_ARG(T, )
-    ALIGN_MEMBER_GET_CT_ARG(T, const)
-    ALIGN_MEMBER_GET_RT_ARG(T, )
-    ALIGN_MEMBER_GET_RT_ARG(T, const)
-
-    #undef ALIGN_MEMBER_GET_CT_ARG
-    #undef ALIGN_MEMBER_GET_RT_ARG
-
-    template <typename writer_params>
-    void log (const logger::writer<writer_params> w) const {
-        w.template write<true, true>(align_members_outside_name<Outside> + "{align1: "_sl, align1, "}");
-    }
-
-    template <typename Result = AlignMembersBase>
-    [[nodiscard]] static consteval Result zero () { return Result{0}; }
+    [[nodiscard]] static consteval Result zero () { return zero_<Result>(alignments{}); }
 };
 
-template <SIZE alignemnt, typename T>
-[[nodiscard]] constexpr auto& get_align_member (T& t) {
-    if constexpr (alignemnt == SIZE::SIZE_8) {
-        return t.align8;
-    } else if constexpr (alignemnt == SIZE::SIZE_4) {
-        return t.align4;
-    } else if constexpr (alignemnt == SIZE::SIZE_2) {
-        return t.align2;
-    } else if constexpr (alignemnt == SIZE::SIZE_1) {
-        return t.align1;
-    } else {
-        static_assert(false, "Invalid size");
-    }
-}
+constexpr AlignMembersBase<int, SIZE::SIZE_4> amb = AlignMembersBase<int, SIZE::SIZE_4>::zero();;
 
 template <FIELD_TYPE field_type>
 [[nodiscard]] consteval SIZE get_type_alignment () {
@@ -475,38 +324,39 @@ template <std::integral T>
 }
 
 struct LeafCounts {
-    struct Counts : AlignMembersBase<uint16_t, SIZE::SIZE_8, Counts> {
+    struct Counts : AlignMembersBase<uint16_t, SIZE::SIZE_8, SIZE::SIZE_1, Counts> {
         using AlignMembersBase::AlignMembersBase;
 
         [[nodiscard]] constexpr uint16_t total () const {
-            return align1 + align2 + align4 + align8;
+            return get<SIZE::SIZE_1>() + get<SIZE::SIZE_2>() + get<SIZE::SIZE_4>() + get<SIZE::SIZE_8>();
         }
 
-        template <SIZE limit = lexer::SIZE::SIZE_8>
-        requires (limit >= SIZE::SIZE_1 && limit <= SIZE::SIZE_8)
-        [[nodiscard]] constexpr SIZE largest_align () const {
-            if constexpr (limit >= SIZE::SIZE_8) {
-                if (align8 != 0) return SIZE::SIZE_8;
-            }
-            if constexpr (limit >= SIZE::SIZE_4) {
-                if (align4 != 0) return SIZE::SIZE_4;
-            }
-            if constexpr (limit >= SIZE::SIZE_2) {
-                if (align2 != 0) return SIZE::SIZE_2;
-            }
+    private:
+        template <SIZE... alignments_to_check>
+        [[nodiscard]] constexpr SIZE largest_align_ (estd::variadic_v<alignments_to_check...> /*unused*/) const {
+            SIZE result;
+            const bool checked_matched = (((get<alignments_to_check>() != 0) ? (result = alignments_to_check, true) : false) || ...);
+            if (checked_matched) return result;
             return SIZE::SIZE_1;
         }
 
+    public:
+        template <SIZE limit = lexer::SIZE::SIZE_8>
+        requires (limit >= SIZE::SIZE_1 && limit <= SIZE::SIZE_8)
+        [[nodiscard]] constexpr SIZE largest_align () const {
+            return largest_align_(estd::make_index_range<SIZE::SIZE_2, SIZE::SIZE_8 + 1>::map<SIZE::Mapped>{});
+        }
+        
         [[nodiscard]] static consteval Counts zero () { return AlignMembersBase::zero<Counts>(); }
         [[nodiscard]] static constexpr Counts of (uint16_t value) { return {value, value, value, value}; }
     };
 
     uint64_t data;
 
-    static_assert(offsetof(Counts, align1) == 0
-               && offsetof(Counts, align2) == 2
-               && offsetof(Counts, align4) == 4
-               && offsetof(Counts, align8) == 6);
+    // static_assert(offsetof(Counts, align[static_cast<SIZE::value_t>(SIZE::SIZE_1)]) == 0
+    //            && offsetof(Counts, align[static_cast<SIZE::value_t>(SIZE::SIZE_2)]) == 2
+    //            && offsetof(Counts, align[static_cast<SIZE::value_t>(SIZE::SIZE_4)]) == 4
+    //            && offsetof(Counts, align[static_cast<SIZE::value_t>(SIZE::SIZE_8)]) == 6);
 
     constexpr LeafCounts () = default;
     constexpr explicit LeafCounts (Counts counts) : data(std::bit_cast<uint64_t>(counts)) {}
@@ -548,60 +398,63 @@ struct LeafCounts {
     }
 };
 
-struct LeafSizes : AlignMembersBase<uint64_t, SIZE::SIZE_8, LeafSizes> {
+struct LeafSizes : AlignMembersBase<uint64_t, SIZE::SIZE_8, SIZE::SIZE_1, LeafSizes> {
     using AlignMembersBase::AlignMembersBase;
-    constexpr explicit LeafSizes (const LeafCounts::Counts& counts) : AlignMembersBase{counts.align1, counts.align2, counts.align4, counts.align8} {}
+    constexpr explicit LeafSizes (const LeafCounts::Counts& counts)
+    : AlignMembersBase{counts.get<SIZE::SIZE_1>(), counts.get<SIZE::SIZE_2>(), counts.get<SIZE::SIZE_4>(), counts.get<SIZE::SIZE_8>()} {}
 
     constexpr LeafSizes& operator += (const LeafSizes& other) {
-        align1 += other.align1;
-        align2 += other.align2;
-        align4 += other.align4;
-        align8 += other.align8;
+        get<SIZE::SIZE_1>() += other.get<SIZE::SIZE_1>();
+        get<SIZE::SIZE_2>() += other.get<SIZE::SIZE_2>();
+        get<SIZE::SIZE_4>() += other.get<SIZE::SIZE_4>();
+        get<SIZE::SIZE_8>() += other.get<SIZE::SIZE_8>();
         return *this;
     }
 
     [[nodiscard]] constexpr LeafSizes operator + (const LeafSizes& other) const {
         return {
-            align1 + other.align1,
-            align2 + other.align2,
-            align4 + other.align4,
-            align8 + other.align8
+            get<SIZE::SIZE_1>() + other.get<SIZE::SIZE_1>(),
+            get<SIZE::SIZE_2>() + other.get<SIZE::SIZE_2>(),
+            get<SIZE::SIZE_4>() + other.get<SIZE::SIZE_4>(),
+            get<SIZE::SIZE_8>() + other.get<SIZE::SIZE_8>()
         };
     }
     [[nodiscard]] constexpr LeafSizes operator * (const uint32_t factor) const {
         return {
-            align1 * factor,
-            align2 * factor,
-            align4 * factor,
-            align8 * factor
+            get<SIZE::SIZE_1>() * factor,
+            get<SIZE::SIZE_2>() * factor,
+            get<SIZE::SIZE_4>() * factor,
+            get<SIZE::SIZE_8>() * factor
         };
     }
 
     [[nodiscard]] constexpr bool operator > (const LeafSizes& other) const {
-        if (align8 > other.align8) return true;
-        if (align4 > other.align4) return true;
-        if (align2 > other.align2) return true;
-        if (align1 > other.align1) return true;
+        if (get<SIZE::SIZE_1>() > other.get<SIZE::SIZE_1>()) return true;
+        if (get<SIZE::SIZE_2>() > other.get<SIZE::SIZE_2>()) return true;
+        if (get<SIZE::SIZE_4>() > other.get<SIZE::SIZE_4>()) return true;
+        if (get<SIZE::SIZE_8>() > other.get<SIZE::SIZE_8>()) return true;
         return false;
     }
 
     [[nodiscard]] constexpr bool operator < (const LeafSizes& other) const {
-        if (align8 < other.align8) return true;
-        if (align4 < other.align4) return true;
-        if (align2 < other.align2) return true;
-        if (align1 < other.align1) return true;
+        if (get<SIZE::SIZE_1>() < other.get<SIZE::SIZE_1>()) return true;
+        if (get<SIZE::SIZE_2>() < other.get<SIZE::SIZE_2>()) return true;
+        if (get<SIZE::SIZE_4>() < other.get<SIZE::SIZE_4>()) return true;
+        if (get<SIZE::SIZE_8>() < other.get<SIZE::SIZE_8>()) return true;
         return false;
     }
 
-    [[nodiscard]] constexpr uint64_t total () const { return align1 + align2 + align4 + align8; }
+    [[nodiscard]] constexpr uint64_t total () const {
+        return get<SIZE::SIZE_1>() + get<SIZE::SIZE_2>() + get<SIZE::SIZE_4>() + get<SIZE::SIZE_8>();
+    }
 
     [[nodiscard]] constexpr bool empty () const {
         return total() == 0;
     }
 
-    template <SIZE... sizes>
+    template <SIZE... alignments>
     [[nodiscard]] constexpr uint64_t sum_sizes () {
-        return (... + get<sizes>());
+        return (... + get<alignments>());
     }
 
     [[nodiscard]] static consteval LeafSizes zero () { return AlignMembersBase::zero<LeafSizes>(); }
@@ -646,19 +499,6 @@ struct LeafSizes : AlignMembersBase<uint64_t, SIZE::SIZE_8, LeafSizes> {
         }
     }
 };
-
-template <SIZE size, bool as_const = true>
-[[nodiscard, gnu::always_inline]] constexpr estd::conditional_const_t<as_const, uint64_t>& get_size (estd::conditional_const_t<as_const, LeafSizes>& sizes) {
-    if constexpr (size == SIZE::SIZE_8) {
-        return sizes.align8;
-    } else if constexpr (size == SIZE::SIZE_4) {
-        return sizes.align4;
-    } else if constexpr (size == SIZE::SIZE_2) {
-        return sizes.align2;
-    } else {
-        return sizes.align1;
-    }
-}
 
 struct IdentifiedDefinition {
     KEYWORDS keyword;
