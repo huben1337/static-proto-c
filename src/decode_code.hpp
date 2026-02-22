@@ -1,5 +1,7 @@
 #pragma once
 
+#include <algorithm>
+#include <array>
 #include <bit>
 #include <chrono>
 #include <cstddef>
@@ -92,21 +94,43 @@ struct OffsetsAccessor {
     }
 };
 
-[[nodiscard]] constexpr std::string_view get_size_type_str (lexer::SIZE size) {
-    switch (size)
-    {
-    case lexer::SIZE::SIZE_1:
-        return "uint8_t";
-    case lexer::SIZE::SIZE_2:
-        return "uint16_t";
-    case lexer::SIZE::SIZE_4:
-        return "uint32_t";
-    case lexer::SIZE::SIZE_8:
-        return "uint64_t";
-    default:
-        INTERNAL_ERROR("[get_size_type_str] invalid size");
+
+
+
+struct SizeTypeStrs {
+private:
+
+    template <lexer::SIZE size>
+    static constexpr StringLiteral size_type_str_v = "uint"_sl + string_literal::from<size.byte_size() * 8> + "_t"_sl;
+
+    template <lexer::SIZE... sizes>
+    struct size_type_strs_size {
+        static constexpr size_t value = (size_type_str_v<sizes>.size() + ...);
+    };
+
+    static constexpr size_t types_count = lexer::SIZE::MAX + 2;
+
+    char data[lexer::SIZE::enums::template apply<size_type_strs_size>::value];
+    std::string_view views[types_count];
+
+    // NOLINTNEXTLINE(cppcoreguidelines-pro-type-member-init). consteval dissallows uninitialized objects, so we use this to garuantee that our string wrting works
+    consteval SizeTypeStrs () {
+        char* data_pos = data;
+        lexer::SIZE::enums::foreach([&, this]<lexer::SIZE size>() {
+            constexpr StringLiteral type_str = size_type_str_v<size>;
+            std::copy_n(type_str.begin(), type_str.size(), data_pos);
+            views[size] = {data_pos, type_str.size()};
+            data_pos += type_str.size();
+        });
+    };
+
+public:
+    [[nodiscard]] static constexpr std::string_view get (const lexer::SIZE size) {
+        BSSERT(size <= lexer::SIZE::MAX);
+        static constexpr SizeTypeStrs instance = SizeTypeStrs{};
+        return instance.views[size];
     }
-}
+};
 
 struct ArrayLengths {
     const uint32_t* data;
@@ -404,8 +428,8 @@ template <estd::conceptify<estd::is_not<std::is_reference>::type> CodeT>
         auto [min_size, idx, size_size, stored_size_size] = level_size_leafs[i];
         const FixedOffset& offset = fixed_offsets[idx];
         struct_code = std::move(struct_code)
-        .method(codegen::Attributes{"static"}, get_size_type_str(size_size), codegen::StringParts{"size", i}, codegen::Args{"size_t base"})
-            .line("return *reinterpret_cast<", get_size_type_str(stored_size_size), "*>(base + ", offset.get_offset(), ");")
+        .method(codegen::Attributes{"static"}, SizeTypeStrs::get(size_size), codegen::StringParts{"size", i}, codegen::Args{"size_t base"})
+            .line("return *reinterpret_cast<", SizeTypeStrs::get(stored_size_size), "*>(base + ", offset.get_offset(), ");")
         .end();
     }
     return std::move(struct_code);
@@ -716,7 +740,7 @@ struct TypeVisitor {
 
     [[nodiscard]] codegen::UnknownStructBase on_fixed_string (const lexer::FixedStringType* const fixed_string_type, codegen::UnknownStructBase&& code) const {
         const uint32_t length = fixed_string_type->length;
-        const std::string_view size_type_str =  get_size_type_str(fixed_string_type->length_size);
+        const std::string_view size_type_str =  SizeTypeStrs::get(fixed_string_type->length_size);
 
         const ArrayCtorStrs array_ctor_strs = ArrayCtorStrs::make(array_depth);
 
@@ -768,7 +792,7 @@ struct TypeVisitor {
         } else {
             const lexer::SIZE size_size = string_type->size_size;
             const lexer::SIZE stored_size_size = string_type->stored_size_size;
-            const std::string_view size_type_str = get_size_type_str(size_size);
+            const std::string_view size_type_str = SizeTypeStrs::get(size_size);
             const Buffer::View<uint64_t> size_chain = offsets_accessor.next_var_offset();
 
             const ArrayCtorStrs array_ctor_strs = ArrayCtorStrs::make(array_depth);
@@ -798,7 +822,7 @@ struct TypeVisitor {
             if constexpr (is_dynamic_variant_element<Args>) {
                 const uint64_t offset = offsets_accessor.next_fixed_offset();
                 string_size_method = std::move(string_size_method)
-                    .line("return ", string_type->min_length, " + *reinterpret_cast<", get_size_type_str(stored_size_size), "*>(base + ", offset, ");");
+                    .line("return ", string_type->min_length, " + *reinterpret_cast<", SizeTypeStrs::get(stored_size_size), "*>(base + ", offset, ");");
             } else {
                 level_size_leafs[size_leaf_idx] = {
                     string_type->min_length,
@@ -828,7 +852,7 @@ struct TypeVisitor {
 
     [[nodiscard]] result_t on_fixed_array (const lexer::ArrayType* const fixed_array_type, codegen::UnknownStructBase&& code) const {
         const uint32_t length = fixed_array_type->length;
-        const std::string_view size_type_str = get_size_type_str(fixed_array_type->size_size);
+        const std::string_view size_type_str = SizeTypeStrs::get(fixed_array_type->size_size);
 
         const ArrayCtorStrs array_ctor_strs = ArrayCtorStrs::make(array_depth);
 
@@ -914,7 +938,7 @@ struct TypeVisitor {
         } else {
             const lexer::SIZE size_size = array_type->size_size;
             const lexer::SIZE stored_size_size = array_type->stored_size_size;
-            const std::string_view size_type_str = get_size_type_str(size_size);
+            const std::string_view size_type_str = SizeTypeStrs::get(size_size);
 
             const ArrayCtorStrs array_ctor_strs = ArrayCtorStrs::make(0);
 
