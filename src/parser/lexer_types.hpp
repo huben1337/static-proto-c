@@ -96,6 +96,8 @@ public:
     [[nodiscard]] static SIZE from_integral (const T i) {
         return SIZE{gsl::narrow_cast<value_t>(i % gsl::narrow_cast<value_t>(MAX.value + 1))};
     }
+
+    struct enums;
 };
 
 
@@ -120,6 +122,8 @@ struct SIZE::Mapped {
      || value == SIZE::SIZE_8
     );
 };
+
+struct SIZE::enums : estd::variadic_v<SIZE_1, SIZE_2, SIZE_4, SIZE_8> {};
 
 // namespace _size_detail {
 //     template <typename Visitor, SIZE size>
