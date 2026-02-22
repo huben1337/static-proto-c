@@ -25,7 +25,7 @@
 #include "../util/logger.hpp"
 #include "../helper/alloca.hpp"
 
-struct AlignedFields {
+struct AlignedFields : estd::no_copy {
     std::vector<uint16_t> idxs;
     uint64_t size_sum = 0;
 };
@@ -38,10 +38,32 @@ enum class STATE_TYPE : uint8_t {
 
 
 template<lexer::SIZE max_align>
-struct Fields : lexer::AlignMembersBase<AlignedFields, max_align.next_smaller(), lexer::SIZE::SIZE_1, Fields<max_align>> {};
+struct Fields : lexer::AlignMembersBase<AlignedFields, max_align.next_smaller(), lexer::SIZE::SIZE_1, Fields<max_align>> {
+    using Base = lexer::AlignMembersBase<AlignedFields, max_align.next_smaller(), lexer::SIZE::SIZE_1, Fields>;
+    using Base::Base;
+
+    template <lexer::SIZE new_max_align, lexer::SIZE... alignments>
+    requires (new_max_align < max_align)
+    constexpr Fields<new_max_align> extract_ (this Fields&& self, estd::variadic_v<alignments...> /*unused*/) {
+        return Fields<new_max_align>{std::move(self.template get<alignments>())...};
+    }
+
+    template <lexer::SIZE new_max_align>
+    requires (new_max_align < max_align)
+    constexpr Fields<new_max_align> extract (this Fields&& self) {
+        if constexpr (new_max_align > lexer::SIZE::SIZE_1) {
+            return std::move(self).template extract_<new_max_align>(
+                typename estd::make_index_range<lexer::SIZE::SIZE_1, new_max_align>::template map<lexer::SIZE::Mapped>{});
+        } else {
+            return Fields<new_max_align>{};
+        }
+    }
+};
 
 template<>
-struct Fields<lexer::SIZE::SIZE_1> : estd::empty {};
+struct Fields<lexer::SIZE::SIZE_1> : estd::empty {
+    using empty::empty;
+};
 
 template <lexer::SIZE target_align>
 void enqueueing_for_level (auto& level, const uint16_t idx) {
@@ -329,15 +351,22 @@ public:
         self.template enqueue<alignment>(QueuedField{size, ArrayFieldPack{self.template move_to_tmp<alignment>(fixed_offset_idxs), pack_info_idx}});
     }
 
-    template <lexer::SIZE alignment>
+private:
+    template <lexer::SIZE... alignments>
+    void next_variant_packs_ (
+        this const auto& self,
+        const PendingVariantFieldPacks packs,
+        estd::variadic_v<alignments...> /*unused*/
+    ) {
+        (..., self.template next_variant_pack<alignments>(packs.get<alignments>()));
+    }
+
+public:
     void next_variant_packs (
         this const auto& self,
         const PendingVariantFieldPacks packs
     ) {
-        self.template next_variant_pack<lexer::SIZE::SIZE_8>(packs.get<lexer::SIZE::SIZE_8>());
-        self.template next_variant_pack<lexer::SIZE::SIZE_4>(packs.get<lexer::SIZE::SIZE_4>());
-        self.template next_variant_pack<lexer::SIZE::SIZE_2>(packs.get<lexer::SIZE::SIZE_2>());
-        self.template next_variant_pack<lexer::SIZE::SIZE_1>(packs.get<lexer::SIZE::SIZE_1>());
+        self.next_variant_packs_(packs, PendingVariantFieldPacks::alignments::apply<estd::reverse_variadic_v_t>{});
     }
 
     template <lexer::SIZE alignment>

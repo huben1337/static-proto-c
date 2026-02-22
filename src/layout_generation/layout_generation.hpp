@@ -293,7 +293,7 @@ struct TypeVisitor {
 
         BSSERT(state.get_fixed_offset_idx() == fixed_offset_idx_begin_bak); // Inside variants no fixed_offsets should be added directy.
 
-        state.template next_variant_packs<lexer::SIZE::SIZE_8>(
+        state.next_variant_packs(
             variant_layout::apply_layout<lexer::SIZE::SIZE_8>(
                 queued_fields_buffer,
                 state.const_state.shared().fixed_offsets,
