@@ -70,6 +70,9 @@ struct SIZE : estd::ENUM_CLASS<uint8_t, SIZE> {
         return value_t{1} << value;
     }
 
+    template <typename Result, auto... target_sizes, typename Visitor>
+    [[nodiscard]] constexpr Result visit (this const SIZE& self, estd::variadic_v<target_sizes...> /*unused*/, Visitor&& visitor);
+
 private:
     static void next_smaller_is_invalid_for_this_size () {}
     static void next_bigger_is_invalid_for_this_size () {}
@@ -118,6 +121,25 @@ struct SIZE::Mapped {
     );
 };
 
+// namespace _size_detail {
+//     template <typename Visitor, SIZE size>
+//     concept size_visitor_applicable = requires (Visitor&& visitor) {
+//         { visitor.template operator()<size>() } -> estd::conceptify<estd::is_any_t>;
+//     };
+// }
+
+template <typename Result, auto... target_sizes, typename Visitor>
+[[nodiscard]] constexpr Result SIZE::visit (this const SIZE& self, estd::variadic_v<target_sizes...> /*unused*/, Visitor&& visitor) {
+    switch (self.value) {
+        case SIZE_1: if constexpr (((target_sizes == SIZE_1) || ...)) { return visitor.template operator()<SIZE_1>(); } else { std::unreachable(); };
+        case SIZE_2: if constexpr (((target_sizes == SIZE_2) || ...)) { return visitor.template operator()<SIZE_2>(); } else { std::unreachable(); };
+        case SIZE_4: if constexpr (((target_sizes == SIZE_4) || ...)) { return visitor.template operator()<SIZE_4>(); } else { std::unreachable(); };
+        case SIZE_8: if constexpr (((target_sizes == SIZE_8) || ...)) { return visitor.template operator()<SIZE_8>(); } else { std::unreachable(); };
+        case SIZE_0: if constexpr (((target_sizes == SIZE_0) || ...)) { return visitor.template operator()<SIZE_0>(); } else { std::unreachable(); };
+        default: std::unreachable();
+    }
+}
+
 namespace {
     struct size_helper {
         template <SIZE size>
@@ -127,6 +149,7 @@ namespace {
         template <SIZE size>
         requires (size != SIZE::SIZE_0 && size != SIZE::SIZE_8)
         static constexpr SIZE next_bigger_size {size + 1};
+        
     };
 }
 
