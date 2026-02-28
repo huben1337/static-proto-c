@@ -97,6 +97,11 @@ public:
         return SIZE{gsl::narrow_cast<value_t>(i % gsl::narrow_cast<value_t>(MAX.value + 1))};
     }
 
+    template <typename writer_params>
+    void log (const logger::writer<writer_params> w) const {
+        w.template write<true, true>(outside_name + "_"_sl, byte_size());
+    }
+
     struct enums;
 };
 
@@ -134,7 +139,7 @@ struct SIZE::enums : estd::variadic_v<SIZE_1, SIZE_2, SIZE_4, SIZE_8> {};
 
 template <typename Result, auto... target_sizes, typename... U, typename Visitor>
 [[nodiscard]] constexpr Result SIZE::visit (this const SIZE& self, estd::variadic_v<target_sizes...> /*unused*/, Visitor&& visitor, U&&... args) {
-    switch (self.value) {
+    switch (self) {
         case SIZE_1: if constexpr (((target_sizes == SIZE_1) || ...)) { return visitor.template operator()<SIZE_1>(std::forward<U>(args)...); } else { std::unreachable(); };
         case SIZE_2: if constexpr (((target_sizes == SIZE_2) || ...)) { return visitor.template operator()<SIZE_2>(std::forward<U>(args)...); } else { std::unreachable(); };
         case SIZE_4: if constexpr (((target_sizes == SIZE_4) || ...)) { return visitor.template operator()<SIZE_4>(std::forward<U>(args)...); } else { std::unreachable(); };
@@ -259,7 +264,9 @@ public:
         if constexpr (min_alignment == max_alignment) {
             return min_alignment;
         } else {
-            return largest_align_(typename estd::make_index_range<min_alignment + 1, max_alignment + 1>::template map<SIZE::Mapped>{});
+            return largest_align_(typename estd::make_index_range<min_alignment + 1, max_alignment + 1>
+                    ::template apply<estd::reverse_variadic_v_t>
+                    ::template map<SIZE::Mapped>{});
         }
     }
 
