@@ -407,15 +407,12 @@ public:
 
     void next_simple (
         this const auto& self,
-        const lexer::SIZE alignment, const uint64_t count = 1
+        const lexer::SIZE alignment,
+        const uint64_t count = 1
     ) {
-        switch (alignment) {
-            case lexer::SIZE::SIZE_8: return self.template next_simple<lexer::SIZE::SIZE_8>(count);
-            case lexer::SIZE::SIZE_4: return self.template next_simple<lexer::SIZE::SIZE_4>(count);
-            case lexer::SIZE::SIZE_2: return self.template next_simple<lexer::SIZE::SIZE_2>(count);
-            case lexer::SIZE::SIZE_1: return self.template next_simple<lexer::SIZE::SIZE_1>(count);
-            default: std::unreachable();
-        }
+        alignment.visit<void>(lexer::SIZE::enums{}, []<lexer::SIZE alignment>(const auto& self, const uint64_t count) {
+            self.template next_simple<alignment>(count);
+        }, self, count);
     }
 
     template <lexer::SIZE alignment>
@@ -628,14 +625,10 @@ public:
         BSSERT(find_target<target_align>() == 0);
     }
 
-    void try_solve_queued_for_align (const lexer::SIZE target_align) const {
-        switch (target_align) {
-            case lexer::SIZE::SIZE_8: return try_solve_queued_for_align<lexer::SIZE::SIZE_8>();
-            case lexer::SIZE::SIZE_4: return try_solve_queued_for_align<lexer::SIZE::SIZE_4>();
-            case lexer::SIZE::SIZE_2: return try_solve_queued_for_align<lexer::SIZE::SIZE_2>();
-            case lexer::SIZE::SIZE_1: return try_solve_queued_for_align<lexer::SIZE::SIZE_1>();
-            default: std::unreachable();
-        }
+    void try_solve_queued_for_align (this const TrivialLevelStateBase& self, const lexer::SIZE target_align) {
+        target_align.visit<void>(lexer::SIZE::enums{}, []<lexer::SIZE alignment>(const TrivialLevelStateBase& self) {
+            self.try_solve_queued_for_align<alignment>();
+        }, self);
     }
 };
 
