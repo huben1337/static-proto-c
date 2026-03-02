@@ -9,6 +9,7 @@
 #include <immintrin.h>
 #include <xmmintrin.h>
 
+
 namespace dp_bitset_base {
 
 using num_t = uint64_t;
@@ -18,12 +19,24 @@ using num_t = uint64_t;
 using word_t = __m512i;
 using lane_t = uint64_t;
 
+#define mmXXX_setzero_siXXX _mm512_setzero_si512
+#define mmXXX_and_siXXX _mm512_and_si512
+#define mmXXX_or_siXXX _mm512_or_si512
+#define mmXXX_mask_set1_epi64 _mm512_mask_set1_epi64
+#define mmXXX_movm_epi64 _mm512_movm_epi64
+
 #elif __AVX2__
 
 #include <utility>
 
 using word_t = __m256i;
 using lane_t = uint64_t;
+
+#define mmXXX_setzero_siXXX _mm256_setzero_si256
+#define mmXXX_and_siXXX _mm256_and_si256
+#define mmXXX_or_siXXX _mm256_or_si256
+#define mmXXX_mask_set1_epi64 _mm256_mask_set1_epi64
+#define mmXXX_movm_epi64 _mm256_movm_epi64
 
 #else
 
@@ -39,13 +52,156 @@ constexpr size_t LANE_BITS = LANE_BYTES * 8;
 constexpr size_t WORD_LANE_COUNT = WORD_BYTES / LANE_BYTES;
 
 
-[[gnu::always_inline]] constexpr num_t bitset_word_count (num_t target) {
+[[nodiscard, gnu::always_inline]] constexpr num_t bitset_word_count (num_t target) {
     return (target + WORD_BITS) / WORD_BITS;
 }
 
-constexpr bool bit_at (word_t* words, num_t target) {
+[[nodiscard]] constexpr bool bit_at (word_t* words, num_t target) {
     return (reinterpret_cast<uint8_t*>(words)[target / 8] & (uint8_t{1} << (target % 8))) != 0;
 }
+
+enum OnesStrategys : uint8_t {
+    FULL_LUT,
+    HYBRID_LUT_SCALAR,
+    HYBRID_LUT_VECTOR,
+    ARITHMETIC_SCALAR,
+    ARITHMETIC_VECTOR
+};
+
+enum FillDirection : uint8_t {
+    TO,
+    FROM
+};
+
+namespace detail {
+    template <FillDirection direction>
+    [[nodiscard, gnu::always_inline]] constexpr slane_t make_partial_lane (const uint16_t n) {
+        const auto remaining = n % LANE_BITS;
+        if constexpr (direction == TO) {
+            return std::bit_cast<slane_t>((lane_t{1} << remaining) - 1);
+        } else {
+            return std::bit_cast<slane_t>(-(lane_t{1} << remaining));
+        }
+    }
+
+    template <FillDirection direction>
+    [[nodiscard, gnu::always_inline]] constexpr __mmask8 make_lane_value_mask (const __mmask8 full_lane_mask) {
+        if constexpr (direction == TO) {
+            return full_lane_mask - 1;
+        } else {
+            return -full_lane_mask;
+        }
+    }
+}
+
+
+// 0 <= n < WORD_BITS
+template <FillDirection direction, OnesStrategys strategy = HYBRID_LUT_VECTOR>
+[[nodiscard, gnu::always_inline]] constexpr word_t ones (const uint16_t n) {
+    if constexpr (strategy == FULL_LUT) {
+        struct Table {
+            word_t data[WORD_BITS];
+            consteval Table () {
+                for (size_t i = 0; i < WORD_BITS; i++) {
+                    data[i] = ones<direction, HYBRID_LUT_VECTOR>(i);
+                }
+            }
+        };
+        constexpr Table table {};
+
+        return table.data[n];
+    } else {
+        const size_t lane_idx = n / LANE_BITS;
+
+        if constexpr (strategy == HYBRID_LUT_SCALAR || strategy == HYBRID_LUT_VECTOR) {
+            struct Table {
+                word_t data[WORD_LANE_COUNT];
+                consteval Table () {
+                    for (size_t i = 0; i < WORD_LANE_COUNT; i++) {
+                        word_t word {};
+                        for (
+                            size_t j = direction == TO ? 0 : i;
+                            j < (direction == TO ? i : WORD_LANE_COUNT);
+                            j++
+                        ) {
+                            word[j] = -1;
+                        }
+                        data[i] = word;
+                    }
+                }
+            };
+            constexpr Table full_lane_words {};
+
+            #define MAKE_WORD() full_lane_words.data[lane_idx]
+
+            if constexpr (strategy == HYBRID_LUT_SCALAR) {
+                return mmXXX_mask_set1_epi64(
+                    MAKE_WORD(),
+                    __mmask8{1} << lane_idx,
+                    detail::make_partial_lane<direction>(n)
+                );
+            } else {
+                word_t word = MAKE_WORD();
+                word[lane_idx] = detail::make_partial_lane<direction>(n);
+                return word;
+            }
+
+            #undef MAKE_WORD
+        } else {
+            const __mmask8 full_words_mask = __mmask8{1} << lane_idx;
+
+            #define MAKE_WORD() mmXXX_movm_epi64(detail::make_lane_value_mask<direction>(full_words_mask))
+
+            if constexpr (strategy == ARITHMETIC_SCALAR) {
+                return mmXXX_mask_set1_epi64(
+                    MAKE_WORD(),
+                    full_words_mask,
+                    detail::make_partial_lane<direction>(n)
+                );
+            } else {
+                word_t word = MAKE_WORD();
+                word[lane_idx] = detail::make_partial_lane<direction>(n);
+                return word;
+            }
+
+            #undef MAKE_WORD
+        }
+    }
+}
+
+inline void and_merge (word_t* const bigger_bits, word_t* const smaller_bits, const num_t smaller_bits_count, const num_t word_offset = 0) {   
+    const num_t full_bitset_words = smaller_bits_count / WORD_BITS;
+    for (num_t i = 0; i < full_bitset_words; i++) {
+        const num_t j = i + word_offset;
+        bigger_bits[j] = mmXXX_and_siXXX(bigger_bits[j], smaller_bits[i]);
+    }
+
+    const uint16_t left_over_bits = smaller_bits_count - (full_bitset_words * WORD_BITS);
+    
+    if (left_over_bits != 0) {
+        const num_t& i = full_bitset_words;
+        const num_t j = i + word_offset;
+
+        bigger_bits[j] = mmXXX_and_siXXX(
+            bigger_bits[j],
+            mmXXX_or_siXXX(smaller_bits[i], ones<FROM>(left_over_bits))
+        );
+    }
+}
+
+[[gnu::always_inline]] inline void init_bits (word_t* const words, const num_t word_count) {
+    #if __AVX512DQ__
+        words[0] = _mm512_set_epi64(0, 0, 0, 0, 0, 0, 0, 1);
+    #elif __AVX2__
+        words[0] = _mm256_set_epi64x(0, 0, 0, 1);
+    #else
+        #error
+    #endif
+    for (word_t* p = words + 1; p < words + word_count; p++) {
+        p[0] = mmXXX_setzero_siXXX();
+    }
+}
+
 
 #if __AVX512DQ__
 
@@ -61,16 +217,7 @@ constexpr __m512i mm512_lsl_epi64_idxs[9] {
     {0|8, 1|8, 2|8, 3|8, 4|8, 5|8, 6|8, 7|8}
 };
 
-constexpr __m512i shift_one_idx = mm512_lsl_epi64_idxs[1];
-
 #define mm512_lsl_epi64_(A, B, N) _mm512_permutex2var_epi64(A, mm512_lsl_epi64_idxs[N], B)
-
-[[gnu::always_inline]] inline void init_bits (word_t* const words, const num_t word_count) {
-    words[0] = _mm512_set_epi64(0, 0, 0, 0, 0, 0, 0, 1);
-    for (word_t* p = words + 1; p < words + word_count; p++) {
-        p[0] = _mm512_setzero_si512();
-    }
-}
 
 [[gnu::always_inline]] inline void apply_num_unsafe (const num_t num, word_t* const words, num_t word_count) {
     const uint8_t bit_shift = num % LANE_BITS;
@@ -90,7 +237,7 @@ constexpr __m512i shift_one_idx = mm512_lsl_epi64_idxs[1];
             
             word_t curr_bit_shifted = _mm512_or_si512(
                 _mm512_slli_epi64(curr, bit_shift),
-                _mm512_permutex2var_epi64(ovflw, shift_one_idx, prev_ovflw)
+                mm512_lsl_epi64_(ovflw, prev_ovflw, 1)
             );
             prev_ovflw = ovflw;
 
@@ -113,7 +260,7 @@ constexpr __m512i shift_one_idx = mm512_lsl_epi64_idxs[1];
             word_t ovflw = _mm512_srli_epi64(curr, rbit_shift);
             word_t curr_bit_shifted = _mm512_or_si512(
                 _mm512_slli_epi64(curr, bit_shift),
-                _mm512_permutex2var_epi64(ovflw, shift_one_idx, prev_ovflw)
+                mm512_lsl_epi64_(ovflw, prev_ovflw, 1)
             );
             prev_ovflw = ovflw;
 
@@ -140,7 +287,7 @@ constexpr __m512i shift_one_idx = mm512_lsl_epi64_idxs[1];
                 word_t ovflw = _mm512_srli_epi64(curr, rbit_shift);
                 word_t curr_bit_shifted = _mm512_or_si512(
                     _mm512_slli_epi64(curr, bit_shift),
-                    _mm512_permutex2var_epi64(ovflw, shift_one_idx, prev_ovflw)
+                    mm512_lsl_epi64_(ovflw, prev_ovflw, 1)
                 );
 
                 buffer[j] = _mm512_or_si512(
@@ -165,74 +312,12 @@ constexpr __m512i shift_one_idx = mm512_lsl_epi64_idxs[1];
     }
 }
 
-// 0 <= n < 512
-[[gnu::always_inline]] constexpr __m512i ones_up_to_n (const uint16_t n) {
-    const size_t full_words = n / LANE_BITS;
-    const size_t remaining = n % LANE_BITS;
-
-    constexpr __m512i mm512_full_lane_parts[8] {
-        { 0,  0,  0,  0,  0,  0,  0,  0},
-        {-1,  0,  0,  0,  0,  0,  0,  0},
-        {-1, -1,  0,  0,  0,  0,  0,  0},
-        {-1, -1, -1,  0,  0,  0,  0,  0},
-        {-1, -1, -1, -1,  0,  0,  0,  0},
-        {-1, -1, -1, -1, -1,  0,  0,  0},
-        {-1, -1, -1, -1, -1, -1,  0,  0},
-        {-1, -1, -1, -1, -1, -1, -1,  0}
-    };
-
-    __m512i word = mm512_full_lane_parts[full_words];
-    word[full_words] = std::bit_cast<slane_t>((lane_t{1} << remaining) - 1);
-    return word;
-}
-
-// 0 <= n < 512
-[[gnu::always_inline]] constexpr __m512i ones_up_from_n (const uint16_t n) {
-    const size_t full_words = n / LANE_BITS;
-    const size_t remaining = n % LANE_BITS;
-
-    constexpr __m512i mm512_full_lane_parts[8] {
-        {-1, -1, -1, -1, -1, -1, -1, -1},
-        { 0, -1, -1, -1, -1, -1, -1, -1},
-        { 0,  0, -1, -1, -1, -1, -1, -1},
-        { 0,  0,  0, -1, -1, -1, -1, -1},
-        { 0,  0,  0,  0, -1, -1, -1, -1},
-        { 0,  0,  0,  0,  0, -1, -1, -1},
-        { 0,  0,  0,  0,  0,  0, -1, -1},
-        { 0,  0,  0,  0,  0,  0,  0, -1}
-    };
-
-    __m512i word = mm512_full_lane_parts[full_words];
-    word[full_words] = std::bit_cast<slane_t>(-(lane_t{1} << remaining));
-    return word;
-}
-
-inline void and_merge (word_t* const bigger_bits, word_t* const smaller_bits, const num_t smaller_words_count) {
-
-    const num_t full_bitset_words = (smaller_words_count + 1) / WORD_BITS;
-    for (num_t i = 0; i < full_bitset_words; i++) {
-        bigger_bits[i] = _mm512_and_si512(bigger_bits[i], smaller_bits[i]);
-    }
-
-    const uint16_t left_over_bits = smaller_words_count - (full_bitset_words * WORD_BITS);
-
-    if (left_over_bits != 0) {
-        const num_t& i = full_bitset_words;
-
-        bigger_bits[i] = _mm512_and_si512(
-            bigger_bits[i],
-            _mm512_or_si512(smaller_bits[i], ones_up_from_n(left_over_bits))
-        );
-    }
-}
-
 #undef mm512_lsl_epi64_
 
 #elif __AVX2__
 
-
 template <size_t N>
-[[clang::always_inline]] static inline __m256i mm256_lsl_epi64_ (const __m256i a, const __m256i b) {
+[[nodiscard, clang::always_inline]] static inline __m256i mm256_lsl_epi64_ (const __m256i a, const __m256i b) {
     if constexpr (N == 0) {
         return a;
     } else if constexpr (N == 1) {
@@ -277,7 +362,7 @@ template <size_t lane_shift>
             word_t ovflw = _mm256_srli_epi64(curr, rbit_shift);
             word_t curr_bit_shifted = _mm256_or_si256(
                 _mm256_slli_epi64(curr, bit_shift),
-                _mm256_blend_epi32(_mm256_permute4x64_epi64(ovflw, _MM_SHUFFLE(2,1,0,0)), _mm256_permute4x64_epi64(prev_ovflw, _MM_SHUFFLE(3,2,1,3)), 0b00000011)
+                mm256_lsl_epi64_<1>(ovflw, prev_ovflw)
             );
             prev_ovflw = ovflw;
 
@@ -302,7 +387,7 @@ template <size_t lane_shift>
             word_t ovflw = _mm256_srli_epi64(curr, rbit_shift);
             word_t curr_bit_shifted = _mm256_or_si256(
                 _mm256_slli_epi64(curr, bit_shift),
-                _mm256_blend_epi32(_mm256_permute4x64_epi64(ovflw, _MM_SHUFFLE(2,1,0,0)), _mm256_permute4x64_epi64(prev_ovflw, _MM_SHUFFLE(3,2,1,3)), 0b00000011)
+                mm256_lsl_epi64_<1>(ovflw, prev_ovflw)
             );
             prev_ovflw = ovflw;
 
@@ -334,7 +419,7 @@ template <size_t lane_shift>
                 word_t ovflw = _mm256_srli_epi64(curr, rbit_shift);
                 word_t curr_bit_shifted = _mm256_or_si256(
                     _mm256_slli_epi64(curr, bit_shift),
-                    _mm256_blend_epi32(_mm256_permute4x64_epi64(ovflw, _MM_SHUFFLE(2,1,0,0)), _mm256_permute4x64_epi64(prev_ovflw, _MM_SHUFFLE(3,2,1,3)), 0b00000011)
+                    mm256_lsl_epi64_<1>(ovflw, prev_ovflw)
                 );
 
                 _mm256_store_si256(buffer + j,
@@ -365,13 +450,6 @@ template <size_t lane_shift>
 
 } // namespace
 
-[[gnu::always_inline]] inline void init_bits (word_t* const words, const num_t word_count) {
-    _mm256_store_si256(words, _mm256_set_epi64x(0, 0, 0, 1));
-    for (word_t* p = words + 1; p < words + word_count; p++) {
-        _mm256_store_si256(p, _mm256_setzero_si256());
-    }
-}
-
 [[gnu::always_inline]] inline void apply_num_unsafe (const num_t num, word_t* const words, num_t word_count) {
     const uint16_t lane_shift = (num / LANE_BITS) % WORD_LANE_COUNT;
 
@@ -392,60 +470,6 @@ template <size_t lane_shift>
             std::unreachable();
     }
 }
-
-// 0 <= n < 256
-[[gnu::always_inline]] constexpr __m256i ones_up_to_n (const uint16_t n) {
-    const size_t full_words = n / LANE_BITS;
-    const size_t remaining = n % LANE_BITS;
-
-    constexpr __m256i mm256_full_lane_parts[4] {
-        { 0,  0,  0,  0},
-        {-1,  0,  0,  0},
-        {-1, -1,  0,  0},
-        {-1, -1, -1,  0}
-    };
-
-    __m256i word = mm256_full_lane_parts[full_words];
-    word[full_words] = std::bit_cast<slane_t>((lane_t{1} << remaining) - 1);
-    return word;
-}
-
-// 0 <= n < 256
-[[gnu::always_inline]] constexpr __m256i ones_up_from_n (const uint16_t n) {
-    const size_t full_words = n / LANE_BITS;
-    const size_t remaining = n % LANE_BITS;
-
-    constexpr __m256i mm256_full_lane_parts[4] {
-        {-1, -1, -1, -1},
-        { 0, -1, -1, -1},
-        { 0,  0, -1, -1},
-        { 0,  0,  0, -1}
-    };
-
-    __m256i word = mm256_full_lane_parts[full_words];
-    word[full_words] = std::bit_cast<slane_t>(-(lane_t{1} << remaining));
-    return word;
-}
-
-inline void and_merge (word_t* const bigger_bits, word_t* const smaller_bits, const num_t smaller_words_count) {
-
-    const num_t full_bitset_words = (smaller_words_count + 1) / WORD_BITS;
-    for (num_t i = 0; i < full_bitset_words; i++) {
-        bigger_bits[i] = _mm256_and_si256(bigger_bits[i], smaller_bits[i]);
-    }
-
-    const uint16_t left_over_bits = smaller_words_count - (full_bitset_words * WORD_BITS);
-
-    if (left_over_bits != 0) {
-        const num_t& i = full_bitset_words;
-
-        bigger_bits[i] = _mm256_and_si256(
-            bigger_bits[i],
-            _mm256_or_si256(smaller_bits[i], ones_up_from_n(left_over_bits))
-        );
-    }
-}
-
 
 #endif
 
