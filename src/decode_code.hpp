@@ -1310,7 +1310,7 @@ void generate (
     uint64_t var_leafs_start = 0;
 
     const auto layout_start_ts = std::chrono::high_resolution_clock::now();
-    constexpr size_t layout_bench_iterations = 100'000;
+    constexpr size_t layout_bench_iterations = 1;
 
     for (size_t i = 0; i < layout_bench_iterations; i++) {
         std::ranges::uninitialized_fill(fixed_offsets, FixedOffset::empty());
@@ -1372,7 +1372,7 @@ void generate (
     uint16_t current_size_leaf_idx = 0;
 
     const auto codegen_start_ts = std::chrono::high_resolution_clock::now();
-    constexpr size_t codegen_bench_iterations = 100'000;
+    constexpr size_t codegen_bench_iterations = 1;
 
     for (size_t i = 0; ; i++) {
         auto&& code = codegen::create_code(std::move(code_buffer))
