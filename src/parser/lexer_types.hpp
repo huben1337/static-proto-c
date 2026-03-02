@@ -494,7 +494,7 @@ struct LeafSizes : AlignMembersBase<uint64_t, SIZE::SIZE_8, SIZE::SIZE_1, LeafSi
     }
 
     template <SIZE... alignments>
-    [[nodiscard]] constexpr uint64_t sum_sizes () {
+    [[nodiscard]] constexpr uint64_t sum_sizes (estd::variadic_v<alignments...> /*unused*/) const {
         return (... + get<alignments>());
     }
 
