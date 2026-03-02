@@ -9,8 +9,8 @@
 #include "../estd/integral_pair.hpp"
 
 struct VariantLeafMeta {
-    lexer::LeafSizes used_spaces;
-    uint64_t required_space;
+    lexer::LeafSizes required_spaces;
+    uint64_t used_space;
     lexer::LeafCounts::Counts left_fields;
     estd::integral_range<uint16_t> field_idxs;
     
@@ -77,14 +77,30 @@ struct FieldSize : private estd::u48_u16_pair {
 
 struct QueuedField {
 
-    using info_t = std::variant<SimpleField, ArrayFieldPack, VariantFieldPack>;
+    struct Info : std::variant<SimpleField, ArrayFieldPack, VariantFieldPack> {
+        using variant::variant;
+
+        [[nodiscard]] constexpr lexer::SIZE alignment (this const Info& self) {
+            return std::visit([]<typename T>(const T& arg) -> lexer::SIZE {
+                if constexpr (
+                        std::is_same_v<SimpleField, T>
+                    || std::is_same_v<VariantFieldPack, T>
+                    || std::is_same_v<ArrayFieldPack, T>
+                ) {
+                    return arg.get_alignment();
+                } else {
+                    static_assert(false);
+                }
+            }, self);
+        }
+    };
 
     uint64_t size {};
-    info_t info;
+    Info info;
 
     constexpr QueuedField () = default;
 
-    constexpr QueuedField (uint64_t size, info_t info) : size(size), info(info) {}
+    constexpr QueuedField (uint64_t size, Info info) : size(size), info(info) {}
 };
 
 struct PendingVariantFieldPacks : lexer::AlignMembersBase<std::pair<uint64_t, estd::integral_range<uint16_t>>, lexer::SIZE::SIZE_8, lexer::SIZE::SIZE_1, PendingVariantFieldPacks> {

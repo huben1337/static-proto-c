@@ -279,29 +279,21 @@ struct TypeVisitor {
         }
 
         std::ranges::sort(variant_leaf_metas, [](const VariantLeafMeta& a, const VariantLeafMeta& b) {
-            return a.required_space > b.required_space;
+            return a.used_space > b.used_space;
         });
         console.debug("max_used_space: ", max_used_space);
-        BSSERT(variant_leaf_metas[0].required_space == max_used_space, "Sorting of variants' leaf metadata invalid")
+        BSSERT(variant_leaf_metas[0].used_space == max_used_space, "Sorting of variants' leaf metadata invalid")
           
-        // try perferect layout
-        const variant_layout::Layout layout = variant_layout::perfect::find_st(variant_leaf_metas, queued_fields_buffer);
-        console.debug("layout: ", layout);
-        if (layout.get<lexer::SIZE::SIZE_1>() != max_used_space) {
-            console.warn("Could not find perfect layout for variant.");
-        }
 
         BSSERT(state.get_fixed_offset_idx() == fixed_offset_idx_begin_bak); // Inside variants no fixed_offsets should be added directy.
 
         state.next_variant_packs(
-            variant_layout::apply_layout<lexer::SIZE::SIZE_8>(
+            variant_layout::apply_layout(
                 queued_fields_buffer,
                 state.const_state.shared().fixed_offsets,
                 state.const_state.shared().tmp_fixed_offsets,
-                layout,
                 variant_leaf_metas,
-                state.get_fixed_offset_idx(),
-                {}
+                state.get_fixed_offset_idx()
             )
         );
         }
