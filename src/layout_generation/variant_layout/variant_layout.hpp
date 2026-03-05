@@ -4,12 +4,14 @@
 #include <cstdint>
 #include <gsl/pointers>
 #include <memory>
+#include <ranges>
 #include <span>
 #include <type_traits>
 #include <utility>
 #include <variant>
 #include <vector>
 
+#include "../../helper/alloca.hpp"
 #include "../../util/logger.hpp"
 #include "../../common_data.hpp"
 #include "../layout_data.hpp"
@@ -123,7 +125,7 @@ struct FieldConsumer {
 template <bool has_pre_selected>
 using pre_selected_iterator_t = std::conditional_t<
     has_pre_selected,
-    std::vector<std::pair<uint16_t, uint64_t>>::iterator,
+    std::span<std::pair<uint16_t, uint64_t>>::const_iterator,
     estd::empty
 >;
 
@@ -257,7 +259,7 @@ requires (alignment != lexer::SIZE::SIZE_1)
     const uint64_t target,
     FieldConsumer&& field_consumer,
     VariantLeafMeta& meta,
-    std::vector<std::pair<uint16_t, uint64_t>>& pre_selected
+    const std::span<std::pair<uint16_t, uint64_t>> pre_selected
 ) {
     BSSERT(target != 0, "invalid target: ", target);
 
@@ -274,7 +276,7 @@ requires (alignment != lexer::SIZE::SIZE_1)
     const lexer::SIZE max_align,
     FieldConsumer&& field_consumer,
     VariantLeafMeta& meta,
-    std::vector<std::pair<uint16_t, uint64_t>>& pre_selected
+    const std::span<std::pair<uint16_t, uint64_t>> pre_selected
 ) {
     #define SOLVE_CASE(ALIGN) \
     case ALIGN: return solve<ALIGN>(target, std::move(field_consumer), meta, pre_selected);
@@ -292,7 +294,7 @@ requires (alignment != lexer::SIZE::SIZE_1)
 template <lexer::SIZE alignment>
 requires (alignment != lexer::SIZE::SIZE_1)
 [[nodiscard]] inline std::pair<uint16_t, uint64_t> apply_pre_selected (
-    std::vector<std::pair<uint16_t, uint64_t>>& pre_selected,
+    const std::span<std::pair<uint16_t, uint64_t>> pre_selected,
     uint64_t offset,
     uint16_t fixed_offset_idx,
     const std::span<FixedOffset> fixed_offsets,
@@ -388,9 +390,9 @@ template <lexer::SIZE alignment>
         uint64_t required = 0;
         uint64_t offset = 0;
 
-        std::vector<std::pair<uint16_t, uint64_t>> pre_selected;
-
-        pre_selected.reserve(meta.left_fields.get<alignment>());
+        using pre_slected_element_t = std::pair<uint16_t, uint64_t>;
+        ALLOCA_SAFE_SPAN(pre_selected, pre_slected_element_t, alignment == lexer::SIZE::SIZE_1 ? 0 : meta.left_fields.get<alignment>());
+        uint16_t pre_slected_idx = 0;
 
         for (const uint16_t& field_idx : meta.field_idxs) {
             // console.debug("pre select checking field at: ", field_idx);
@@ -415,7 +417,7 @@ template <lexer::SIZE alignment>
             meta.left_fields.get<alignment>()--;
 
             if constexpr (alignment != lexer::SIZE::SIZE_1) {
-                pre_selected.emplace_back(field_idx, field.size);
+                pre_selected[pre_slected_idx++] = {field_idx, field.size};
             } else {
                 std::tie(fixed_offset_idx, offset) = apply_field<alignment>(
                     field,
@@ -473,6 +475,7 @@ template <lexer::SIZE alignment>
                 );
 
                 BSSERT(meta.required_spaces.get<alignment>() == 0);
+                goto done_placing_fields_for_alignment;
             } else {
                 std::tie(fixed_offset_idx, offset) = apply_pre_selected<alignment>(
                     pre_selected,
@@ -485,8 +488,10 @@ template <lexer::SIZE alignment>
             }
         }
 
-        
+        meta.required_spaces.get<alignment>() = 0;
 
+        done_placing_fields_for_alignment:
+        
         max_offset = std::max(offset, max_offset);
     }
 
