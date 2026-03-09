@@ -224,91 +224,59 @@ constexpr __m512i mm512_lsl_epi64_idxs[9] {
     const uint8_t rbit_shift = LANE_BITS - bit_shift;
     const uint8_t lane_shift = (num / LANE_BITS) % WORD_LANE_COUNT;
     const num_t word_shift = num / WORD_BITS;
-    
-    if (word_shift == 0) {
-        word_t prev = _mm512_setzero_si512();
-        word_t prev_ovflw = _mm512_setzero_si512();
 
-        for (num_t i = 0; i < word_count; i++) {
-            word_t* curr_ptr = words + i;
-            word_t curr = curr_ptr[0];
+    const num_t last_out_idx = word_count - 1;
+    const num_t last_in_idx = last_out_idx - word_shift;
 
-            word_t ovflw = _mm512_srli_epi64(curr, rbit_shift);
+    word_t last_in = words[last_in_idx];
+    word_t next_ovflow = _mm512_srli_epi64(last_in, rbit_shift);
+    word_t next_lane_bit_shifted = _mm512_slli_epi64(last_in, bit_shift);
+
+    if (last_in_idx >= 1) {
+        for (num_t out_word_idx = last_out_idx; ; out_word_idx--) {
+            const num_t prev_idx = out_word_idx - word_shift - 1;
+
+            word_t prev = words[prev_idx];
+
+            word_t curr_ovflw = next_ovflow;
+            word_t prev_ovflw = _mm512_srli_epi64(prev, rbit_shift);
+            next_ovflow = prev_ovflw;
             
+            word_t curr_lane_bit_shifted = next_lane_bit_shifted;
             word_t curr_bit_shifted = _mm512_or_si512(
-                _mm512_slli_epi64(curr, bit_shift),
-                mm512_lsl_epi64_(ovflw, prev_ovflw, 1)
-            );
-            prev_ovflw = ovflw;
-
-            curr_ptr[0] = _mm512_or_si512(
-                curr,
-                mm512_lsl_epi64_(curr_bit_shifted, prev, lane_shift)
+                curr_lane_bit_shifted,
+                _mm512_alignr_epi64(curr_ovflw, prev_ovflw, WORD_LANE_COUNT - 1)
             );
 
-            prev = curr_bit_shifted;
+            word_t prev_lane_bit_shifted = _mm512_slli_epi64(prev, bit_shift);
+            next_lane_bit_shifted = prev_lane_bit_shifted;
+            word_t prev_bit_shifted = _mm512_or_si512(
+                prev_lane_bit_shifted,
+                _mm512_alignr_epi64(prev_ovflw, _mm512_setzero_si512(), WORD_LANE_COUNT - 1)
+            );
+
+            word_t* out_word_ptr = words + out_word_idx;
+            out_word_ptr[0] = _mm512_or_si512(
+                out_word_ptr[0],
+                mm512_lsl_epi64_(curr_bit_shifted, prev_bit_shifted, lane_shift)
+            );
+
+            if (prev_idx == 0) break;
         }
-    } else {
-        word_t prev = _mm512_setzero_si512();
-        word_t prev_ovflw = _mm512_setzero_si512();
-        word_t buffer[word_shift];
+    }
+    {
+        word_t curr_ovflw = next_ovflow;
+        word_t curr_lane_bit_shifted = next_lane_bit_shifted;
+        word_t curr_bit_shifted = _mm512_or_si512(
+            curr_lane_bit_shifted,
+            _mm512_alignr_epi64(curr_ovflw, _mm512_setzero_si512(), WORD_LANE_COUNT - 1)
+        );
 
-        #pragma clang loop unroll(disable)
-        for (num_t i = 0; i < word_shift; i++) {
-            word_t curr = words[i];
-
-            word_t ovflw = _mm512_srli_epi64(curr, rbit_shift);
-            word_t curr_bit_shifted = _mm512_or_si512(
-                _mm512_slli_epi64(curr, bit_shift),
-                mm512_lsl_epi64_(ovflw, prev_ovflw, 1)
-            );
-            prev_ovflw = ovflw;
-
-            buffer[i] = _mm512_or_si512(
-                curr,
-                mm512_lsl_epi64_(curr_bit_shifted, prev, lane_shift)
-            );
-
-            prev = curr_bit_shifted;
-        }
-
-        num_t i = word_shift;
-        for (; i < word_count - word_shift + 1; i += word_shift) {
-            #pragma clang loop unroll(disable)
-            for (num_t j = 0; j < word_shift; j++) {
-                word_t* curr_ptr = words + j + i;
-                word_t curr = curr_ptr[0];
-
-                curr_ptr[0] = _mm512_or_si512(
-                    curr,
-                    buffer[j]
-                );
-
-                word_t ovflw = _mm512_srli_epi64(curr, rbit_shift);
-                word_t curr_bit_shifted = _mm512_or_si512(
-                    _mm512_slli_epi64(curr, bit_shift),
-                    mm512_lsl_epi64_(ovflw, prev_ovflw, 1)
-                );
-
-                buffer[j] = _mm512_or_si512(
-                    curr,
-                    mm512_lsl_epi64_(curr_bit_shifted, prev, lane_shift)
-                );
-
-                prev = curr_bit_shifted;
-            }
-        }
-        
-        #pragma clang loop unroll(disable)
-        for (num_t j = 0; j < word_count - i; j++) {
-            word_t* curr_ptr = words + j + i;
-            word_t curr = curr_ptr[0];
-
-            curr_ptr[0] = _mm512_or_si512(
-                curr,
-                buffer[j]
-            );
-        }
+        word_t* out_word_ptr = words + word_shift;
+        out_word_ptr[0] = _mm512_or_si512(
+            out_word_ptr[0],
+            mm512_lsl_epi64_(curr_bit_shifted, _mm512_setzero_si512(), lane_shift)
+        );
     }
 }
 
@@ -350,101 +318,59 @@ template <size_t lane_shift>
     const uint16_t bit_shift = num % LANE_BITS;
     const uint16_t rbit_shift = LANE_BITS - bit_shift;
     const size_t word_shift = num / WORD_BITS;
-    
-    if (word_shift == 0) {
-        word_t prev = _mm256_setzero_si256();
-        word_t prev_ovflw = _mm256_setzero_si256();
 
-        for (uint64_t i = 0; i < word_count; i++) {
-            word_t* curr_ptr = words + i;
-            word_t curr = _mm256_load_si256(curr_ptr);
+    const num_t last_out_idx = word_count - 1;
+    const num_t last_in_idx = last_out_idx - word_shift;
 
-            word_t ovflw = _mm256_srli_epi64(curr, rbit_shift);
+    word_t last_in = words[last_in_idx];
+    word_t next_ovflow = _mm256_srli_epi64(last_in, rbit_shift);
+    word_t next_lane_bit_shifted = _mm256_slli_epi64(last_in, bit_shift);
+
+    if (last_in_idx >= 1) {
+        for (num_t out_word_idx = last_out_idx; ; out_word_idx--) {
+            const num_t prev_idx = out_word_idx - word_shift - 1;
+
+            word_t prev = words[prev_idx];
+
+            word_t curr_ovflw = next_ovflow;
+            word_t prev_ovflw = _mm256_srli_epi64(prev, rbit_shift);
+            next_ovflow = prev_ovflw;
+            
+            word_t curr_lane_bit_shifted = next_lane_bit_shifted;
             word_t curr_bit_shifted = _mm256_or_si256(
-                _mm256_slli_epi64(curr, bit_shift),
-                mm256_lsl_epi64_<1>(ovflw, prev_ovflw)
-            );
-            prev_ovflw = ovflw;
-
-            _mm256_store_si256(curr_ptr,
-                _mm256_or_si256(
-                    curr,
-                    mm256_lsl_epi64_<lane_shift>(curr_bit_shifted, prev)
-                )
+                curr_lane_bit_shifted,
+                mm256_lsl_epi64_<1>(curr_ovflw, prev_ovflw)
             );
 
-            prev = curr_bit_shifted;
+            word_t prev_lane_bit_shifted = _mm256_slli_epi64(prev, bit_shift);
+            next_lane_bit_shifted = prev_lane_bit_shifted;
+            word_t prev_bit_shifted = _mm256_or_si256(
+                prev_lane_bit_shifted,
+                mm256_lsl_epi64_<1>(prev_ovflw, _mm256_setzero_si256())
+            );
+
+            word_t* out_word_ptr = words + out_word_idx;
+            out_word_ptr[0] = _mm256_or_si256(
+                out_word_ptr[0],
+                mm256_lsl_epi64_<lane_shift>(curr_bit_shifted, prev_bit_shifted)
+            );
+
+            if (prev_idx == 0) break;
         }
-    } else {
-        word_t prev = _mm256_setzero_si256();
-        word_t prev_ovflw = _mm256_setzero_si256();
-        word_t buffer[word_shift];
+    }
+    {
+        word_t curr_ovflw = next_ovflow;
+        word_t curr_lane_bit_shifted = next_lane_bit_shifted;
+        word_t curr_bit_shifted = _mm256_or_si256(
+            curr_lane_bit_shifted,
+            mm256_lsl_epi64_<1>(curr_ovflw, _mm256_setzero_si256())
+        );
 
-        #pragma clang loop unroll(disable)
-        for (uint64_t i = 0; i < word_shift; i++) {
-            word_t curr = _mm256_load_si256(words + i);
-
-            word_t ovflw = _mm256_srli_epi64(curr, rbit_shift);
-            word_t curr_bit_shifted = _mm256_or_si256(
-                _mm256_slli_epi64(curr, bit_shift),
-                mm256_lsl_epi64_<1>(ovflw, prev_ovflw)
-            );
-            prev_ovflw = ovflw;
-
-            _mm256_store_si256(buffer + i,
-                _mm256_or_si256(
-                    curr,
-                    mm256_lsl_epi64_<lane_shift>(curr_bit_shifted, prev)
-                )
-            );
-
-            prev = curr_bit_shifted;
-        }
-
-
-        uint64_t i = word_shift;
-        for (; i < word_count - word_shift + 1; i += word_shift) {
-            #pragma clang loop unroll(disable)
-            for (uint64_t j = 0; j < word_shift; j++) {
-                word_t* curr_ptr = words + j + i;
-                word_t curr = _mm256_load_si256(curr_ptr);
-
-                _mm256_store_si256(curr_ptr,
-                    _mm256_or_si256(
-                        curr,
-                        _mm256_load_si256(buffer + j)
-                    )
-                );
-
-                word_t ovflw = _mm256_srli_epi64(curr, rbit_shift);
-                word_t curr_bit_shifted = _mm256_or_si256(
-                    _mm256_slli_epi64(curr, bit_shift),
-                    mm256_lsl_epi64_<1>(ovflw, prev_ovflw)
-                );
-
-                _mm256_store_si256(buffer + j,
-                    _mm256_or_si256(
-                        curr,
-                        mm256_lsl_epi64_<lane_shift>(curr_bit_shifted, prev)
-                    )
-                );
-
-                prev = curr_bit_shifted;
-            }
-        }
-        
-        #pragma clang loop unroll(disable)
-        for (uint64_t j = 0; j < word_count - i; j++) {
-            word_t* curr_ptr = words + j + i;
-            word_t curr = _mm256_load_si256(curr_ptr);
-
-            _mm256_store_si256(curr_ptr,
-                _mm256_or_si256(
-                    curr,
-                    _mm256_load_si256(buffer + j)
-                )
-            );
-        }
+        word_t* out_word_ptr = words + word_shift;
+        out_word_ptr[0] = _mm256_or_si256(
+            out_word_ptr[0],
+            mm256_lsl_epi64_<lane_shift>(curr_bit_shifted, _mm256_setzero_si256())
+        );
     }
 }
 
