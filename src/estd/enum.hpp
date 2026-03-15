@@ -1,5 +1,6 @@
 #pragma once
 
+#include <compare>
 #include <concepts>
 
 #include "../util/string_literal.hpp"
@@ -10,7 +11,6 @@ namespace estd {
 template <std::integral T, typename Outside = void>
 struct ENUM_CLASS {
 private:
-
     template <typename Outside_>
     struct outside {
         using type = Outside;
@@ -32,28 +32,31 @@ public:
     using outside_t = outside<Outside>::type;
     static constexpr StringLiteral outside_name = outside_name_v<Outside>;
 
-    value_t value;
+    [[deprecated("Internal field.")]] value_t _value;
 
-    constexpr ENUM_CLASS () = default;
-    constexpr ENUM_CLASS (const ENUM_CLASS&) = default;
-    constexpr ENUM_CLASS (ENUM_CLASS&&) = default;
+protected:
+    constexpr explicit ENUM_CLASS () = default;
+    constexpr explicit ENUM_CLASS (const value_t value) : _value(value) {}
 
-    constexpr ENUM_CLASS& operator = (const ENUM_CLASS&) = default;
-    constexpr ENUM_CLASS& operator = (ENUM_CLASS&&) = default;
+public:
+    [[nodiscard]] constexpr bool operator == (this const outside_t& self, const outside_t& other) {
+        return self.ordinal() == other.ordinal();
+    }
 
-    // NOLINTNEXTLINE(google-explicit-constructor)
-    [[nodiscard]] constexpr operator value_t () const { return value; }
+    [[nodiscard]] constexpr const value_t& ordinal () const {
+        #pragma clang diagnostic push
+        #pragma clang diagnostic ignored "-Wdeprecated-declarations"
+        return _value;
+        #pragma clang diagnostic pop
+    }
 
-    [[nodiscard]] explicit operator bool () const = delete;
+    operator bool () const = delete;
+    operator bool () = delete;
 
     template <typename writer_params>
     void log (const logger::writer<writer_params> w) const {
-        w.template write<true, true>(outside_name + "{value: "_sl, value, "}");
+        w.template write<true, true>(outside_name + "{value: "_sl, ordinal(), "}");
     }
-
-protected:
-    constexpr explicit ENUM_CLASS (const value_t value) : value(value) {}
-    constexpr ~ENUM_CLASS () = default;
 };
 
 }

@@ -178,10 +178,10 @@ template <lexer::SIZE alignment, bool has_pre_selected>
             // Not completely perfect since we get the field_idx and field again in here.
                 meta.left_fields.get<estd::discouraged>(field_alignment)++;
                 return largest_align.visit<std::pair<uint16_t, uint64_t>>(
-                    typename estd::make_index_range<lexer::SIZE::SIZE_1, alignment>::template map<lexer::SIZE::Mapped>{},
+                    lexer::make_size_range<lexer::SIZE::SIZE_1, alignment.next_smaller()>{},
                     [&]<lexer::SIZE next_alignment>() {
                         // TODO: Enqueue left fields.
-                        estd::make_index_range<next_alignment, alignment>::template map<lexer::SIZE::Mapped>::foreach([]<lexer::SIZE v>(Fields<alignment>& fields) {
+                        lexer::make_size_range<next_alignment, alignment.next_smaller()>::foreach([]<lexer::SIZE v>(Fields<alignment>& fields) {
                             CSSERT(fields.template get<v>().idxs.size(), ==, 0);
                             // enqueueing_for_level<alignment>(field_consumer, fields.template get<v>().idxs);
                         }, fields);
@@ -292,7 +292,7 @@ template <lexer::SIZE alignment, bool has_pre_selected>
         }
 
         std::tie(fixed_offset_idx, offset) = largest_align.visit<std::pair<uint16_t, uint64_t>>(
-            typename estd::make_index_range<lexer::SIZE::SIZE_2, lexer::SIZE::SIZE_8 + 1>::template map<lexer::SIZE::Mapped>{},
+            lexer::make_size_range<lexer::SIZE::SIZE_2, lexer::SIZE::SIZE_8>{},
             []<lexer::SIZE max_align>(
                 const uint64_t target,
                 FieldConsumer field_consumer,

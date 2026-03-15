@@ -108,7 +108,7 @@ struct TypeVisitor {
         state.template next_array_pack<alignment>(
             (current_offfset - last_offset) * array_length,
             {fixed_offset_idx_begin, fixed_offset_idx_end},
-            pack_info_base_idx + alignment.value
+            pack_info_base_idx + alignment.ordinal()
         );
 
         if constexpr (alignment != lexer::SIZE::SIZE_1) {

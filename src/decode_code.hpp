@@ -108,7 +108,7 @@ private:
         static constexpr size_t value = (size_type_str_v<sizes>.size() + ...);
     };
 
-    static constexpr size_t types_count = lexer::SIZE::MAX + 2;
+    static constexpr size_t types_count = lexer::SIZE::MAX.ordinal() + 2;
 
     char data[lexer::SIZE::enums::template apply<size_type_strs_size>::value];
     std::string_view views[types_count];
@@ -119,7 +119,7 @@ private:
         lexer::SIZE::enums::foreach([&, this]<lexer::SIZE size>() {
             constexpr StringLiteral type_str = size_type_str_v<size>;
             std::copy_n(type_str.begin(), type_str.size(), data_pos);
-            views[size] = {data_pos, type_str.size()};
+            views[size.ordinal()] = {data_pos, type_str.size()};
             data_pos += type_str.size();
         });
     };
@@ -128,7 +128,7 @@ public:
     [[nodiscard]] static constexpr std::string_view get (const lexer::SIZE size) {
         BSSERT(size <= lexer::SIZE::MAX);
         static constexpr SizeTypeStrs instance = SizeTypeStrs{};
-        return instance.views[size];
+        return instance.views[size.ordinal()];
     }
 };
 

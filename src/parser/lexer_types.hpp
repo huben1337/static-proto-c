@@ -69,8 +69,20 @@ struct SIZE : estd::ENUM_CLASS<uint8_t, SIZE> {
     static const SIZE MIN;
     static const SIZE MAX;
 
+    [[nodiscard]] constexpr std::strong_ordering operator <=> (this const SIZE& self, const SIZE& other) {
+        return self.ordinal() <=> other.ordinal();
+    }
+
+    [[nodiscard]] constexpr SIZE operator - (this const SIZE& self, const SIZE& other) {
+        return SIZE{gsl::narrow_cast<value_t>(self.ordinal() - other.ordinal())};
+    }
+
+    [[nodiscard]] constexpr SIZE operator + (this const SIZE& self, const SIZE& other) {
+        return SIZE{gsl::narrow_cast<value_t>(self.ordinal() + other.ordinal())};
+    }
+
     [[nodiscard]] constexpr value_t byte_size () const {
-        return value_t{1} << value;
+        return value_t{1} << ordinal();
     }
 
     template <typename Result, auto... target_sizes, typename... U, typename Visitor>
@@ -81,23 +93,23 @@ private:
     static void next_bigger_is_invalid_for_this_size () {}
 
 public:
-    [[nodiscard]] consteval SIZE next_smaller () const {
-        if (value == SIZE_0 || value == SIZE_1) {
+    [[nodiscard]] consteval SIZE next_smaller (this const SIZE& self) {
+        if (self == SIZE_0 || self == SIZE_1) {
             next_smaller_is_invalid_for_this_size();
         }
-        return SIZE{gsl::narrow_cast<value_t>(value - 1)};
+        return SIZE{gsl::narrow_cast<value_t>(self.ordinal() - 1)};
     };
 
-    [[nodiscard]] consteval SIZE next_bigger () const {
-        if (value == SIZE_0 || value == SIZE_8) {
+    [[nodiscard]] consteval SIZE next_bigger (this const SIZE& self) {
+        if (self == SIZE_0 || self == SIZE_8) {
             next_bigger_is_invalid_for_this_size();
         }
-        return SIZE{gsl::narrow_cast<value_t>(value + 1)};
+        return SIZE{gsl::narrow_cast<value_t>(self.ordinal() + 1)};
     };
 
     template <std::unsigned_integral T>
     [[nodiscard]] static SIZE from_integral (const T i) {
-        return SIZE{gsl::narrow_cast<value_t>(i % gsl::narrow_cast<value_t>(MAX.value + 1))};
+        return SIZE{gsl::narrow_cast<value_t>(i % gsl::narrow_cast<value_t>(MAX.ordinal() + 1))};
     }
 
     template <typename writer_params>
@@ -108,6 +120,8 @@ public:
     struct enums;
 };
 
+template<SIZE min, SIZE max>
+using make_size_range = estd::make_index_range<min.ordinal(), max.ordinal() + 1>::template map<lexer::SIZE::Mapped>;
 
 
 constexpr SIZE SIZE::SIZE_1{0};
@@ -143,12 +157,12 @@ private:
 
 template <typename Result, auto... target_sizes, typename... U, typename Visitor>
 [[nodiscard]] constexpr Result SIZE::visit (this const SIZE& self, estd::variadic_v<target_sizes...> /*unused*/, Visitor&& visitor, U&&... args) {
-    switch (self) {
-        case SIZE_1: if constexpr (((target_sizes == SIZE_1) || ...)) { return std::forward<Visitor>(visitor).template operator()<SIZE_1>(std::forward<U>(args)...); } else { std::unreachable(); };
-        case SIZE_2: if constexpr (((target_sizes == SIZE_2) || ...)) { return std::forward<Visitor>(visitor).template operator()<SIZE_2>(std::forward<U>(args)...); } else { std::unreachable(); };
-        case SIZE_4: if constexpr (((target_sizes == SIZE_4) || ...)) { return std::forward<Visitor>(visitor).template operator()<SIZE_4>(std::forward<U>(args)...); } else { std::unreachable(); };
-        case SIZE_8: if constexpr (((target_sizes == SIZE_8) || ...)) { return std::forward<Visitor>(visitor).template operator()<SIZE_8>(std::forward<U>(args)...); } else { std::unreachable(); };
-        case SIZE_0: if constexpr (((target_sizes == SIZE_0) || ...)) { return std::forward<Visitor>(visitor).template operator()<SIZE_0>(std::forward<U>(args)...); } else { std::unreachable(); };
+    switch (self.ordinal()) {
+        case SIZE_1.ordinal(): if constexpr (((target_sizes == SIZE_1) || ...)) { return std::forward<Visitor>(visitor).template operator()<SIZE_1>(std::forward<U>(args)...); } else { std::unreachable(); };
+        case SIZE_2.ordinal(): if constexpr (((target_sizes == SIZE_2) || ...)) { return std::forward<Visitor>(visitor).template operator()<SIZE_2>(std::forward<U>(args)...); } else { std::unreachable(); };
+        case SIZE_4.ordinal(): if constexpr (((target_sizes == SIZE_4) || ...)) { return std::forward<Visitor>(visitor).template operator()<SIZE_4>(std::forward<U>(args)...); } else { std::unreachable(); };
+        case SIZE_8.ordinal(): if constexpr (((target_sizes == SIZE_8) || ...)) { return std::forward<Visitor>(visitor).template operator()<SIZE_8>(std::forward<U>(args)...); } else { std::unreachable(); };
+        case SIZE_0.ordinal(): if constexpr (((target_sizes == SIZE_0) || ...)) { return std::forward<Visitor>(visitor).template operator()<SIZE_0>(std::forward<U>(args)...); } else { std::unreachable(); };
         default: std::unreachable();
     }
 }
@@ -157,11 +171,11 @@ namespace {
     struct size_helper {
         template <SIZE size>
         requires (size != SIZE::SIZE_0 && size != SIZE::SIZE_1)
-        static constexpr SIZE next_smaller_size {size - 1};
+        static constexpr SIZE next_smaller_size {size.ordinal() - 1};
 
         template <SIZE size>
         requires (size != SIZE::SIZE_0 && size != SIZE::SIZE_8)
-        static constexpr SIZE next_bigger_size {size + 1};
+        static constexpr SIZE next_bigger_size {size.ordinal() + 1};
         
     };
 }
@@ -179,7 +193,7 @@ requires (max_alignment != SIZE::SIZE_0 && min_alignment != SIZE::SIZE_0)
 struct AlignMembersBase {
     static_assert(max_alignment >= min_alignment, "max_alignment can not be smaller than min_alignment");
     
-    using alignments = estd::make_index_range<min_alignment, max_alignment + 1>::template map<SIZE::Mapped>;
+    using alignments = make_size_range<min_alignment, max_alignment>;
 
 private:
     template <typename Outside_>
@@ -232,14 +246,14 @@ public:
     template <SIZE alignment>                                                       \
     [[nodiscard]] constexpr CONST_ATTR IDENTITY(T&) get () IDENTITY(CONST_ATTR) {   \
         static_assert(alignment <= max_alignment && alignment >= min_alignment);    \
-        return align[alignment - min_alignment];                                    \
+        return align[(alignment - min_alignment).ordinal()];                        \
     }
 
     #define ALIGN_MEMBER_GET_RT_ARG(CONST_ATTR)                                                 \
     template <estd::discouraged_annotation>                                                     \
     [[nodiscard]] constexpr CONST_ATTR IDENTITY(T&) get (SIZE alignment) IDENTITY(CONST_ATTR) { \
         BSSERT(alignment <= max_alignment && alignment >= min_alignment);                       \
-        return align[alignment - min_alignment];                                                \
+        return align[(alignment - min_alignment).ordinal()];                                    \
     }
 
     ALIGN_MEMBER_GET_CT_ARG()
@@ -308,9 +322,8 @@ public:
         if constexpr (min_alignment == max_alignment) {
             return min_alignment;
         } else {
-            return _largest_align(typename estd::make_index_range<min_alignment + 1, max_alignment + 1>
-                    ::template apply<estd::reverse_variadic_v_t>
-                    ::template map<SIZE::Mapped>{});
+            return _largest_align(typename lexer::make_size_range<min_alignment.next_bigger(), max_alignment>
+                    ::template apply<estd::reverse_variadic_v_t>{});
         }
     }
 
@@ -456,7 +469,7 @@ public:
     constexpr explicit LeafCounts (Counts counts) : data(std::bit_cast<uint64_t>(counts)) {}
     constexpr LeafCounts (uint16_t align1, uint16_t align2, uint16_t align4, uint16_t align8) : LeafCounts{{align1, align2, align4, align8}} {}
     constexpr explicit LeafCounts (uint64_t data) : data(data) {}
-    constexpr explicit LeafCounts (SIZE size) : data(uint64_t{1} << (size.value * sizeof(uint16_t) * 8)) {}
+    constexpr explicit LeafCounts (SIZE size) : data(uint64_t{1} << (size.ordinal() * sizeof(uint16_t) * 8)) {}
 
     constexpr void operator += (const LeafCounts& other) { data += other.data; }
 

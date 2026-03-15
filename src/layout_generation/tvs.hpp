@@ -53,7 +53,7 @@ struct Fields : lexer::AlignMembersBase<AlignedFields, max_align.next_smaller(),
     constexpr Fields<new_max_align> extract (this Fields&& self) {
         if constexpr (new_max_align > lexer::SIZE::SIZE_1) {
             return std::move(self).template extract_<new_max_align>(
-                typename estd::make_index_range<lexer::SIZE::SIZE_1, new_max_align>::template map<lexer::SIZE::Mapped>{});
+                lexer::make_size_range<lexer::SIZE::SIZE_1, new_max_align.next_smaller()>{});
         } else {
             return Fields<new_max_align>{};
         }
@@ -538,7 +538,7 @@ public:
                     if constexpr (state_type == STATE_TYPE::TOP_LEVEL) {
                         pack_info.parent_idx = static_cast<uint16_t>(-1);
                     } else {
-                        pack_info.parent_idx = const_state.level().pack_info_base_idx + target_align.value;
+                        pack_info.parent_idx = const_state.level().pack_info_base_idx + target_align.ordinal();
                     }
                 }
                 const estd::integral_range<uint16_t>& tmp_fixed_offset_idxs = arg.tmp_fixed_offset_idxs;
