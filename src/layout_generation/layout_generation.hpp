@@ -56,7 +56,7 @@ struct TypeVisitor {
     template <lexer::FIELD_TYPE field_type>
     void on_simple () const {
         console.debug("[on_simple] field_type: ", (uint8_t)field_type);
-        constexpr lexer::SIZE alignment = lexer::get_type_alignment<field_type>();
+        constexpr lexer::SIZE alignment = lexer::type_alignment<field_type>;
         state.template next_simple<alignment>();
     }
 

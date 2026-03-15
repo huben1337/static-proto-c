@@ -706,7 +706,7 @@ struct TypeVisitor {
 
     template <lexer::FIELD_TYPE field_type, StringLiteral type_name>
     [[nodiscard]] codegen::UnknownStructBase on_simple (codegen::UnknownStructBase&& code) const {
-        constexpr lexer::SIZE alignment = lexer::get_type_alignment<field_type>();
+        constexpr lexer::SIZE alignment = lexer::type_alignment<field_type>;
         return gen_value_leaf<is_fixed, is_array_element<Args>, in_array, type_name, alignment>(std::move(code), offsets_accessor, additional_args, pack_info_idx, array_depth);
        
     }

@@ -366,38 +366,33 @@ public:
 };
 
 template <FIELD_TYPE field_type>
-[[nodiscard]] consteval SIZE get_type_alignment () {
-    if constexpr (
-           field_type == FIELD_TYPE::UINT8
-        || field_type == FIELD_TYPE::INT8
-        || field_type == FIELD_TYPE::BOOL
-    ) {
-        return SIZE::SIZE_1;
-    } else if constexpr (
-           field_type == FIELD_TYPE::UINT16
-        || field_type == FIELD_TYPE::INT16
-    ) {
-        return SIZE::SIZE_2;
-    } else if constexpr (
-           field_type == FIELD_TYPE::UINT32
-        || field_type == FIELD_TYPE::INT32
-        || field_type == FIELD_TYPE::FLOAT32
-    ) {
-        return SIZE::SIZE_4;
-    } else if constexpr (
-           field_type == FIELD_TYPE::UINT64
-        || field_type == FIELD_TYPE::INT64
-        || field_type == FIELD_TYPE::FLOAT64
-    ) {
-        return SIZE::SIZE_8;
-    } else {
-        static_assert(false, "Can't get alignment of this field type.");
-    }
-}
-template <FIELD_TYPE field_type>
-[[nodiscard]] consteval uint64_t get_type_size () {
-    return get_type_alignment<field_type>().byte_size();
-}
+constexpr SIZE type_alignment {};
+
+template <>
+constexpr SIZE type_alignment<FIELD_TYPE::UINT8  > = SIZE::SIZE_1;
+template <>
+constexpr SIZE type_alignment<FIELD_TYPE::INT8   > = SIZE::SIZE_1;
+template <>
+constexpr SIZE type_alignment<FIELD_TYPE::BOOL   > = SIZE::SIZE_1;
+
+template <>
+constexpr SIZE type_alignment<FIELD_TYPE::UINT16 > = SIZE::SIZE_2;
+template <>
+constexpr SIZE type_alignment<FIELD_TYPE::INT16  > = SIZE::SIZE_2;
+
+template <>
+constexpr SIZE type_alignment<FIELD_TYPE::UINT32 > = SIZE::SIZE_4;
+template <>
+constexpr SIZE type_alignment<FIELD_TYPE::INT32  > = SIZE::SIZE_4;
+template <>
+constexpr SIZE type_alignment<FIELD_TYPE::FLOAT32> = SIZE::SIZE_4;
+
+template <>
+constexpr SIZE type_alignment<FIELD_TYPE::UINT64 > = SIZE::SIZE_8;
+template <>
+constexpr SIZE type_alignment<FIELD_TYPE::INT64  > = SIZE::SIZE_8;
+template <>
+constexpr SIZE type_alignment<FIELD_TYPE::FLOAT64> = SIZE::SIZE_8;
 
 template <std::integral T>
 [[nodiscard]] constexpr T last_multiple (T value, SIZE base) {

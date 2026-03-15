@@ -603,7 +603,7 @@ template <bool expect_fixed, FIELD_TYPE field_type>
         "unsupported type for simple_type"
     );
     *buffer.get_next<Type>() = {field_type};
-    constexpr lexer::SIZE alignment = get_type_alignment<field_type>();
+    constexpr lexer::SIZE alignment = type_alignment<field_type>;
     if constexpr (expect_fixed) {
         return LexFixedTypeResult{
             YYCURSOR,
