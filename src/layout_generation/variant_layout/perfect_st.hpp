@@ -9,8 +9,8 @@
 
 namespace variant_layout {
 
-struct Layout : lexer::AlignMembersBase<uint64_t, lexer::SIZE::SIZE_8, lexer::SIZE::SIZE_1, Layout>{
-    using AlignMembersBase::AlignMembersBase;
+struct Layout : lexer::IntegralAlignMembersBase<uint64_t, lexer::SIZE::SIZE_8, lexer::SIZE::SIZE_1, Layout>{
+    using IntegralAlignMembersBase::IntegralAlignMembersBase;
 
     template <lexer::SIZE alignment>
     [[nodiscard]] constexpr uint64_t get_offset () const {
@@ -25,8 +25,6 @@ struct Layout : lexer::AlignMembersBase<uint64_t, lexer::SIZE::SIZE_8, lexer::SI
     [[nodiscard]] constexpr uint64_t get_space () const {
         return get<alignment>() - get_offset<alignment>();
     }
-    
-    [[nodiscard]] static consteval Layout zero () { return AlignMembersBase::zero(); }
 };
 
 namespace perfect {
