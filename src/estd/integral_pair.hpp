@@ -10,9 +10,9 @@ struct u48_u16_pair {
     static constexpr uint64_t U16_MASK = ~U48_MASK;
 
     public:
-    uint64_t data;
+    uint64_t data {};
 
-    constexpr u48_u16_pair () = default;
+    consteval u48_u16_pair () = default;
     constexpr explicit u48_u16_pair(uint64_t data) : data(data) {}
     constexpr u48_u16_pair (uint64_t u48, uint16_t u16)
     : data(u48 | uint64_t{u16} << 48)

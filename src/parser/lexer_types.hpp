@@ -69,6 +69,8 @@ struct SIZE : estd::ENUM_CLASS<uint8_t, SIZE> {
     static const SIZE MIN;
     static const SIZE MAX;
 
+    constexpr SIZE () : SIZE{SIZE_0} {};
+
     [[nodiscard]] constexpr std::strong_ordering operator <=> (this const SIZE& self, const SIZE& other) {
         return self.ordinal() <=> other.ordinal();
     }
@@ -220,8 +222,13 @@ protected:
 private:
     T align[alignments_count];
 
+    template <SIZE... alignments>
+    constexpr explicit AlignMembersBase (estd::variadic_v<alignments...> /*unused*/)
+        : align((static_cast<void>(alignments), T{})...) {};
+    
 public:
-    constexpr AlignMembersBase() = default;
+    constexpr explicit AlignMembersBase () requires (std::is_default_constructible_v<T>)
+        : AlignMembersBase{alignments{}} {};
 
     constexpr explicit AlignMembersBase (const T (&align)[alignments_count])
         : align(align) {}
@@ -284,12 +291,12 @@ public:
     }
 
 private:
-    template <typename Result, typename U, SIZE... alignments>
-    [[nodiscard]] static constexpr Result of_ (U&& value, estd::variadic_v<alignments...> /*unused*/) { return Result{(static_cast<void>(alignments), std::forward<U>(value))...}; }
+    template <typename Result, SIZE... alignments>
+    [[nodiscard]] static constexpr Result _of (const T& value, estd::variadic_v<alignments...> /*unused*/) { return Result{(static_cast<void>(alignments), value)...}; }
 
 public:
-    template <typename Result = outside_t, typename U>
-    [[nodiscard]] static constexpr Result of (U&& value) { return of_<Result, U>(std::forward<U>(value), alignments{}); }
+    template <typename Result = outside_t>
+    [[nodiscard]] static constexpr Result of (const T& value) { return _of<Result>(value, alignments{}); }
 };
 
 template<std::integral T, SIZE max_alignment = SIZE::SIZE_8, SIZE min_alignment = SIZE::SIZE_1, typename Outside = void>
@@ -301,9 +308,9 @@ private:
 public:
     friend Outside;
 
-private:
-    constexpr IntegralAlignMembersBase () = default;
+    IntegralAlignMembersBase () = delete;
 
+private:
     using outside_t = Base::outside_t;
 
     template <SIZE... alignments_to_check>
@@ -375,7 +382,7 @@ public:
     }
 
     template <typename Result = outside_t>
-    [[nodiscard]] static consteval Result zero () { return Base::template of<Result, T>(0); }
+    [[nodiscard]] static consteval Result zero () { return Base::template of<Result>(0); }
 };
 
 template <FIELD_TYPE field_type>
@@ -462,10 +469,10 @@ struct LeafCounts {
     };
 
 private:
-    uint64_t data;
+    uint64_t data {};
 
 public:
-    constexpr LeafCounts () = default;
+    consteval LeafCounts () = default;
     constexpr explicit LeafCounts (Counts counts) : data(std::bit_cast<uint64_t>(counts)) {}
     constexpr LeafCounts (uint16_t align1, uint16_t align2, uint16_t align4, uint16_t align8) : LeafCounts{{align1, align2, align4, align8}} {}
     constexpr explicit LeafCounts (uint64_t data) : data(data) {}

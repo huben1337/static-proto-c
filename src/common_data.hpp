@@ -7,8 +7,6 @@
 #include "./util/logger.hpp"
 
 struct FixedOffset {
-    FixedOffset () = default;
-
     uint64_t offset;
     uint16_t map_idx;
     lexer::SIZE pack_align;

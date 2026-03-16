@@ -6,22 +6,12 @@
 
 #include "../parser/lexer_types.hpp"
 #include "../estd/ranges.hpp"
-#include "../estd/integral_pair.hpp"
 
 struct VariantLeafMeta {
     lexer::LeafSizes required_spaces;
-    uint64_t used_space;
+    uint64_t used_space = 0;
     lexer::LeafCounts::Counts left_fields;
     estd::integral_range<uint16_t> field_idxs;
-    
-    // template <lexer::SIZE alignment>
-    // [[nodiscard]] constexpr uint16_t fields_begin_idx () {
-    //     if constexpr (alignment == lexer::SIZE::SIZE_8) {
-    //         return start;
-    //     } else {
-    //         return ends.get<alignment.next_bigger()>();
-    //     }
-    // }
 };
 
 struct SimpleField {
@@ -48,33 +38,6 @@ struct ArrayFieldPack {
     }
 };
 
-
-struct FieldSize : private estd::u48_u16_pair {
-    FieldSize () = default;
-
-    constexpr explicit FieldSize (uint64_t data)
-        : u48_u16_pair(data) {}
-
-    constexpr FieldSize (uint64_t offset, bool flag)
-        : u48_u16_pair(offset, static_cast<uint16_t>(flag)) {}
-
-    [[nodiscard]] constexpr bool get_flag () const {
-        return gsl::narrow_cast<bool>(get_u16());
-    }
-
-    constexpr void set_flag (bool value) { set_u16(static_cast<uint16_t>(value)); }
-
-    [[nodiscard]] constexpr uint64_t get_size () const { return get_u48(); }
-
-    constexpr void set_size (uint64_t value) { set_u48(value); }
-
-    // constexpr void increment_offset (uint64_t value) { data += value; };
-
-    [[nodiscard]] constexpr bool operator == (const FieldSize& other) const {
-        return data == other.data;
-    }
-};
-
 struct QueuedField {
 
     struct Info : std::variant<SimpleField, ArrayFieldPack, VariantFieldPack> {
@@ -95,10 +58,10 @@ struct QueuedField {
         }
     };
 
-    uint64_t size {};
+    uint64_t size = static_cast<uint64_t>(-1);
     Info info;
 
-    constexpr QueuedField () = default;
+    consteval QueuedField () = default;
 
     constexpr QueuedField (uint64_t size, Info info) : size(size), info(info) {}
 };

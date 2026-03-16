@@ -35,7 +35,6 @@ public:
     [[deprecated("Internal field.")]] value_t _value;
 
 protected:
-    constexpr explicit ENUM_CLASS () = default;
     constexpr explicit ENUM_CLASS (const value_t value) : _value(value) {}
 
 public:

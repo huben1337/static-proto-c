@@ -7,7 +7,6 @@
 #include <ranges>
 #include <span>
 #include <type_traits>
-#include <vector>
 
 namespace estd {
     template <std::unsigned_integral T>
@@ -26,11 +25,11 @@ namespace estd {
         using unsigned_type = std::make_unsigned_t<T>;
 
     private:
-        T from;
-        T to;
+        T from {};
+        T to {};
 
     public:
-        constexpr integral_range () = default;
+        consteval integral_range () = default;
         constexpr integral_range (T from, T to) : from(from), to(to) {}
         constexpr integral_range (T from, integral_range_size<unsigned_type> size) : from(from), to(from + size.value) {}
 
@@ -42,19 +41,19 @@ namespace estd {
         public:
             constexpr explicit iterator (T pos) : pos(pos) {}
 
-            iterator& operator ++ () { ++pos; return *this; }
-            bool operator == (const iterator& other) const { return pos == other.pos; }
-            const T& operator * () const { return pos; }
+            constexpr iterator& operator ++ () { ++pos; return *this; }
+            constexpr bool operator == (const iterator& other) const { return pos == other.pos; }
+            constexpr const T& operator * () const { return pos; }
         };
 
-        [[nodiscard]] unsigned_type size () const { return gsl::narrow_cast<unsigned_type>(to - from); }
+        [[nodiscard]] constexpr unsigned_type size () const { return gsl::narrow_cast<unsigned_type>(to - from); }
 
-        [[nodiscard]] integral_range_size<unsigned_type> wrapped_size () const { 
+        [[nodiscard]] constexpr integral_range_size<unsigned_type> wrapped_size () const { 
             return integral_range_size<unsigned_type>{size()};
         }
 
-        [[nodiscard]] iterator begin () const { return iterator{from}; }
-        [[nodiscard]] iterator end () const { return iterator{to}; }
+        [[nodiscard]] constexpr iterator begin () const { return iterator{from}; }
+        [[nodiscard]] constexpr iterator end () const { return iterator{to}; }
 
     private:
         struct template_guard {};
@@ -63,7 +62,7 @@ namespace estd {
         using iterator_from_begin_t = decltype(std::declval<R&>().begin());
 
         template <typename Iterable, typename With>
-        [[nodiscard]] With access_iterable (Iterable& i) const {
+        [[nodiscard]] constexpr With access_iterable (Iterable& i) const {
             auto begin = i.begin();
             auto accessed_end = begin + to;
             assert(accessed_end <= i.end());
@@ -74,7 +73,7 @@ namespace estd {
         }
 
         template <typename U, typename With>
-        [[nodiscard]] With access_ptr (U* const p) const {
+        [[nodiscard]] constexpr With access_ptr (U* const p) const {
             assert(p != nullptr);
             return With{
                 p + from,
@@ -88,7 +87,7 @@ namespace estd {
             std::same_as<template_guard> = template_guard,
             typename With = std::span<std::iter_reference_t<iterator_from_begin_t<Iterable>>>
         >
-        [[nodiscard]] With access_subspan (Iterable& i) const {
+        [[nodiscard]] constexpr With access_subspan (Iterable& i) const {
             return access_iterable<Iterable, With>(i);
         }
 
@@ -97,7 +96,7 @@ namespace estd {
             std::same_as<template_guard> = template_guard,
             typename With = std::span<U>
         >
-        [[nodiscard]] With access_subspan (U* const p) const {
+        [[nodiscard]] constexpr With access_subspan (U* const p) const {
             return access_ptr<U, With>(p);
         }
 
@@ -106,7 +105,7 @@ namespace estd {
             std::same_as<template_guard> = template_guard,
             typename With = std::ranges::subrange<iterator_from_begin_t<Iterable>>
         >
-        [[nodiscard]] With access_subrange (Iterable& i) const {
+        [[nodiscard]] constexpr With access_subrange (Iterable& i) const {
             return access_iterable<Iterable, With>(i);
         }
 
@@ -115,7 +114,7 @@ namespace estd {
             std::same_as<template_guard> = template_guard,
             typename With = std::ranges::subrange<U*>
         >
-        [[nodiscard]] With access_subrange (U* const p) const {
+        [[nodiscard]] constexpr With access_subrange (U* const p) const {
             return access_ptr<U, With>(p);
         }
     };
