@@ -17,7 +17,6 @@
 #include "./lex_helpers.re2c.hpp"
 #include "./parse_int.re2c.hpp"
 #include "../estd/empty.hpp"
-#include "../util/string_view_equal.hpp"
 #include "../util/logger.hpp"
 
 namespace lexer {
@@ -1118,17 +1117,16 @@ inline const char* lex_struct_fields (
     }
 
     name_start:
-    const char* start = YYCURSOR - 1;
+    const char* const field_name_start = YYCURSOR - 1;
     /*!local:re2c
         [a-zA-Z0-9_]*  { goto name_end; }
     */
     name_end:
-    const char* end = YYCURSOR;
-    size_t length = end - start;
+    const std::string_view field_name {field_name_start, gsl::narrow_cast<size_t>(YYCURSOR - field_name_start)};
     if constexpr (!is_first_field) {
         buffer.get(definition_data_idx)->visit_uninitialized([&](const lexer::StructField::Data* const field_data) {
-            if (string_view_equal(field_data->name, start, length)) {
-                show_syntax_error("field already defined", start, length);
+            if (field_data->name == field_name) {
+                show_syntax_error("field already defined", field_name_start, field_name.size());
             }
             return field_data->type()->skip<const StructField>();
         }, field_count);
@@ -1140,7 +1138,7 @@ inline const char* lex_struct_fields (
 
     struct_field: {
         StructField::Data* field = StructDefinition::reserve_field(buffer);
-        *field = {{start, length}};
+        *field = {field_name};
 
         auto result = lex_type<false>(YYCURSOR, buffer, identifier_map);
         YYCURSOR = result.cursor;
