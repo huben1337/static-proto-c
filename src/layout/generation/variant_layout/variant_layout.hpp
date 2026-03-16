@@ -10,13 +10,14 @@
 #include <utility>
 #include <variant>
 
-#include "../../util/logger.hpp"
-#include "../../common_data.hpp"
-#include "../layout_data.hpp"
-#include "../field_layout_queue.hpp"
+#include "../../../util/logger.hpp"
+#include "../../FixedOffsets.hpp"
+#include "../QueuedField.hpp"
+#include "../PendingVariantFieldPacks.hpp"
+#include "../field_queuing.hpp"
 #include "./perfect_st.hpp"
 
-namespace layout_generation::variant_layout {
+namespace layout::generation::variant_layout {
 
 constexpr uint16_t empty_chain_link = -1;
 
@@ -603,4 +604,4 @@ requires (alignment != lexer::SIZE::SIZE_1)
     );
 }
 
-} // namespace layout_generation::variant_layout
+} // namespace layout::generation::variant_layout

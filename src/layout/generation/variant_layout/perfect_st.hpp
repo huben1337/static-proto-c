@@ -2,33 +2,14 @@
 
 #include <algorithm>
 #include <cstdint>
-#include "../layout_data.hpp"
+
+#include "../QueuedField.hpp"
+#include "../VariantLeafMeta.hpp"
 
 #include "./sum_intersection_dp_bitset.hpp"
-#include "../../parser/lexer_types.hpp"
+#include "../../../parser/lexer_types.hpp"
 
-namespace layout_generation::variant_layout {
-
-struct Layout : lexer::IntegralAlignMembersBase<uint64_t, lexer::SIZE::SIZE_8, lexer::SIZE::SIZE_1, Layout>{
-    using IntegralAlignMembersBase::IntegralAlignMembersBase;
-
-    template <lexer::SIZE alignment>
-    [[nodiscard]] constexpr uint64_t get_offset () const {
-        if constexpr (alignment == lexer::SIZE::SIZE_8) {
-            return 0;
-        } else {
-            return get<alignment.next_bigger()>();
-        }
-    }
-
-    template <lexer::SIZE alignment>
-    [[nodiscard]] constexpr uint64_t get_space () const {
-        return get<alignment>() - get_offset<alignment>();
-    }
-};
-
-namespace perfect {
-
+namespace layout::generation::variant_layout::perfect {
 
 template <lexer::SIZE alignment>
 requires (alignment != lexer::SIZE::SIZE_1)
@@ -82,6 +63,4 @@ requires (alignment != lexer::SIZE::SIZE_1)
     }
 }
 
-} // namespace perfect
-
-} // namespace layout_generation::variant_layout
+} // namespace layout::generation::variant_layout::perfect

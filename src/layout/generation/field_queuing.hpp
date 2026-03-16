@@ -1,10 +1,10 @@
 #pragma once
 
-#include "../parser/lexer_types.hpp"
-#include "../estd/empty.hpp"
-#include "../estd/vector.hpp"
+#include "../../parser/lexer_types.hpp"
+#include "../../estd/empty.hpp"
+#include "../../estd/vector.hpp"
 
-namespace layout_generation {
+namespace layout::generation {
 
 struct AlignedFields : estd::no_copy {
     std::vector<uint16_t> idxs;
@@ -180,4 +180,4 @@ static void add_field (
     }
 }
 
-} // namespace layout_generation
+} // namespace layout::generation

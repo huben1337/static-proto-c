@@ -1,7 +1,6 @@
 #pragma once
 
 #include <algorithm>
-#include <array>
 #include <bit>
 #include <chrono>
 #include <cstddef>
@@ -28,9 +27,8 @@
 #include "./fast_math/sum_of_digits.hpp"
 #include "./fast_math/log.hpp"
 #include "./code_generation_static_data.hpp"
-#include "./layout_generation/layout_generation.hpp"
+#include "./layout/generation/generate.hpp"
 #include "./estd/empty.hpp"
-#include "./common_data.hpp"
 
 namespace decode_code {
 
@@ -43,10 +41,10 @@ struct SizeLeaf {
 
 struct OffsetsAccessor {
     OffsetsAccessor (
-        std::span<const FixedOffset> fixed_offsets,
+        std::span<const layout::FixedOffset> fixed_offsets,
         std::span<const Buffer::View<uint64_t>> var_offsets,
         std::span<const uint16_t> idx_map,
-        std::span<const ArrayPackInfo> pack_infos,
+        std::span<const layout::ArrayPackInfo> pack_infos,
         ReadOnlyBuffer var_offset_buffer,
         uint64_t var_leafs_start,
         gsl::not_null<uint16_t*> current_map_idx
@@ -59,10 +57,10 @@ struct OffsetsAccessor {
     var_leafs_start(var_leafs_start),
     current_map_idx(current_map_idx)
     {}
-    std::span<const FixedOffset> fixed_offsets;
+    std::span<const layout::FixedOffset> fixed_offsets;
     std::span<const Buffer::View<uint64_t>> var_offsets;
     std::span<const uint16_t> idx_map;
-    std::span<const ArrayPackInfo> pack_infos;
+    std::span<const layout::ArrayPackInfo> pack_infos;
     ReadOnlyBuffer var_offset_buffer;
     uint64_t var_leafs_start;
     gsl::not_null<uint16_t*> current_map_idx;
@@ -79,9 +77,9 @@ struct OffsetsAccessor {
         return next_fixed_leaf().offset;
     }
 
-    [[nodiscard]] FixedOffset next_fixed_leaf () const {
-        const FixedOffset offset = fixed_offsets[next_map_idx()];
-        BSSERT(offset != FixedOffset::empty());
+    [[nodiscard]] layout::FixedOffset next_fixed_leaf () const {
+        const layout::FixedOffset offset = fixed_offsets[next_map_idx()];
+        BSSERT(offset != layout::FixedOffset::empty());
         return offset;
     }
 
@@ -186,8 +184,8 @@ struct SizeChainCodeGenerator {
 template <bool no_multiply, bool last_is_direct = false>
 struct IdxCalcCodeGenerator : stringify::OverAllocatedGeneratorBase {
 private:
-    std::span<const ArrayPackInfo> pack_infos;
-    ArrayPackInfo pack_info;
+    std::span<const layout::ArrayPackInfo> pack_infos;
+    layout::ArrayPackInfo pack_info;
     Buffer::index_t estimated_size;
     uint8_t array_depth;
 
@@ -216,14 +214,14 @@ private:
         return size;
     }
 
-    IdxCalcCodeGenerator (const std::span<const ArrayPackInfo>& pack_infos, const ArrayPackInfo& pack_info, const uint8_t array_depth)
+    IdxCalcCodeGenerator (const std::span<const layout::ArrayPackInfo>& pack_infos, const layout::ArrayPackInfo& pack_info, const uint8_t array_depth)
         : pack_infos(pack_infos),
         pack_info(pack_info),
         estimated_size(estimate_size(array_depth)),
         array_depth(array_depth) {}
 
 public:
-    IdxCalcCodeGenerator (const std::span<const ArrayPackInfo>& pack_infos, const uint16_t pack_info_idx, const uint8_t array_depth)
+    IdxCalcCodeGenerator (const std::span<const layout::ArrayPackInfo>& pack_infos, const uint16_t pack_info_idx, const uint8_t array_depth)
         : IdxCalcCodeGenerator{pack_infos, pack_infos[pack_info_idx], array_depth} {}
     
     WriteResult write (char* dst) const {
@@ -241,7 +239,7 @@ public:
                 dst = stringify::write_string(dst, "(");
             }
 
-            ArrayPackInfo last_pack_info = pack_info;
+            layout::ArrayPackInfo last_pack_info = pack_info;
     
             for (uint32_t i = 0; i < array_depth - 1; i++) {
                 dst = stringify::write_string(dst, " + idx_");
@@ -406,12 +404,12 @@ template <typename Name>
 template <estd::conceptify<estd::is_not<std::is_reference>::type> Code>
 [[nodiscard]] inline Code add_size_leafs (
     const std::span<SizeLeaf> level_size_leafs,
-    const std::span<const FixedOffset> fixed_offsets,
+    const std::span<const layout::FixedOffset> fixed_offsets,
     Code&& struct_code
 ) {
     for (size_t i = 0; i < level_size_leafs.size(); i++) {
         auto [min_size, idx, size_size, stored_size_size] = level_size_leafs[i];
-        const FixedOffset& offset = fixed_offsets[idx];
+        const layout::FixedOffset& offset = fixed_offsets[idx];
         struct_code = std::move(struct_code)
         .method(codegen::Attributes{"static"}, SizeTypeStrs::get(size_size), codegen::StringParts{"size", i}, codegen::Args{"size_t base"})
             .line("return *reinterpret_cast<", SizeTypeStrs::get(stored_size_size), "*>(base + ", offset.get_offset(), ");")
@@ -453,7 +451,7 @@ template <bool is_array_element, StringLiteral type_name, lexer::SIZE type_size,
     const uint8_t array_depth,
     direct_pack_legnth_arg_t<is_direct_pack> direct_pack_length
 ) {
-    const FixedOffset fo = offsets_accessor.next_fixed_leaf();
+    const layout::FixedOffset fo = offsets_accessor.next_fixed_leaf();
     const uint64_t offset = fo.get_offset();
     if constexpr (type_size == lexer::SIZE::SIZE_1 && !is_direct_pack) {
         if (offset == 0) {
@@ -1295,15 +1293,15 @@ void generate (
 
     const std::string_view struct_name = target_struct->name;
     // Any struct and therfore target requires at least one member has
-    ALLOCA_UNSAFE_SPAN(fixed_offsets, FixedOffset, level_fixed_leafs_total + sublevel_fixed_leafs);
-    // std::ranges::uninitialized_fill(fixed_offsets, FixedOffset::empty());
+    ALLOCA_UNSAFE_SPAN(fixed_offsets, layout::FixedOffset, level_fixed_leafs_total + sublevel_fixed_leafs);
+    // std::ranges::uninitialized_fill(fixed_offsets, layout::FixedOffset::empty());
     ALLOCA_SAFE_SPAN(var_offsets, Buffer::View<uint64_t>, total_var_leafs + total_variant_var_leafs);
     // std::ranges::uninitialized_fill(var_offsets, Buffer::View<uint64_t>{Buffer::Index<uint64_t>{static_cast<Buffer::index_t>(-1)}, 0});
     // total_leafs has the fixed leaf count in its sum which is garunteed to be at least 1
     ALLOCA_UNSAFE_SPAN(idx_map, uint16_t, total_leafs);
     // std::ranges::uninitialized_fill(idx_map, static_cast<uint16_t>(-1));
 
-    ALLOCA_SAFE_SPAN(pack_infos, ArrayPackInfo, target_struct->pack_count);
+    ALLOCA_SAFE_SPAN(pack_infos, layout::ArrayPackInfo, target_struct->pack_count);
     // std::ranges::uninitialized_fill(pack_infos, ArrayPackInfo{0, static_cast<uint16_t>(-1)});
 
     auto var_offset_buffer = BUFFER_INIT_STACK(sizeof(uint64_t) * 512);
@@ -1313,12 +1311,12 @@ void generate (
     constexpr size_t layout_bench_iterations = 1;
 
     for (size_t i = 0; i < layout_bench_iterations; i++) {
-        std::ranges::uninitialized_fill(fixed_offsets, FixedOffset::empty());
+        std::ranges::uninitialized_fill(fixed_offsets, layout::FixedOffset::empty());
         std::ranges::uninitialized_fill(var_offsets, Buffer::View<uint64_t>{Buffer::Index<uint64_t>{static_cast<Buffer::index_t>(-1)}, 0});
         std::ranges::uninitialized_fill(idx_map, static_cast<uint16_t>(-1));
-        std::ranges::uninitialized_fill(pack_infos, ArrayPackInfo{0, static_cast<uint16_t>(-1)});
+        std::ranges::uninitialized_fill(pack_infos, layout::ArrayPackInfo{0, static_cast<uint16_t>(-1)});
         var_offset_buffer.clear();
-        auto generate_offsets_result = layout_generation::generate(
+        auto generate_offsets_result = layout::generation::generate(
             target_struct,
             ast_buffer,
             fixed_offsets,

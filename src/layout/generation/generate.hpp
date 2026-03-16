@@ -10,19 +10,20 @@
 #include <utility>
 #include <vector>
 
-#include "../parser/lexer_types.hpp"
-#include "../container/memory.hpp"
-#include "../util/logger.hpp"
-#include "../helper/internal_error.hpp"
-#include "../helper/alloca.hpp"
-#include "../estd/utility.hpp"
-#include "../common_data.hpp"
-#include "./layout_data.hpp"
+#include "../../parser/lexer_types.hpp"
+#include "../../container/memory.hpp"
+#include "../../util/logger.hpp"
+#include "../../helper/internal_error.hpp"
+#include "../../helper/alloca.hpp"
+#include "../../estd/utility.hpp"
+#include "../FixedOffsets.hpp"
+#include "../ArrayPackInfo.hpp"
+#include "./QueuedField.hpp"
 #include "./variant_layout/variant_layout.hpp"
 #include "./tvs.hpp"
 
 
-namespace layout_generation {
+namespace layout::generation {
 
 [[nodiscard]] constexpr lexer::LeafCounts::Counts create_positions (const lexer::LeafCounts::Counts& counts, uint16_t offset = 0) {
     return {
@@ -410,4 +411,4 @@ GenerateResult generate (
     };
 }
 
-} //namespace layout_generation
+} //namespace layout::generation

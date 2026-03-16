@@ -1,9 +1,10 @@
 #pragma once
 
-#include "../../subset_sum_solving/dp_bitset_base.hpp"
-#include "../layout_data.hpp"
+#include "../../../subset_sum_solving/dp_bitset_base.hpp"
+#include "../QueuedField.hpp"
+#include "../VariantLeafMeta.hpp"
 
-namespace layout_generation::variant_layout::sum_intersection_dp_bitset {
+namespace layout::generation::variant_layout::sum_intersection_dp_bitset {
 
 using dp_bitset_base::word_t, dp_bitset_base::num_t;
 
@@ -24,4 +25,4 @@ inline void generate_bits (
     }
 }
 
-} // namespace layout_generation::variant_layout::sum_intersection_dp_bitset
+} // namespace layout::generation::variant_layout::sum_intersection_dp_bitset

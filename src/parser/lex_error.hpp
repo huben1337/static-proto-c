@@ -20,6 +20,8 @@
 
 #define UNEXPECTED_INPUT(msg) show_syntax_error(msg, YYCURSOR);
 
+namespace lexer {
+
 #define ERROR_PATH_ATTRIBUTES [[noreturn, clang::noinline, gnu::noinline, msvc::noinline, gnu::cold]]
 
 ERROR_PATH_ATTRIBUTES void show_syntax_error (const std::string_view& msg, const char* const error, const size_t error_squiggles = 0) {
@@ -72,3 +74,5 @@ ERROR_PATH_ATTRIBUTES void show_syntax_error (const std::string_view& msg, const
 }
 
 #undef ERROR_PATH_ATTRIBUTES
+
+} // namespace lexer

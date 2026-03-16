@@ -4,17 +4,10 @@
 #include <gsl/util>
 #include <variant>
 
-#include "../parser/lexer_types.hpp"
-#include "../estd/ranges.hpp"
+#include "../../parser/lexer_types.hpp"
+#include "../../estd/ranges.hpp"
 
-namespace layout_generation {
-
-struct VariantLeafMeta {
-    lexer::LeafSizes required_spaces;
-    uint64_t used_space = 0;
-    lexer::LeafCounts::Counts left_fields;
-    estd::integral_range<uint16_t> field_idxs;
-};
+namespace layout::generation {
 
 struct SimpleField {
     uint16_t map_idx;
@@ -68,8 +61,4 @@ struct QueuedField {
     constexpr QueuedField (uint64_t size, Info info) : size(size), info(info) {}
 };
 
-struct PendingVariantFieldPacks : lexer::AlignMembersBase<std::pair<uint64_t, estd::integral_range<uint16_t>>, lexer::SIZE::SIZE_8, lexer::SIZE::SIZE_1, PendingVariantFieldPacks> {
-    using AlignMembersBase::AlignMembersBase;
-};
-
-} // namespace layout_generation
+} // namespace layout::generation

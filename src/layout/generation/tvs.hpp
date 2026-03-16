@@ -12,19 +12,21 @@
 #include <vector>
 
 #include "nameof.hpp"
-#include "../parser/lexer_types.hpp"
-#include "../common_data.hpp"
-#include "./layout_data.hpp"
-#include "./field_layout_queue.hpp"
-#include "../container/memory.hpp"
-#include "../estd/class_constraints.hpp"
-#include "../estd/ranges.hpp"
-#include "../math/mod1.hpp"
-#include "../subset_sum_solving/dp_bitset_base.hpp"
-#include "../util/logger.hpp"
-#include "../helper/alloca.hpp"
+#include "../../parser/lexer_types.hpp"
+#include "../FixedOffsets.hpp"
+#include "../ArrayPackInfo.hpp"
+#include "./QueuedField.hpp"
+#include "./PendingVariantFieldPacks.hpp"
+#include "./field_queuing.hpp"
+#include "../../container/memory.hpp"
+#include "../../estd/class_constraints.hpp"
+#include "../../estd/ranges.hpp"
+#include "../../math/mod1.hpp"
+#include "../../subset_sum_solving/dp_bitset_base.hpp"
+#include "../../util/logger.hpp"
+#include "../../helper/alloca.hpp"
 
-namespace layout_generation {
+namespace layout::generation {
 
 enum class STATE_TYPE : uint8_t {
     TOP_LEVEL,
@@ -692,4 +694,4 @@ struct FixedVariantLevel {
     };
 };
 
-} // namespace layout_generation
+} // namespace layout::generation

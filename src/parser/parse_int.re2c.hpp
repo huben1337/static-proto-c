@@ -1,4 +1,3 @@
-
 #pragma once
 
 #include <cstddef>
@@ -35,6 +34,8 @@
     any_white_space = [ \t\r\n];
     white_space = [ \t];
 */
+
+namespace lexer {
 
 template <std::integral T, bool get_digits = false>
 struct ParseNumberResult;
@@ -518,3 +519,7 @@ inline ParseNumberResult<T, get_digits> parse_int_skip_any_white_space (const ch
     }
 }
 
+#undef RETURN_ONLY_ZEROS
+#undef RETURN_VALUE_CHECKED
+
+}
