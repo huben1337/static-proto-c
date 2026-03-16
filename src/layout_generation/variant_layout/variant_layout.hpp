@@ -9,16 +9,14 @@
 #include <type_traits>
 #include <utility>
 #include <variant>
-#include <vector>
 
-#include "../../helper/alloca.hpp"
 #include "../../util/logger.hpp"
 #include "../../common_data.hpp"
 #include "../layout_data.hpp"
-#include "../tvs.hpp"
+#include "../field_layout_queue.hpp"
 #include "./perfect_st.hpp"
 
-namespace variant_layout {
+namespace layout_generation::variant_layout {
 
 constexpr uint16_t empty_chain_link = -1;
 
@@ -466,7 +464,7 @@ requires (alignment != lexer::SIZE::SIZE_1)
     // since some values fields get their size set to 0
     // Solution: and_merge at an offset so that the highest reached sum is flush with meta.used_space. 
     uint64_t layout_end;
-    std::tie(applied_variants, layout_end) = variant_layout::perfect::find_st_<alignment>(
+    std::tie(applied_variants, layout_end) = variant_layout::perfect::find_st<alignment>(
         current_bits,
         to_apply_bits,
         applied_variants,
@@ -605,4 +603,4 @@ requires (alignment != lexer::SIZE::SIZE_1)
     );
 }
 
-} // namespace variant_layout
+} // namespace layout_generation::variant_layout

@@ -1,9 +1,7 @@
 #pragma once
 
 #include <algorithm>
-#include <cstddef>
 #include <cstdint>
-#include <cstring>
 #include <gsl/pointers>
 #include <gsl/util>
 #include <memory>
@@ -17,7 +15,6 @@
 #include "../util/logger.hpp"
 #include "../helper/internal_error.hpp"
 #include "../helper/alloca.hpp"
-#include "./variant_layout/perfect_st.hpp"
 #include "../estd/utility.hpp"
 #include "../common_data.hpp"
 #include "./layout_data.hpp"
@@ -413,5 +410,4 @@ GenerateResult generate (
     };
 }
 
-
-}
+} //namespace layout_generation

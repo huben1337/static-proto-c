@@ -7,7 +7,7 @@
 #include "./sum_intersection_dp_bitset.hpp"
 #include "../../parser/lexer_types.hpp"
 
-namespace variant_layout {
+namespace layout_generation::variant_layout {
 
 struct Layout : lexer::IntegralAlignMembersBase<uint64_t, lexer::SIZE::SIZE_8, lexer::SIZE::SIZE_1, Layout>{
     using IntegralAlignMembersBase::IntegralAlignMembersBase;
@@ -29,11 +29,10 @@ struct Layout : lexer::IntegralAlignMembersBase<uint64_t, lexer::SIZE::SIZE_8, l
 
 namespace perfect {
 
-namespace {
 
 template <lexer::SIZE alignment>
 requires (alignment != lexer::SIZE::SIZE_1)
-[[nodiscard]] inline std::pair<uint16_t, uint64_t> find_st_ (
+[[nodiscard]] inline std::pair<uint16_t, uint64_t> find_st (
     dp_bitset_base::word_t* const current_bits,
     dp_bitset_base::word_t* const to_apply_bits,
     uint16_t applied_variants,
@@ -83,8 +82,6 @@ requires (alignment != lexer::SIZE::SIZE_1)
     }
 }
 
-} // namespace
-
 } // namespace perfect
 
-} // namespace variant_layout
+} // namespace layout_generation::variant_layout

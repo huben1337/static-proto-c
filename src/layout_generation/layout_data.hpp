@@ -7,6 +7,8 @@
 #include "../parser/lexer_types.hpp"
 #include "../estd/ranges.hpp"
 
+namespace layout_generation {
+
 struct VariantLeafMeta {
     lexer::LeafSizes required_spaces;
     uint64_t used_space = 0;
@@ -69,3 +71,5 @@ struct QueuedField {
 struct PendingVariantFieldPacks : lexer::AlignMembersBase<std::pair<uint64_t, estd::integral_range<uint16_t>>, lexer::SIZE::SIZE_8, lexer::SIZE::SIZE_1, PendingVariantFieldPacks> {
     using AlignMembersBase::AlignMembersBase;
 };
+
+} // namespace layout_generation
