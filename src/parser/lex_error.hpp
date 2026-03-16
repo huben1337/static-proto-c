@@ -20,8 +20,9 @@
 
 #define UNEXPECTED_INPUT(msg) show_syntax_error(msg, YYCURSOR);
 
+#define ERROR_PATH_ATTRIBUTES [[noreturn, clang::noinline, gnu::noinline, msvc::noinline, gnu::cold]]
 
-[[noreturn]] static void show_syntax_error (const std::string_view& msg, const char* const error, const size_t error_squiggles = 0) {
+ERROR_PATH_ATTRIBUTES void show_syntax_error (const std::string_view& msg, const char* const error, const size_t error_squiggles = 0) {
     BSSERT(global::input::start != nullptr, "[show_syntax_error] called before input_start set");
 
     const char *start = error;
@@ -58,10 +59,16 @@
     exit(1);
 }
 
-[[noreturn]] static void show_syntax_error (const std::string_view& msg, const char* const error, const char* const error_squiggle_end) {
+ERROR_PATH_ATTRIBUTES void show_syntax_error (const std::string_view& msg, const char* const error, const char* const error_squiggle_end) {
     if (error_squiggle_end > error) {
         show_syntax_error(msg, error, error_squiggle_end - error);
     } else {
         show_syntax_error(msg, error);
     }
 }
+
+ERROR_PATH_ATTRIBUTES void show_syntax_error (const std::string_view& msg, const std::string_view& error_section) {
+    show_syntax_error(msg, error_section.begin(), error_section.end());
+}
+
+#undef ERROR_PATH_ATTRIBUTES

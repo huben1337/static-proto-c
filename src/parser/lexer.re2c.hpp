@@ -1126,7 +1126,7 @@ inline const char* lex_struct_fields (
     if constexpr (!is_first_field) {
         buffer.get(definition_data_idx)->visit_uninitialized([&](const lexer::StructField::Data* const field_data) {
             if (field_data->name == field_name) {
-                show_syntax_error("field already defined", field_name_start, field_name.size());
+                show_syntax_error("field already defined", field_name);
             }
             return field_data->type()->skip<const StructField>();
         }, field_count);
