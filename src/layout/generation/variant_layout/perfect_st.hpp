@@ -7,12 +7,11 @@
 #include "../VariantLeafMeta.hpp"
 
 #include "./sum_intersection_dp_bitset.hpp"
-#include "../../../parser/lexer_types.hpp"
 
 namespace layout::generation::variant_layout::perfect {
 
-template <lexer::SIZE alignment>
-requires (alignment != lexer::SIZE::SIZE_1)
+template <SIZE alignment>
+requires (alignment != SIZE::SIZE_1)
 [[nodiscard]] inline std::pair<uint16_t, uint64_t> find_st (
     dp_bitset_base::word_t* const current_bits,
     dp_bitset_base::word_t* const to_apply_bits,

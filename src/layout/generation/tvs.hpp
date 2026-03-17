@@ -12,16 +12,17 @@
 #include <vector>
 
 #include "nameof.hpp"
-#include "../../parser/lexer_types.hpp"
 #include "../FixedOffsets.hpp"
 #include "../ArrayPackInfo.hpp"
 #include "./QueuedField.hpp"
 #include "./PendingVariantFieldPacks.hpp"
 #include "./field_queuing.hpp"
+#include "../../core/AlignSizes.hpp"
 #include "../../container/memory.hpp"
 #include "../../estd/class_constraints.hpp"
 #include "../../estd/ranges.hpp"
 #include "../../math/mod1.hpp"
+#include "../../math/multiples.hpp"
 #include "../../subset_sum_solving/dp_bitset_base.hpp"
 #include "../../util/logger.hpp"
 #include "../../helper/alloca.hpp"
@@ -42,7 +43,7 @@ struct Queued {
 
     void increment_sum (const uint64_t size) {
         field_size_sum += size;
-        modulated_field_size_sum += math::mod1(size, lexer::SIZE::MAX.byte_size());
+        modulated_field_size_sum += math::mod1(size, SIZE::MAX.byte_size());
     } 
 };
 
@@ -112,7 +113,7 @@ inline void generate_sum_subset_chains (const uint64_t target, const std::vector
     const uint16_t queue_size = queued_fields.size();
     // console.debug("Extracting from queue with length: ", queue_size);
     for (uint16_t queue_idx = 0; queue_idx < queue_size; queue_idx++) {
-        const uint64_t num = math::mod1(queued_fields[queue_idx].size, lexer::SIZE::MAX.byte_size());
+        const uint64_t num = math::mod1(queued_fields[queue_idx].size, SIZE::MAX.byte_size());
         // console.debug("Adding num ", num, " to sum subset");
         BSSERT(/*num != 0 && */num <= target, "num: ", num, ", target: ", target);
         if (num == 0) continue;
@@ -163,7 +164,7 @@ public:
         return base_idx;
     }
 
-    template <lexer::SIZE alignment>
+    template <SIZE alignment>
     void next_array_pack (
         this const auto& self,
         const uint64_t size,
@@ -183,7 +184,7 @@ public:
     }
 
 private:
-    template <lexer::SIZE... alignments>
+    template <SIZE... alignments>
     void next_variant_packs_ (
         this const auto& self,
         const PendingVariantFieldPacks packs,
@@ -200,7 +201,7 @@ public:
         self.next_variant_packs_(packs, PendingVariantFieldPacks::alignments::apply<estd::reverse_variadic_v_t>{});
     }
 
-    template <lexer::SIZE alignment>
+    template <SIZE alignment>
     void next_variant_pack (
         this const auto& self,
         const std::pair<uint64_t, estd::integral_range<uint16_t>> pack
@@ -208,7 +209,7 @@ public:
         self.template next_variant_pack<alignment>(pack.first, pack.second);
     }
 
-    template <lexer::SIZE alignment>
+    template <SIZE alignment>
     void next_variant_pack (
         this const auto& self,
         const uint64_t size,
@@ -225,7 +226,7 @@ public:
         self.template enqueue<alignment>(QueuedField{size, VariantFieldPack{self.template move_to_tmp<alignment>(fixed_offset_idxs), alignment}});
     }
 
-    template <lexer::SIZE alignment>
+    template <SIZE alignment>
     void next_simple (
         this const auto& self,
         const uint64_t count = 1
@@ -238,15 +239,15 @@ public:
 
     void next_simple (
         this const auto& self,
-        const lexer::SIZE alignment,
+        const SIZE alignment,
         const uint64_t count = 1
     ) {
-        alignment.visit<void>(lexer::SIZE::enums{}, []<lexer::SIZE alignment>(const auto& self, const uint64_t count) {
+        alignment.visit<void>(SIZE::enums{}, []<SIZE alignment>(const auto& self, const uint64_t count) {
             self.template next_simple<alignment>(count);
         }, self, count);
     }
 
-    template <lexer::SIZE alignment>
+    template <SIZE alignment>
     [[nodiscard]] estd::integral_range<uint16_t> move_to_tmp (
         const estd::integral_range<uint16_t> fixed_offset_idxs
     ) const {
@@ -301,12 +302,12 @@ public:
         return mutable_state.level().fixed_offset_idx;
     }
 
-    template <lexer::SIZE alignment>
+    template <SIZE alignment>
     void enqueue (
         this const auto& self,
         const QueuedField field
     ) {
-        if constexpr (alignment == lexer::SIZE::MAX) {
+        if constexpr (alignment == SIZE::MAX) {
             self.template enqueue_for_level_<alignment, false>(field);
             self.template decrement_left_fields<alignment>();
         } else {
@@ -316,12 +317,12 @@ public:
         }
     }
 
-    template <lexer::SIZE alignment>
+    template <SIZE alignment>
     void skip (this const auto& self) {
         self.template skip<alignment>();
     }
 
-    template<lexer::SIZE target_align>
+    template<SIZE target_align>
     [[nodiscard]] constexpr uint64_t find_target () const {
         constexpr uint8_t target_align_byte_size = target_align.byte_size();
         const uint64_t queued_sum = mutable_state.level().queued.field_size_sum;
@@ -332,9 +333,9 @@ public:
         dp_bitset_base::init_bits(bitset_words.data(), bitset_words_count);
         for (const auto& e : mutable_state.level().queued.fields) {
             BSSERT(e.size != 0);
-            dp_bitset_base::apply_num_unsafe(math::mod1(e.size, lexer::SIZE::MAX.byte_size()), bitset_words.data(), bitset_words_count);
+            dp_bitset_base::apply_num_unsafe(math::mod1(e.size, SIZE::MAX.byte_size()), bitset_words.data(), bitset_words_count);
         }
-        uint64_t target = lexer::last_multiple(modulated_queued_sum, target_align);
+        uint64_t target = math::last_multiple(modulated_queued_sum, target_align);
         for (;;) {
             if (dp_bitset_base::bit_at(bitset_words.data(), target)) {
                 return target;
@@ -344,7 +345,7 @@ public:
         }
     }
 
-    template <lexer::SIZE target_align, bool set_field_size_zero>
+    template <SIZE target_align, bool set_field_size_zero>
     void enqueue_for_level_ (estd::conditional_const_t<!set_field_size_zero, QueuedField>& field) const {
         MutableStateBase::TrivialLevel& level_mutable_state = mutable_state.level();
         std::visit([this, &level_mutable_state]<typename T>(const T& arg) {
@@ -410,15 +411,15 @@ public:
         }
     }
 
-    template <lexer::SIZE target_align>
+    template <SIZE target_align>
     void enqueue_for_level (const uint16_t idx) const {
         MutableStateBase::TrivialLevel& level_mutable_state = mutable_state.level();
         enqueue_for_level_<target_align, true>(level_mutable_state.queued.fields[idx]);
     }
 
 
-    template<lexer::SIZE target_align>
-    requires (target_align != lexer::SIZE::SIZE_0)
+    template<SIZE target_align>
+    requires (target_align != SIZE::SIZE_0)
     void try_solve_queued_for_align () const {
         MutableStateBase::TrivialLevel& level_mutable_state = mutable_state.level();
         
@@ -438,7 +439,7 @@ public:
             const uint64_t field_size = field.size;
             console.debug("used field: ", field_size, " target align: ", target_align);
             add_field(*this, field_idx, fields, field_size);
-            const auto modulated_field_size = math::mod1(field_size, lexer::SIZE::MAX.byte_size());
+            const auto modulated_field_size = math::mod1(field_size, SIZE::MAX.byte_size());
             level_mutable_state.queued.field_size_sum -= field_size;
             level_mutable_state.queued.modulated_field_size_sum -= modulated_field_size;
             chain_idx -= modulated_field_size;
@@ -456,8 +457,8 @@ public:
         BSSERT(find_target<target_align>() == 0);
     }
 
-    void try_solve_queued_for_align (this const TrivialLevelStateBase& self, const lexer::SIZE target_align) {
-        target_align.visit<void>(lexer::SIZE::enums{}, []<lexer::SIZE alignment>(const TrivialLevelStateBase& self) {
+    void try_solve_queued_for_align (this const TrivialLevelStateBase& self, const SIZE target_align) {
+        target_align.visit<void>(SIZE::enums{}, []<SIZE alignment>(const TrivialLevelStateBase& self) {
             self.try_solve_queued_for_align<alignment>();
         }, self);
     }
@@ -487,12 +488,12 @@ struct TopLevel {
     struct MutableState : MutableStateBase {
         struct Level : TrivialLevel {
             constexpr Level (
-                const lexer::LeafCounts::Counts left_fields,
-                lexer::LeafCounts::Counts var_leaf_positions
+                const AlignCounts left_fields,
+                AlignCounts var_leaf_positions
             ) : TrivialLevel{0, 0}, left_fields(left_fields), var_leaf_positions(var_leaf_positions) {}
             
-            lexer::LeafCounts::Counts left_fields;
-            lexer::LeafCounts::Counts var_leaf_positions;
+            AlignCounts left_fields;
+            AlignCounts var_leaf_positions;
             uint16_t current_size_leaf_idx = 0;
         };
 
@@ -519,7 +520,7 @@ struct TopLevel {
             const MutableState& mutable_state
         ) : TrivialLevelStateBase{const_state, mutable_state} {}
 
-        template <lexer::SIZE alignment>
+        template <SIZE alignment>
         void skip () const {
             uint16_t& c = mutable_state.level().left_fields.get<alignment>();
             if (c == 1) {
@@ -531,23 +532,23 @@ struct TopLevel {
             c--;
         }
 
-        template <lexer::SIZE alignment>
+        template <SIZE alignment>
         void decrement_left_fields () const {
             uint16_t& c = mutable_state.level().left_fields.get<alignment>();
             BSSERT(c != 0);
             c--;
         }
 
-        template <lexer::SIZE alignment>
+        template <SIZE alignment>
         void try_solve_queued () const {
-            const lexer::SIZE largest_align = mutable_state.level().left_fields.largest_align();
+            const SIZE largest_align = mutable_state.level().left_fields.largest_align();
             console.debug("[TopLevel::try_solve_queued] alignment: ", alignment, ", left_fields: ", mutable_state.level().left_fields);
             decrement_left_fields<alignment>();
             console.debug("[TopLevel::try_solve_queued] largest_align: ", largest_align);
             try_solve_queued_for_align(largest_align);
         }
 
-        template <lexer::SIZE alignment>
+        template <SIZE alignment>
         [[nodiscard]] uint16_t next_var_leaf_idx () const {
             const uint16_t idx = mutable_state.level().var_leaf_positions.get<alignment>()++;
             const uint16_t size_leaf_idx = mutable_state.level().current_size_leaf_idx;
@@ -556,7 +557,7 @@ struct TopLevel {
             return idx;
         }
 
-        template <lexer::SIZE alignment>
+        template <SIZE alignment>
         void next_simple_var () const {
             const uint16_t idx = next_var_leaf_idx<alignment>();
             const_state.level().var_leaf_sizes[idx] = alignment.byte_size();
@@ -611,16 +612,16 @@ struct FixedArrayLevel {
             const MutableState& mutable_state
         ) : TrivialLevelStateBase{const_state, mutable_state} {}
 
-        template <lexer::SIZE alignment>
+        template <SIZE alignment>
         void skip () const {}
 
-        template <lexer::SIZE>
+        template <SIZE>
         consteval void decrement_left_fields () const {}
 
-        template <lexer::SIZE>
+        template <SIZE>
         void try_solve_queued () const {
             console.debug("[FixedArrayLevel::try_solve_queued]");
-            try_solve_queued_for_align<lexer::SIZE::SIZE_8>();
+            try_solve_queued_for_align<SIZE::SIZE_8>();
         }
     };
 };
@@ -651,8 +652,8 @@ struct FixedVariantLevel {
 
     struct MutableState : MutableStateBase {
         struct Level {
-            lexer::LeafSizes used_spaces;
-            lexer::LeafCounts::Counts non_zero_fields_counts;
+            AlignSizes used_spaces;
+            AlignCounts non_zero_fields_counts;
             uint16_t queue_position;
             uint16_t tmp_fixed_offset_idx;
         };
@@ -679,10 +680,10 @@ struct FixedVariantLevel {
             return const_state.level().fixed_offset_idx;
         }
 
-        template <lexer::SIZE alignment>
+        template <SIZE alignment>
         void skip () const {}
 
-        template <lexer::SIZE alignment>
+        template <SIZE alignment>
         void enqueue (const QueuedField field) const {
             console.debug("[FixedVariantLevel::enqueue] alignment: ", alignment);
             const uint16_t idx = mutable_state.level().queue_position++;

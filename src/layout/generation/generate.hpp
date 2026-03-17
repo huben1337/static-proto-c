@@ -10,12 +10,14 @@
 #include <utility>
 #include <vector>
 
+#include "../../core/AlignCounts.hpp"
 #include "../../parser/lexer_types.hpp"
 #include "../../container/memory.hpp"
 #include "../../util/logger.hpp"
 #include "../../helper/internal_error.hpp"
 #include "../../helper/alloca.hpp"
 #include "../../estd/utility.hpp"
+#include "../../math/multiples.hpp"
 #include "../FixedOffsets.hpp"
 #include "../ArrayPackInfo.hpp"
 #include "./QueuedField.hpp"
@@ -25,15 +27,15 @@
 
 namespace layout::generation {
 
-[[nodiscard]] constexpr lexer::LeafCounts::Counts create_positions (const lexer::LeafCounts::Counts& counts, uint16_t offset = 0) {
+[[nodiscard]] constexpr AlignCounts create_positions (const AlignCounts& counts, uint16_t offset = 0) {
     return {
-        gsl::narrow_cast<uint16_t>(offset + counts.get<lexer::SIZE::SIZE_8>() + counts.get<lexer::SIZE::SIZE_4>() + counts.get<lexer::SIZE::SIZE_2>()),
-        gsl::narrow_cast<uint16_t>(offset + counts.get<lexer::SIZE::SIZE_8>() + counts.get<lexer::SIZE::SIZE_4>()),
-        gsl::narrow_cast<uint16_t>(offset + counts.get<lexer::SIZE::SIZE_8>()),
+        gsl::narrow_cast<uint16_t>(offset + counts.get<SIZE::SIZE_8>() + counts.get<SIZE::SIZE_4>() + counts.get<SIZE::SIZE_2>()),
+        gsl::narrow_cast<uint16_t>(offset + counts.get<SIZE::SIZE_8>() + counts.get<SIZE::SIZE_4>()),
+        gsl::narrow_cast<uint16_t>(offset + counts.get<SIZE::SIZE_8>()),
         offset
     };
 }
-[[nodiscard]] constexpr lexer::LeafCounts::Counts create_positions (const lexer::LeafCounts& leaf_counts, uint16_t offset = 0) {
+[[nodiscard]] constexpr AlignCounts create_positions (const lexer::LeafCounts& leaf_counts, uint16_t offset = 0) {
     return create_positions(leaf_counts.counts(), offset);
 }
 
@@ -54,7 +56,7 @@ struct TypeVisitor {
     template <lexer::FIELD_TYPE field_type>
     void on_simple () const {
         console.debug("[on_simple] field_type: ", (uint8_t)field_type);
-        constexpr lexer::SIZE alignment = lexer::type_alignment<field_type>;
+        constexpr SIZE alignment = lexer::type_alignment<field_type>;
         state.template next_simple<alignment>();
     }
 
@@ -72,7 +74,7 @@ struct TypeVisitor {
 
     void on_fixed_string (const lexer::FixedStringType* const fixed_string_type) const {
         const uint32_t length = fixed_string_type->length;
-        state.template next_simple<lexer::SIZE::SIZE_1>(length);
+        state.template next_simple<SIZE::SIZE_1>(length);
     }
 
     void on_string (const lexer::StringType* const string_type) const {
@@ -81,14 +83,14 @@ struct TypeVisitor {
         } else if constexpr (std::is_same_v<State, FixedVariantLevel::State>) {
             INTERNAL_ERROR("Variable length strings in fixed variant are nonsensical");
         } else {
-            const lexer::SIZE stored_size_size = string_type->stored_size_size;
-            state.template next_simple_var<lexer::SIZE::SIZE_1>();
+            const SIZE stored_size_size = string_type->stored_size_size;
+            state.template next_simple_var<SIZE::SIZE_1>();
 
             state.next_simple(stored_size_size, 1);
         }
     }
 
-    template <lexer::SIZE alignment>
+    template <SIZE alignment>
     void add_fixed_array_packs(
         const FixedArrayLevel::State& level_state,
         const uint16_t pack_info_base_idx,
@@ -96,7 +98,7 @@ struct TypeVisitor {
         const uint64_t last_offset,
         const uint32_t array_length
     ) const {
-        if constexpr (alignment != lexer::SIZE::SIZE_8) {
+        if constexpr (alignment != SIZE::SIZE_8) {
             level_state.mutable_state.level().fixed_offset_idx = fixed_offset_idx_begin;
             level_state.try_solve_queued_for_align<alignment>();
         }
@@ -109,11 +111,11 @@ struct TypeVisitor {
             pack_info_base_idx + alignment.ordinal()
         );
 
-        if constexpr (alignment != lexer::SIZE::SIZE_1) {
+        if constexpr (alignment != SIZE::SIZE_1) {
             // const uint16_t fixed_offset_idx_begin = state.get_fixed_offset_idx();
             // level_state.mutable_state.level().fixed_offset_idx = fixed_offset_idx_begin;
 
-            add_fixed_array_packs<lexer::next_smaller_size<alignment>>(
+            add_fixed_array_packs<alignment.next_smaller()>(
                 level_state,
                 pack_info_base_idx,
                 state.get_fixed_offset_idx(),
@@ -152,7 +154,7 @@ struct TypeVisitor {
         };
         result_t result = fixed_array_type->inner_type()->visit(visitor);
 
-        add_fixed_array_packs<lexer::SIZE::SIZE_8>(
+        add_fixed_array_packs<SIZE::SIZE_8>(
             visitor.state,
             pack_info_base_idx,
             fixed_offset_idx_begin,
@@ -169,7 +171,7 @@ struct TypeVisitor {
         /* if constexpr (in_array) {
             INTERNAL_ERROR("Dynamic array cant be nested");
         } else {
-            const lexer::SIZE stored_size_size = array_type->stored_size_size;
+            const SIZE stored_size_size = array_type->stored_size_size;
 
             auto result = array_type->inner_type()->visit(TypeVisitor<next_type_t, TopLevel::State, true, false>{
                 state
@@ -191,9 +193,9 @@ struct TypeVisitor {
         const uint16_t variant_count = fixed_variant_type->variant_count;
 
         if (variant_count <= UINT8_MAX) {
-            state.template next_simple<lexer::SIZE::SIZE_1>();
+            state.template next_simple<SIZE::SIZE_1>();
         } else {
-            state.template next_simple<lexer::SIZE::SIZE_2>();
+            state.template next_simple<SIZE::SIZE_2>();
         }
 
         uint16_t fixed_field_packs_total = 0;
@@ -232,8 +234,8 @@ struct TypeVisitor {
             const uint16_t queued_fields_start = queued_fields_base;
 
             FixedVariantLevel::MutableState::Level level_mutable_state {
-                lexer::LeafSizes::zero(),
-                lexer::LeafCounts::Counts::zero(),
+                AlignSizes::zero(),
+                AlignCounts::zero(),
                 queued_fields_start,
                 tmp_fixed_offset_idx_base
             };
@@ -337,7 +339,7 @@ GenerateResult generate (
     const std::span<ArrayPackInfo> pack_infos,
     Buffer&& var_offset_buffer,
     const lexer::LeafCounts& level_fixed_leafs,
-    const lexer::LeafCounts::Counts& var_leaf_counts,
+    const AlignCounts& var_leaf_counts,
     const uint16_t& total_var_leafs,
     const uint16_t& level_fixed_variants,
     const uint16_t& level_fixed_arrays,
@@ -400,7 +402,7 @@ GenerateResult generate (
     console.debug("queued size: ", top_level_mutable_state_data.level.queued.fields.size());
 
     if (total_var_leafs > 0) {
-        offset = lexer::next_multiple(offset, var_leaf_counts.largest_align());
+        offset = math::next_multiple(offset, var_leaf_counts.largest_align());
     }
 
     // visitor_state.set_var_offsets(total_var_leafs, level_size_leafs_count, 0);

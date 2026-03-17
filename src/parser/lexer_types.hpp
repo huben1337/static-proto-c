@@ -1,8 +1,6 @@
 #pragma once
 
 #include <bit>
-#include <concepts>
-#include <cstddef>
 #include <cstdint>
 #include <gsl/util>
 #include <limits>
@@ -14,10 +12,10 @@
 #include "../base.hpp"
 #include "../container/memory.hpp"
 #include "./memory_helpers.hpp"
-#include "../estd/enum.hpp"
 #include "../estd/utility.hpp"
-#include "../estd/functional.hpp"
 #include "../util/logger.hpp"
+#include "../core/SIZE.hpp"
+#include "../core/AlignCounts.hpp"
 
 namespace lexer {
 
@@ -46,343 +44,6 @@ enum FIELD_TYPE : uint8_t {
     PACKED_VARIANT,
     DYNAMIC_VARIANT,
     IDENTIFIER
-};
-
-namespace {
-    struct size_helper;
-}
-
-struct SIZE : estd::ENUM_CLASS<uint8_t, SIZE> {
-    friend struct size_helper;
-
-    using ENUM_CLASS::ENUM_CLASS;
-
-    template <value_t v>
-    struct Mapped;
-    
-    static const SIZE SIZE_1;
-    static const SIZE SIZE_2;
-    static const SIZE SIZE_4;
-    static const SIZE SIZE_8;
-    static const SIZE SIZE_0;
-
-    static const SIZE MIN;
-    static const SIZE MAX;
-
-    constexpr SIZE () : SIZE{SIZE_0} {};
-
-    [[nodiscard]] constexpr std::strong_ordering operator <=> (this const SIZE& self, const SIZE& other) {
-        return self.ordinal() <=> other.ordinal();
-    }
-
-    [[nodiscard]] constexpr SIZE operator - (this const SIZE& self, const SIZE& other) {
-        return SIZE{gsl::narrow_cast<value_t>(self.ordinal() - other.ordinal())};
-    }
-
-    [[nodiscard]] constexpr SIZE operator + (this const SIZE& self, const SIZE& other) {
-        return SIZE{gsl::narrow_cast<value_t>(self.ordinal() + other.ordinal())};
-    }
-
-    [[nodiscard]] constexpr value_t byte_size () const {
-        return value_t{1} << ordinal();
-    }
-
-    template <typename Result, auto... target_sizes, typename... U, typename Visitor>
-    [[nodiscard]] constexpr Result visit (this const SIZE& self, estd::variadic_v<target_sizes...> /*unused*/, Visitor&& visitor, U&&... args);
-
-private:
-    static void next_smaller_is_invalid_for_this_size () {}
-    static void next_bigger_is_invalid_for_this_size () {}
-
-public:
-    [[nodiscard]] consteval SIZE next_smaller (this const SIZE& self) {
-        if (self == SIZE_0 || self == SIZE_1) {
-            next_smaller_is_invalid_for_this_size();
-        }
-        return SIZE{gsl::narrow_cast<value_t>(self.ordinal() - 1)};
-    };
-
-    [[nodiscard]] consteval SIZE next_bigger (this const SIZE& self) {
-        if (self == SIZE_0 || self == SIZE_8) {
-            next_bigger_is_invalid_for_this_size();
-        }
-        return SIZE{gsl::narrow_cast<value_t>(self.ordinal() + 1)};
-    };
-
-    template <std::unsigned_integral T>
-    [[nodiscard]] static SIZE from_integral (const T i) {
-        return SIZE{gsl::narrow_cast<value_t>(i % gsl::narrow_cast<value_t>(MAX.ordinal() + 1))};
-    }
-
-    template <typename writer_params>
-    void log (const logger::writer<writer_params> w) const {
-        w.template write<true, true>(outside_name + "_"_sl, byte_size());
-    }
-
-    struct enums;
-};
-
-template<SIZE min, SIZE max>
-using make_size_range = estd::make_index_range<min.ordinal(), max.ordinal() + 1>::template map<lexer::SIZE::Mapped>;
-
-
-constexpr SIZE SIZE::SIZE_1{0};
-constexpr SIZE SIZE::SIZE_2{1};
-constexpr SIZE SIZE::SIZE_4{2};
-constexpr SIZE SIZE::SIZE_8{3};
-constexpr SIZE SIZE::SIZE_0{static_cast<value_t>(-1)};
-constexpr SIZE SIZE::MIN   {SIZE::SIZE_1};
-constexpr SIZE SIZE::MAX   {SIZE::SIZE_8};
-
-struct SIZE::enums : estd::variadic_v<SIZE_1, SIZE_2, SIZE_4, SIZE_8> {};
-
-template <SIZE::value_t value_>
-struct SIZE::Mapped {
-    static constexpr SIZE value {value_};
-
-private:
-    template <auto... w>
-    using includes_value = std::bool_constant<((w == value) || ...)>;
-
-    static_assert(
-        value == SIZE::SIZE_0 ||
-        SIZE::enums::apply<includes_value>::value
-    );
-};
-
-// namespace _size_detail {
-//     template <typename Visitor, SIZE size>
-//     concept size_visitor_applicable = requires (Visitor&& visitor) {
-//         { visitor.template operator()<size>() } -> estd::conceptify<estd::is_any_t>;
-//     };
-// }
-
-template <typename Result, auto... target_sizes, typename... U, typename Visitor>
-[[nodiscard]] constexpr Result SIZE::visit (this const SIZE& self, estd::variadic_v<target_sizes...> /*unused*/, Visitor&& visitor, U&&... args) {
-    switch (self.ordinal()) {
-        case SIZE_1.ordinal(): if constexpr (((target_sizes == SIZE_1) || ...)) { return std::forward<Visitor>(visitor).template operator()<SIZE_1>(std::forward<U>(args)...); } else { std::unreachable(); };
-        case SIZE_2.ordinal(): if constexpr (((target_sizes == SIZE_2) || ...)) { return std::forward<Visitor>(visitor).template operator()<SIZE_2>(std::forward<U>(args)...); } else { std::unreachable(); };
-        case SIZE_4.ordinal(): if constexpr (((target_sizes == SIZE_4) || ...)) { return std::forward<Visitor>(visitor).template operator()<SIZE_4>(std::forward<U>(args)...); } else { std::unreachable(); };
-        case SIZE_8.ordinal(): if constexpr (((target_sizes == SIZE_8) || ...)) { return std::forward<Visitor>(visitor).template operator()<SIZE_8>(std::forward<U>(args)...); } else { std::unreachable(); };
-        case SIZE_0.ordinal(): if constexpr (((target_sizes == SIZE_0) || ...)) { return std::forward<Visitor>(visitor).template operator()<SIZE_0>(std::forward<U>(args)...); } else { std::unreachable(); };
-        default: std::unreachable();
-    }
-}
-
-namespace {
-    struct size_helper {
-        template <SIZE size>
-        requires (size != SIZE::SIZE_0 && size != SIZE::SIZE_1)
-        static constexpr SIZE next_smaller_size {size.ordinal() - 1};
-
-        template <SIZE size>
-        requires (size != SIZE::SIZE_0 && size != SIZE::SIZE_8)
-        static constexpr SIZE next_bigger_size {size.ordinal() + 1};
-        
-    };
-}
-
-template <SIZE size>
-requires (size != SIZE::SIZE_0 && size != SIZE::SIZE_1)
-constexpr SIZE next_smaller_size = size_helper::next_smaller_size<size>;
-
-template <SIZE size>
-requires (size != SIZE::SIZE_0 && size != SIZE::SIZE_8)
-constexpr SIZE next_bigger_size = size_helper::next_bigger_size<size>;
-
-template<typename T, SIZE max_alignment = SIZE::SIZE_8, SIZE min_alignment = SIZE::SIZE_1, typename Outside = void>
-requires (max_alignment != SIZE::SIZE_0 && min_alignment != SIZE::SIZE_0)
-struct AlignMembersBase {
-    static_assert(max_alignment >= min_alignment, "max_alignment can not be smaller than min_alignment");
-    
-    using alignments = make_size_range<min_alignment, max_alignment>;
-
-private:
-    template <typename Outside_>
-    struct outside {
-        using type = Outside;
-    };
-
-    template <>
-    struct outside<void> {
-        using type = AlignMembersBase;
-    };
-
-    template <typename Outside_>
-    static constexpr StringLiteral outside_name_v = string_literal::from_([](){ return nameof::nameof_type<Outside>(); });
-
-    template <>
-    constexpr StringLiteral outside_name_v<void> = "AlignMembersBase<>";
-
-protected:
-    using outside_t = outside<Outside>::type;
-    static constexpr StringLiteral outside_name = outside_name_v<Outside>;
-    static constexpr size_t alignments_count = alignments::size;
-
-private:
-    T align[alignments_count];
-
-    template <SIZE... alignments>
-    constexpr explicit AlignMembersBase (estd::variadic_v<alignments...> /*unused*/)
-        : align((static_cast<void>(alignments), T{})...) {};
-    
-public:
-    constexpr explicit AlignMembersBase () requires (std::is_default_constructible_v<T>)
-        : AlignMembersBase{alignments{}} {};
-
-    constexpr explicit AlignMembersBase (const T (&align)[alignments_count])
-        : align(align) {}
-
-    /**
-     * @param aligns Values for alignments in ascending order.
-     */
-    template <typename... U>
-    requires (alignments_count > 1 && sizeof...(U) == alignments_count)
-    // NOLINTNEXTLINE(google-explicit-constructor)
-    constexpr AlignMembersBase (U&&... aligns)
-        : align(std::forward<U>(aligns) ...) {}
-
-    template <typename U>
-    requires (alignments_count == 1)
-    constexpr explicit AlignMembersBase (U&& align)
-        : align(std::forward<U>(align)) {}
-
-    #define IDENTITY(...) __VA_ARGS__
-
-    #define ALIGN_MEMBER_GET_CT_ARG(CONST_ATTR)                                     \
-    template <SIZE alignment>                                                       \
-    [[nodiscard]] constexpr CONST_ATTR IDENTITY(T&) get () IDENTITY(CONST_ATTR) {   \
-        static_assert(alignment <= max_alignment && alignment >= min_alignment);    \
-        return align[(alignment - min_alignment).ordinal()];                        \
-    }
-
-    #define ALIGN_MEMBER_GET_RT_ARG(CONST_ATTR)                                                 \
-    template <estd::discouraged_annotation>                                                     \
-    [[nodiscard]] constexpr CONST_ATTR IDENTITY(T&) get (SIZE alignment) IDENTITY(CONST_ATTR) { \
-        BSSERT(alignment <= max_alignment && alignment >= min_alignment);                       \
-        return align[(alignment - min_alignment).ordinal()];                                    \
-    }
-
-    ALIGN_MEMBER_GET_CT_ARG()
-    ALIGN_MEMBER_GET_CT_ARG(const)
-    ALIGN_MEMBER_GET_RT_ARG()
-    ALIGN_MEMBER_GET_RT_ARG(const)
-
-    #undef ALIGN_MEMBER_GET_CT_ARG
-    #undef ALIGN_MEMBER_GET_RT_ARG
-    #undef IDENDITY
-
-private:
-    template <typename writer_params, SIZE first, SIZE... rest>
-    void log_ (const logger::writer<writer_params> w, estd::variadic_v<first, rest...> /*unused*/) const {
-        if constexpr (sizeof...(rest) > 0) {
-            w.template write<true, false>(outside_name + "{align"_sl + string_literal::from<first.byte_size()> + ": "_sl, get<first>());
-            (w.template write<false, false>(", align"_sl + string_literal::from<rest.byte_size()> + ": "_sl , get<rest>()), ...);
-            w.template write<false, true>("}");
-        } else {
-            w.template write<true, true>(outside_name + "{align"_sl + string_literal::from<first.byte_size()> + ": "_sl, get<first>(), "}");
-        }
-    }
-
-public:
-    template <typename writer_params>
-    void log (const logger::writer<writer_params> w) const {
-        log_(w, alignments{});
-    }
-
-private:
-    template <typename Result, SIZE... alignments>
-    [[nodiscard]] static constexpr Result _of (const T& value, estd::variadic_v<alignments...> /*unused*/) { return Result{(static_cast<void>(alignments), value)...}; }
-
-public:
-    template <typename Result = outside_t>
-    [[nodiscard]] static constexpr Result of (const T& value) { return _of<Result>(value, alignments{}); }
-};
-
-template<std::integral T, SIZE max_alignment = SIZE::SIZE_8, SIZE min_alignment = SIZE::SIZE_1, typename Outside = void>
-struct IntegralAlignMembersBase : AlignMembersBase<T, max_alignment, min_alignment, Outside> {
-private:
-    using Base = AlignMembersBase<T, max_alignment, min_alignment, Outside>;
-    using Base::Base;
-
-public:
-    friend Outside;
-
-    IntegralAlignMembersBase () = delete;
-
-private:
-    using outside_t = Base::outside_t;
-
-    template <SIZE... alignments_to_check>
-    requires (sizeof...(alignments_to_check) > 0)
-    [[nodiscard]] constexpr SIZE _largest_align (estd::variadic_v<alignments_to_check...> /*unused*/) const {
-        SIZE result;
-        const bool checked_matched = (((Base::template get<alignments_to_check>() != 0) ? (result = alignments_to_check, true) : false) || ...);
-        if (checked_matched) return result;
-        return SIZE::SIZE_1;
-    }
-
-public:
-    template <SIZE limit = max_alignment>
-    requires (limit >= min_alignment && limit <= max_alignment)
-    [[nodiscard]] constexpr SIZE largest_align () const {
-        if constexpr (min_alignment == max_alignment) {
-            return min_alignment;
-        } else {
-            return _largest_align(typename lexer::make_size_range<min_alignment.next_bigger(), max_alignment>
-                    ::template apply<estd::reverse_variadic_v_t>{});
-        }
-    }
-
-private:
-    template <typename Operator, SIZE... alignments>
-    [[nodiscard]] constexpr outside_t _do_binary_operation (const outside_t& other, estd::variadic_v<alignments...> /*unused*/) const {
-        return outside_t{
-            static_cast<T>(Operator::apply(Base::template get<alignments>(), other.template get<alignments>())) ...
-        };
-    }
-
-    template <typename Operator, std::integral U, SIZE... alignments>
-    [[nodiscard]] constexpr outside_t _do_binary_operation (const U& other, estd::variadic_v<alignments...> /*unused*/) const {
-        return outside_t{
-            static_cast<T>(Operator::apply(Base::template get<alignments>(), other)) ...
-        };
-    }
-
-    template <typename Operator, typename U, SIZE... alignments>
-    [[nodiscard]] constexpr outside_t do_binary_operation (const U& other) const {
-        return _do_binary_operation<Operator>(other, typename Base::alignments{});
-    }
-
-    template <typename Operator, SIZE... alignments>
-    [[nodiscard]] constexpr outside_t& _do_compound_binary_operation (this outside_t& self, const outside_t& other, estd::variadic_v<alignments...> /*unused*/) {
-        (estd::compound_asign<Operator>(self.template get<alignments>(), other.template get<alignments>()), ...);
-        return self;
-    }
-
-    template <typename Operator, std::integral U, SIZE... alignments>
-    [[nodiscard]] constexpr outside_t& _do_compound_binary_operation (this outside_t& self, const U& other, estd::variadic_v<alignments...> /*unused*/) {
-        (estd::compound_asign<Operator>(self.template get<alignments>(), other), ...);
-        return self;
-    }
-
-    template <typename Operator, typename U, SIZE... alignments>
-    [[nodiscard]] constexpr outside_t& do_compound_binary_operation (this outside_t& self, const U& other) {
-        return self.template _do_compound_binary_operation<Operator>(other, typename Base::alignments{});
-    }
-
-public:
-    template <std::integral U, SIZE... alignments>
-    [[nodiscard]] constexpr U sum (estd::variadic_v<alignments...> /*unused*/) const {
-        static_assert(
-            std::numeric_limits<T>::min() >= std::numeric_limits<U>::min() &&
-            std::numeric_limits<T>::max() <= std::numeric_limits<U>::max()
-        );
-        return (... + static_cast<U>(Base::template get<alignments>()));
-    }
-
-    template <typename Result = outside_t>
-    [[nodiscard]] static consteval Result zero () { return Base::template of<Result>(0); }
 };
 
 template <FIELD_TYPE field_type>
@@ -414,30 +75,7 @@ constexpr SIZE type_alignment<FIELD_TYPE::INT64  > = SIZE::SIZE_8;
 template <>
 constexpr SIZE type_alignment<FIELD_TYPE::FLOAT64> = SIZE::SIZE_8;
 
-template <std::integral T>
-[[nodiscard]] constexpr T last_multiple (T value, SIZE base) {
-    return value & ~(static_cast<T>(base.byte_size()) - 1);
-}
 
-template <std::integral T, estd::discouraged_annotation>
-[[nodiscard]] constexpr T last_multiple (T value, std::type_identity_t<T> base) {
-    static_warn("base must be a power of 2");
-    return value & ~(base - 1);
-}
-
-
-template <std::integral T>
-[[nodiscard]] constexpr T next_multiple (T value, SIZE base) {
-    T mask = static_cast<T>(base.byte_size()) - 1;
-    return (value + mask) & ~mask;
-}
-
-template <std::integral T, estd::discouraged_annotation>
-[[nodiscard]] constexpr T next_multiple (T value, std::type_identity_t<T> base) {
-    static_warn("base must be a power of 2");
-    T mask = base - 1;
-    return (value + mask) & ~mask;
-}
 
 [[nodiscard]] constexpr SIZE get_size_size (uint8_t /*unused*/) {
     return SIZE::SIZE_1;
@@ -460,36 +98,31 @@ template <std::integral T, estd::discouraged_annotation>
 }
 
 struct LeafCounts {
-    struct Counts : IntegralAlignMembersBase<uint16_t, SIZE::SIZE_8, SIZE::SIZE_1, Counts> {
-        using IntegralAlignMembersBase::IntegralAlignMembersBase;
-
-        [[nodiscard]] constexpr uint16_t total () const {
-            return sum<uint16_t>(alignments{});
-        }
-    };
-
 private:
     uint64_t data {};
 
 public:
     consteval LeafCounts () = default;
-    constexpr explicit LeafCounts (Counts counts) : data(std::bit_cast<uint64_t>(counts)) {}
+    constexpr explicit LeafCounts (AlignCounts counts) : data(std::bit_cast<uint64_t>(counts)) {}
     constexpr LeafCounts (uint16_t align1, uint16_t align2, uint16_t align4, uint16_t align8) : LeafCounts{{align1, align2, align4, align8}} {}
     constexpr explicit LeafCounts (uint64_t data) : data(data) {}
     constexpr explicit LeafCounts (SIZE size) : data(uint64_t{1} << (size.ordinal() * sizeof(uint16_t) * 8)) {}
 
-    constexpr void operator += (const LeafCounts& other) { data += other.data; }
+    constexpr LeafCounts& operator += (const LeafCounts& other) {
+        data += other.data;
+        return *this;
+    }
 
     [[nodiscard]] constexpr LeafCounts operator + (const LeafCounts& other) const { return LeafCounts{data + other.data}; }
 
     [[nodiscard]] constexpr bool empty () const { return data == 0; }
 
-    [[nodiscard]] constexpr Counts counts () const { return std::bit_cast<Counts>(data); }
+    [[nodiscard]] constexpr AlignCounts counts () const { return std::bit_cast<AlignCounts>(data); }
 
     [[nodiscard]] constexpr uint16_t total () const { return counts().total(); }
 
-    [[nodiscard]] static consteval LeafCounts zero () { return LeafCounts{Counts::zero()}; }
-    [[nodiscard]] static constexpr LeafCounts of (uint16_t value) { return LeafCounts{Counts::of(value)}; }
+    [[nodiscard]] static consteval LeafCounts zero () { return LeafCounts{AlignCounts::zero()}; }
+    [[nodiscard]] static constexpr LeafCounts of (uint16_t value) { return LeafCounts{AlignCounts::of(value)}; }
 
     template <SIZE size>
     requires (size != SIZE::SIZE_0)
@@ -497,76 +130,13 @@ public:
         return LeafCounts{size};
     }
 
-    template <SIZE limit = lexer::SIZE::SIZE_8>
+    template <SIZE limit = SIZE::SIZE_8>
     [[nodiscard]] constexpr SIZE largest_align () const {
         return counts().largest_align<limit>();
     }
 };
 
-struct LeafSizes : IntegralAlignMembersBase<uint64_t, SIZE::SIZE_8, SIZE::SIZE_1, LeafSizes> {
-    using IntegralAlignMembersBase::IntegralAlignMembersBase;
 
-private:
-    template <SIZE... alignments>
-    constexpr LeafSizes (const LeafCounts::Counts& counts, estd::variadic_v<alignments...> /*unused*/)
-        : IntegralAlignMembersBase{counts.get<alignments>()...} {}
-
-public:
-    constexpr explicit LeafSizes (const LeafCounts::Counts& counts)
-        : LeafSizes{counts, LeafCounts::Counts::alignments{}} {}
-
-    constexpr LeafSizes& operator += (const LeafSizes& other) {
-        return do_compound_binary_operation<estd::add>(other);
-    }
-
-    [[nodiscard]] constexpr LeafSizes operator + (const LeafSizes& other) const {
-        return do_binary_operation<estd::add>(other);
-    }
-
-    [[nodiscard]] constexpr LeafSizes operator * (const uint32_t factor) const {
-        return do_binary_operation<estd::multiply>(factor);
-    }
-
-    [[nodiscard]] constexpr uint64_t total () const {
-        return sum<uint64_t>(alignments{});
-    }
-
-    [[nodiscard]] constexpr bool empty () const {
-        return total() == 0;
-    }
-
-
-    template <estd::discouraged_annotation>
-    [[nodiscard]] static constexpr LeafSizes from_space_at_size (const SIZE size, const uint64_t space) {
-        LeafSizes result = LeafSizes::zero();
-        result.get<estd::discouraged>(size) = space;
-        return result;
-    }
-
-    template <estd::discouraged_annotation>
-    [[nodiscard]] static constexpr LeafSizes from_size (const SIZE size, const uint32_t count) {
-        return from_space_at_size<estd::discouraged>(size, static_cast<uint64_t>(size.byte_size()) * count);
-    }
-
-    template <SIZE size>
-    [[nodiscard]] static constexpr LeafSizes from_space_at_size (const uint64_t space) {
-        LeafSizes result = LeafSizes::zero();
-        result.get<size>() = space;
-        return result;
-    }
-    
-    template <SIZE size>
-    [[nodiscard]] static constexpr LeafSizes from_size (const uint32_t count) {
-        return from_space_at_size<size>(static_cast<uint64_t>(size.byte_size()) * count);
-    }
-
-    template <SIZE size>
-    [[nodiscard]] static consteval LeafSizes from_size () {
-        return from_size<size>(1);
-    }
-
-    
-};
 
 struct IdentifiedDefinition {
     KEYWORDS keyword;

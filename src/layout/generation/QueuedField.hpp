@@ -11,25 +11,25 @@ namespace layout::generation {
 
 struct SimpleField {
     uint16_t map_idx;
-    lexer::SIZE alignment;
+    SIZE alignment;
 
-    [[nodiscard]] lexer::SIZE get_alignment () const { return alignment; }
+    [[nodiscard]] SIZE get_alignment () const { return alignment; }
 
 };
 
 struct VariantFieldPack {
     estd::integral_range<uint16_t> tmp_fixed_offset_idxs;
-    lexer::SIZE alignment;
+    SIZE alignment;
 
-    [[nodiscard]] lexer::SIZE get_alignment () const { return alignment; }
+    [[nodiscard]] SIZE get_alignment () const { return alignment; }
 };
 
 struct ArrayFieldPack {
     estd::integral_range<uint16_t> tmp_fixed_offset_idxs;
     uint16_t pack_info_idx;
 
-    [[nodiscard]] lexer::SIZE get_alignment () const {
-        return lexer::SIZE::from_integral(pack_info_idx);
+    [[nodiscard]] SIZE get_alignment () const {
+        return SIZE::from_integral(pack_info_idx);
     }
 };
 
@@ -38,8 +38,8 @@ struct QueuedField {
     struct Info : std::variant<SimpleField, ArrayFieldPack, VariantFieldPack> {
         using variant::variant;
 
-        [[nodiscard]] constexpr lexer::SIZE alignment (this const Info& self) {
-            return std::visit([]<typename T>(const T& arg) -> lexer::SIZE {
+        [[nodiscard]] constexpr SIZE alignment (this const Info& self) {
+            return std::visit([]<typename T>(const T& arg) -> SIZE {
                 if constexpr (
                         std::is_same_v<SimpleField, T>
                     || std::is_same_v<VariantFieldPack, T>

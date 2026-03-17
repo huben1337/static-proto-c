@@ -2,7 +2,7 @@
 
 #include <cstdint>
 
-#include "../parser/lexer_types.hpp"
+#include "../core/SIZE.hpp"
 #include "../util/logger.hpp"
 
 namespace layout {
@@ -10,16 +10,16 @@ namespace layout {
 struct FixedOffset {
     uint64_t offset;
     uint16_t map_idx;
-    lexer::SIZE pack_align;
+    SIZE pack_align;
 
-    constexpr FixedOffset (uint64_t offset, uint16_t map_idx, lexer::SIZE pack_align)
+    constexpr FixedOffset (uint64_t offset, uint16_t map_idx, SIZE pack_align)
         : offset(offset), map_idx(map_idx), pack_align(pack_align) {}
 
-    [[nodiscard]] constexpr lexer::SIZE get_pack_align () const {
+    [[nodiscard]] constexpr SIZE get_pack_align () const {
         return pack_align;
     }
 
-    constexpr void set_pack_align (lexer::SIZE value) { pack_align = value; }
+    constexpr void set_pack_align (SIZE value) { pack_align = value; }
 
     [[nodiscard]] constexpr uint64_t get_offset () const { return offset; }
 
@@ -34,7 +34,7 @@ struct FixedOffset {
     }
 
     [[nodiscard]] static consteval FixedOffset empty() {
-        return {static_cast<uint64_t>(-1), static_cast<uint16_t>(-1), lexer::SIZE::SIZE_0};
+        return {static_cast<uint64_t>(-1), static_cast<uint16_t>(-1), SIZE::SIZE_0};
     }
 
     template <typename writer_params>
