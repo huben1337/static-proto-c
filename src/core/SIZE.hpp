@@ -1,6 +1,6 @@
 #pragma once
 
-#include <utility>
+#include <cassert>
 #include <compare>
 #include <concepts>
 #include <type_traits>
@@ -8,11 +8,12 @@
 #include "../estd/utility.hpp"
 #include "../estd/enum.hpp"
 
-struct SIZE : estd::ENUM_CLASS<uint8_t, SIZE> {
 
-    using ENUM_CLASS::ENUM_CLASS;
+struct SIZE : estd::enum_<uint8_t, SIZE> {
 
-    template <value_t v>
+    using enum_::enum_;
+
+    template <value_t>
     struct Mapped;
     
     static const SIZE SIZE_1;
@@ -29,21 +30,53 @@ struct SIZE : estd::ENUM_CLASS<uint8_t, SIZE> {
     [[nodiscard]] constexpr std::strong_ordering operator <=> (this const SIZE& self, const SIZE& other) {
         return self.ordinal() <=> other.ordinal();
     }
+private:
+    static void substraction_invalid () {}
 
+    [[nodiscard]] constexpr bool can_substract (this const SIZE& self, const SIZE& other) {
+        return
+            self != SIZE_0 &&
+            other != SIZE_0 &&
+            (static_cast<int>(self.ordinal()) - static_cast<int>(other.ordinal())) >= MIN.ordinal();
+    }
+
+public:
     [[nodiscard]] constexpr SIZE operator - (this const SIZE& self, const SIZE& other) {
+        if consteval {
+            if (self.can_substract(other)) {
+                substraction_invalid();
+            }
+        } else {
+            BSSERT(self.can_substract(other));
+        }
         return SIZE{gsl::narrow_cast<value_t>(self.ordinal() - other.ordinal())};
     }
 
+private:
+    static void addition_invalid () {}
+
+    [[nodiscard]] constexpr bool can_add (this const SIZE& self, const SIZE& other) {
+        return
+            self != SIZE_0 &&
+            other != SIZE_0 &&
+            (static_cast<int>(self.ordinal()) + static_cast<int>(other.ordinal())) <= MAX.ordinal();
+    }
+
+public:
     [[nodiscard]] constexpr SIZE operator + (this const SIZE& self, const SIZE& other) {
+        if consteval {
+            if (self.can_add(other)) {
+                addition_invalid();
+            }
+        } else {
+            BSSERT(self.can_add(other));
+        }
         return SIZE{gsl::narrow_cast<value_t>(self.ordinal() + other.ordinal())};
     }
 
     [[nodiscard]] constexpr value_t byte_size () const {
         return value_t{1} << ordinal();
     }
-
-    template <typename Result, auto... target_sizes, typename... U, typename Visitor>
-    [[nodiscard]] constexpr Result visit (this const SIZE& self, estd::variadic_v<target_sizes...> /*unused*/, Visitor&& visitor, U&&... args);
 
 private:
     static void next_smaller_is_invalid_for_this_size () {}
@@ -71,7 +104,7 @@ public:
 
     template <typename writer_params>
     void log (const logger::writer<writer_params> w) const {
-        w.template write<true, true>(outside_name + "_"_sl, byte_size());
+        w.template write<true, true>(type_name + "_"_sl, byte_size());
     }
 
     struct next;
@@ -98,7 +131,7 @@ struct SIZE::Mapped {
     static constexpr SIZE value {value_};
 
 private:
-    template <auto... w>
+    template <SIZE... w>
     using includes_value = std::bool_constant<((w == value) || ...)>;
 
     static_assert(
@@ -107,21 +140,3 @@ private:
     );
 };
 
-// namespace _size_detail {
-//     template <typename Visitor, SIZE size>
-//     concept size_visitor_applicable = requires (Visitor&& visitor) {
-//         { visitor.template operator()<size>() } -> estd::conceptify<estd::is_any_t>;
-//     };
-// }
-
-template <typename Result, auto... target_sizes, typename... U, typename Visitor>
-[[nodiscard]] constexpr Result SIZE::visit (this const SIZE& self, estd::variadic_v<target_sizes...> /*unused*/, Visitor&& visitor, U&&... args) {
-    switch (self.ordinal()) {
-        case SIZE_1.ordinal(): if constexpr (((target_sizes == SIZE_1) || ...)) { return std::forward<Visitor>(visitor).template operator()<SIZE_1>(std::forward<U>(args)...); } else { std::unreachable(); };
-        case SIZE_2.ordinal(): if constexpr (((target_sizes == SIZE_2) || ...)) { return std::forward<Visitor>(visitor).template operator()<SIZE_2>(std::forward<U>(args)...); } else { std::unreachable(); };
-        case SIZE_4.ordinal(): if constexpr (((target_sizes == SIZE_4) || ...)) { return std::forward<Visitor>(visitor).template operator()<SIZE_4>(std::forward<U>(args)...); } else { std::unreachable(); };
-        case SIZE_8.ordinal(): if constexpr (((target_sizes == SIZE_8) || ...)) { return std::forward<Visitor>(visitor).template operator()<SIZE_8>(std::forward<U>(args)...); } else { std::unreachable(); };
-        case SIZE_0.ordinal(): if constexpr (((target_sizes == SIZE_0) || ...)) { return std::forward<Visitor>(visitor).template operator()<SIZE_0>(std::forward<U>(args)...); } else { std::unreachable(); };
-        default: std::unreachable();
-    }
-}

@@ -1,44 +1,31 @@
 #pragma once
 
-#include <compare>
 #include <concepts>
+#include <type_traits>
 
+#include "../estd/visit.hpp"
 #include "../util/string_literal.hpp"
 #include "../util/logger.hpp"
 
 namespace estd {
 
-template <std::integral T, typename Outside = void>
-struct ENUM_CLASS {
-private:
-    template <typename Outside_>
-    struct outside {
-        using type = Outside;
-    };
-
-    template <>
-    struct outside<void> {
-        using type = ENUM_CLASS;
-    };
-
-    template <typename Outside_>
-    static constexpr StringLiteral outside_name_v = string_literal::from_([](){ return nameof::nameof_type<Outside>(); });
-
-    template <>
-    constexpr StringLiteral outside_name_v<void> = "ENUM_CLASS<>";
-
-public:
+template <std::integral T, typename Derived>
+struct enum_ {
     using value_t = T;
-    using outside_t = outside<Outside>::type;
-    static constexpr StringLiteral outside_name = outside_name_v<Outside>;
+    static constexpr StringLiteral type_name = string_literal::from_([](){ return nameof::nameof_type<Derived>(); });
 
     [[deprecated("Internal field.")]] value_t _value;
 
 protected:
-    constexpr explicit ENUM_CLASS (const value_t value) : _value(value) {}
+    constexpr explicit enum_ (const value_t value) : _value(value) {
+        static_assert(std::is_base_of_v<enum_, Derived>, "Derived must inherit from enum_<T, Derived>");
+    }
 
 public:
-    [[nodiscard]] constexpr bool operator == (this const outside_t& self, const outside_t& other) {
+    operator bool () const = delete;
+    operator bool () = delete;
+
+    [[nodiscard]] constexpr bool operator == (this const Derived& self, const Derived& other) {
         return self.ordinal() == other.ordinal();
     }
 
@@ -49,12 +36,15 @@ public:
         #pragma clang diagnostic pop
     }
 
-    operator bool () const = delete;
-    operator bool () = delete;
+    template <typename Result, auto... variants, typename... U, typename Visitor>
+    [[nodiscard]] constexpr Result visit (this const Derived& self, estd::variadic_v<variants...> /*unused*/, Visitor&& visitor, U&&... args) {
+        static_assert((std::is_same_v<decltype(variants), Derived> && ...));
+        return estd::visit<Result>(self, estd::variadic_v<variants...>{}, std::forward<Visitor>(visitor), {}, std::forward<U>(args)...);
+    }
 
     template <typename writer_params>
     void log (const logger::writer<writer_params> w) const {
-        w.template write<true, true>(outside_name + "{value: "_sl, ordinal(), "}");
+        w.template write<true, true>(type_name + "{value: "_sl, ordinal(), "}");
     }
 };
 
