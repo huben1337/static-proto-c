@@ -1,5 +1,6 @@
 #include <string>
 #include <chrono>
+#include "estd/utility.hpp"
 
 #if IS_MINGW
 #include <cstdlib>
@@ -12,44 +13,72 @@
 #include "./parser/lexer.re2c.hpp"
 #include "./decode_code.hpp"
 
+// #include "./subset_sum_solving/test.dp_bitset_base.hpp"
+// #include "./subset_sum_solving/bench.dp_bitset_base.ones_up_to.hpp"
+// #include "./subset_sum_solving/bench.dp_bitset_base.apply_num_unsafe.hpp"
 
-int main (int argc, const char** argv) {
-    console.debug("spc.exe");
+
+int main (const int argc, const char* const* const argv) {
+    console.debug("spc");
     if (argc <= 2) {
         console.error("no output and/or input supplied");
         return 1;
     }
 
-    const std::string input_path = {argv[1]};
-    const std::string output_path = {argv[2]};
+    const std::string input_path {argv[1]};
+    const std::string output_path {argv[2]};
 
-    fs::OpenWithStatsResult input_file{};
-    fs::OpenWithStatsResult output_file{};
+    auto input_file = fs::File::open(
+        input_path,
+        estd::variadic_v<
+            fs::OPEN_FLAGS::RDONLY
+        >{},
+        {},
+        [](const fs::OPEN_ERROR, const std::string& path) {
+            console.error("Failed to open input file: ", path);
+        }
+    );
 
-    #if !IS_MINGW
-    #define O_BINARY 0
-    #endif
+    auto input_file_stat = input_file.stat([](const fs::STAT_ERROR) {
+        std::perror("Failed to get file stats for input file.");
+    });
+    fs::assert_regular(input_path, input_file_stat);
 
-    input_file = fs::open_with_stat(input_path, O_RDONLY | O_BINARY);
-    fs::assert_regular(input_path, input_file.stat);
     global::input::file_path = fs::realpath(input_path);
-    output_file = fs::open_with_stat(output_path, O_WRONLY | O_CREAT | O_TRUNC | O_BINARY, S_IRUSR | S_IWUSR);
-    fs::assert_regular(output_path, output_file.stat);
+    
+    auto output_file = fs::File::open(
+        output_path,
+        estd::variadic_v<
+            fs::OPEN_FLAGS::WRONLY,
+            fs::OPEN_FLAGS::CREAT,
+            fs::OPEN_FLAGS::TRUNC
+        >{},
+        estd::variadic_v<
+            fs::PERMISSION_MODE::IRUSR,
+            fs::PERMISSION_MODE::IWUSR
+        >{},
+        [](const fs::OPEN_ERROR, const std::string& path) {
+            console.error("Failed to open output file: ", path);
+        }
+    );
+    
+    fs::assert_regular(output_path, output_file.stat([](const fs::STAT_ERROR) {
+        std::perror("Failed to get file stats for output file.");
+    }));
 
-    const auto input_file_size = input_file.stat.st_size;
+    const auto input_file_size = input_file_stat.st_size;
     if (input_file_size <= 0) {
         console.error("Input file had invalid size of: ", input_file_size);
         return 1;
     }
 
     char input_buffer[input_file_size + 1];
-    auto read_result = read(input_file.fd, input_buffer, input_file_size);
+    auto read_result = input_file.read(input_buffer, input_file_size);
     input_buffer[input_file_size] = 0;
     if (read_result != input_file_size) {
         console.error("read size mismatch");
         return 1;
     }
-    close(input_file.fd);
 
     global::input::start = input_buffer;
 
@@ -61,12 +90,7 @@ int main (int argc, const char** argv) {
     Buffer ast_buffer = BUFFER_INIT_STACK(4096);
     const auto *const target_struct = lexer::lex<false>(global::input::start, identifier_map, ast_buffer, {});
 
-    decode_code::generate(target_struct, ReadOnlyBuffer{ast_buffer}, output_file.fd);
-
-    if (close(output_file.fd) != 0) {
-        console.error("could not close output file");
-        return 1;
-    };
+    decode_code::generate(target_struct, ReadOnlyBuffer{ast_buffer}, std::move(output_file));
 
     auto end_ts = std::chrono::high_resolution_clock::now();
     auto duration = std::chrono::duration_cast<std::chrono::milliseconds>(end_ts - start_ts);

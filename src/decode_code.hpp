@@ -32,6 +32,7 @@
 #include "./code_generation_static_data.hpp"
 #include "./layout/generation/generate.hpp"
 #include "./estd/empty.hpp"
+#include "./fs.hpp"
 
 namespace decode_code {
 
@@ -1272,7 +1273,7 @@ struct TypeVisitor {
 void generate (
     const lexer::StructDefinition* const target_struct,
     const ReadOnlyBuffer& ast_buffer,
-    const int output_fd
+    const fs::File output_file
 ) {
     Buffer code_buffer = BUFFER_INIT_STACK(1 << 14);
     const lexer::LeafCounts level_fixed_leafs = target_struct->level_fixed_leafs;
@@ -1423,7 +1424,7 @@ void generate (
             console.info(AlignMembersBase<int, SIZE::SIZE_8, SIZE::SIZE_2>{1, 2, 3});
             #define DO_WRITE_OUTPUT 1
             #if DO_WRITE_OUTPUT
-            auto write_result = ::write(output_fd, code_done.data(), code_done.size());
+            auto write_result = output_file.write(code_done.data(), code_done.size());
             if (write_result == -1) {
                 std::perror("write failed");
                 std::exit(1);
