@@ -98,7 +98,7 @@ namespace estd {
 
         template <typename... U, typename F>
         static constexpr void foreach (F&& lambda, U&... args) {
-            (std::forward<F>(lambda).template operator()<T>(args...), ...);
+            (lambda.template operator()<T>(args...), ...);
         }
     };
 
@@ -150,7 +150,7 @@ namespace estd {
 
         template <typename... U, typename F>
         static constexpr void foreach (F&& lambda, U&... args) {
-            (std::forward<F>(lambda).template operator()<v>(args...), ...);
+            (lambda.template operator()<v>(args...), ...);
         }
     };
 
@@ -180,11 +180,13 @@ namespace estd {
 
     template <template <auto, auto> typename AreSame = _detail::values_equal>
     struct are_distinct_variadic_v {
-        template<auto... v>
-        struct check;
+        template<auto...>
+        struct check {
+            static_assert(false, "estd::are_distinct_variadic_v is undefined for 0 elements");
+        };
 
-        template<>
-        struct check<> {
+        template<auto last>
+        struct check<last> {
             static constexpr bool value = true;
         };
 
@@ -193,6 +195,58 @@ namespace estd {
             static constexpr bool value = (!AreSame<first, rest>::value && ...) && check<rest...>::value;
         };
     };
+
+    template <template <auto, auto> typename AreSame = _detail::values_equal>
+    struct are_same_variadic_v {
+        template<auto...>
+        struct check {
+            static_assert(false, "estd::are_same_variadic_v is undefined for 0 elements");
+        };
+
+        template<auto first, auto... rest>
+        struct check<first, rest...> {
+            static constexpr bool value = (AreSame<first, rest>::value && ...);
+        };
+    };
+
+    constexpr bool awda = are_distinct_variadic_v<>::check<1, 1>::value;
+
+    template <template <auto> typename Match>
+    struct variadic_v_where {
+    private:
+        template<typename Acc, auto...>
+        struct _apply;
+
+        template <bool, typename Acc, auto current, auto... rest>
+        struct conditionaly_append {
+            using type = _apply<Acc, rest...>::type;
+        };
+
+        template <auto current, typename Acc, auto... rest>
+        struct conditionaly_append<true, Acc, current, rest...> {
+            using type = _apply<typename Acc::template append<current>, rest...>::type;
+        };
+
+        template<typename Acc>
+        struct _apply<Acc> {
+            using type = Acc;
+        };
+
+        template<typename Acc, auto first, auto... rest>
+        struct _apply<Acc, first, rest...> {
+            using type = conditionaly_append<Match<first>::value, Acc, first, rest...>::type;
+        };
+    public:
+    template<auto... v>
+        using apply = _apply<estd::variadic_v<>, v...>::type;
+    };
+
+    template<auto v>
+    struct IsA {
+        static constexpr bool value = v < 10;
+    };
+
+    using awdad = variadic_v_where<IsA>::apply<10, 3, 4, 9, 11>;
 
     template <typename... T>
     using transform_to_varidadic_v = variadic_v<T::value...>;
