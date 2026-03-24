@@ -164,9 +164,9 @@ struct IdentifiedDefinition {
 
     public:
         [[nodiscard]] static auto create(Buffer &buffer, const std::string_view name) {
-            __CreateExtendedResult<Derived, IdentifiedDefinition> created = __create_extended<Derived, IdentifiedDefinition>(buffer);
-            *buffer.get(created.base) = IdentifiedDefinition{keyword};
-            buffer.get(created.extended)->name = name;
+            CreateExtendedResult<Derived, IdentifiedDefinition> created = create_extended<Derived, IdentifiedDefinition>(buffer);
+            buffer.get(created.base) = IdentifiedDefinition{keyword};
+            buffer.get(created.extended).name = name;
             return created;
         }
     };
@@ -261,7 +261,7 @@ public:
 
 
 template <typename T>
-[[nodiscard, gnu::always_inline]] inline T* get_extended_type(auto* that) {
+[[nodiscard, gnu::always_inline]] inline T& get_extended_type(auto* that) {
     return get_extended<T, Type>(that);
 }
 
@@ -270,12 +270,14 @@ struct FixedStringType {
     friend Type;
 
     static void create (Buffer &buffer, uint32_t length) {
-        auto [extended, base] = create_extended<FixedStringType, Type>(buffer);
-        *base = Type{FIELD_TYPE::STRING_FIXED};
-        *extended = {
-            length,
-            get_size_size(length)
-        };
+        create_extended<Type, FixedStringType>(
+            buffer,
+            Type{FIELD_TYPE::STRING_FIXED},
+            FixedStringType{
+                length,
+                get_size_size(length)
+            }
+        );
     }
 
     uint32_t length;
@@ -288,20 +290,22 @@ private:
     }
 };
 [[nodiscard]] inline const FixedStringType& Type::as_fixed_string () const {
-    return *get_extended_type<const FixedStringType>(this);
+    return get_extended_type<const FixedStringType>(this);
 }
 
 struct StringType {
     friend Type;
 
     static void create (Buffer &buffer, uint32_t min_length, SIZE stored_size_size, SIZE size_size) {
-        auto [extended, base] = create_extended<StringType, Type>(buffer);
-        *base = Type{STRING};
-        *extended = {
-            min_length,
-            stored_size_size,
-            size_size
-        };
+        create_extended<Type, StringType>(
+            buffer,
+            Type{STRING},
+            StringType{
+                min_length,
+                stored_size_size,
+                size_size
+            }
+        );
     }
     uint32_t min_length;
     SIZE stored_size_size;
@@ -314,7 +318,7 @@ private:
     }
 };
 [[nodiscard]] inline const StringType& Type::as_string () const {
-    return *get_extended_type<const StringType>(this);
+    return get_extended_type<const StringType>(this);
 }
 
 
@@ -323,9 +327,11 @@ struct IdentifiedType {
     friend Type;
 
     static void create (Buffer &buffer, IdentifedDefinitionIndex identifier_idx) {
-        auto [extended, base] = create_extended<IdentifiedType, Type>(buffer);
-        *base = Type{IDENTIFIER};
-        *extended = IdentifiedType{identifier_idx};
+        create_extended<Type, IdentifiedType>(
+            buffer,
+            Type{IDENTIFIER},
+            IdentifiedType{identifier_idx}
+        );
     }
 
 private:
@@ -335,11 +341,11 @@ private:
 
 public:
     [[nodiscard]] const IdentifiedDefinition& get(const ReadOnlyBuffer& buffer) const {
-        return *buffer.get(identifier_idx);
+        return buffer.get(identifier_idx);
     }
 
     [[nodiscard]] const IdentifiedDefinition& get(const Buffer& buffer) const {
-        return *buffer.get(identifier_idx);
+        return buffer.get(identifier_idx);
     }
 
 private:
@@ -349,13 +355,13 @@ private:
     }
 };
 [[nodiscard]] inline const IdentifiedType& Type::as_identifier () const {
-    return *get_extended_type<const IdentifiedType>(this);
+    return get_extended_type<const IdentifiedType>(this);
 }
 
 struct ArrayType {
 
     [[nodiscard]] static auto create (Buffer &buffer) {
-        return __create_extended<ArrayType, Type>(buffer);
+        return create_extended<ArrayType, Type>(buffer);
     }
 
     LeafCounts level_fixed_leafs;
@@ -370,17 +376,17 @@ struct ArrayType {
 
 };
 [[nodiscard]] inline ArrayType& Type::as_array () const {
-    return *get_extended_type<ArrayType>(this);
+    return get_extended_type<ArrayType>(this);
 }
 
 
 
-template <typename TypeMetaT>
+template <typename TypeMeta>
 struct VariantTypeBase {
     friend Type;
     
     [[nodiscard]] static auto create (Buffer &buffer) {
-        return __create_extended<VariantTypeBase, Type, TypeMetaT>(buffer);
+        return create_extended<VariantTypeBase, Type, TypeMeta>(buffer);
     }
 
     uint64_t min_byte_size;                 // Minimum byte size of the variant (used for size getter)
@@ -391,8 +397,8 @@ struct VariantTypeBase {
     SIZE stored_size_size;                  // Size of the stored size
     SIZE size_size;                         // Size of the size
 
-    [[nodiscard]] const TypeMetaT* type_metas () const {
-        return reinterpret_cast<const TypeMetaT*>(estd::ptr_cast<const uint8_t>(this) + type_metas_offset);
+    [[nodiscard]] const TypeMeta* type_metas () const {
+        return reinterpret_cast<const TypeMeta*>(estd::ptr_cast<const uint8_t>(this) + type_metas_offset);
     }
 
     [[nodiscard]] const Type& first_variant() const {
@@ -424,22 +430,21 @@ struct DynamicVariantTypeMeta {
 
 using FixedVariantType = VariantTypeBase<FixedVariantTypeMeta>;
 [[nodiscard]] inline auto& Type::as_fixed_variant () const {
-    return *get_extended_type<FixedVariantType>(this);
+    return get_extended_type<FixedVariantType>(this);
 }
 
 using PackedVariantType = VariantTypeBase<FixedVariantTypeMeta>;
 [[nodiscard]] inline auto& Type::as_packed_variant () const {
-    return *get_extended_type<PackedVariantType>(this);
+    return get_extended_type<PackedVariantType>(this);
 }
 
 using DynamicVariantType = VariantTypeBase<DynamicVariantTypeMeta>;
 [[nodiscard]] inline auto& Type::as_dynamic_variant () const {
-    return *get_extended_type<DynamicVariantType>(this);
+    return get_extended_type<DynamicVariantType>(this);
 }
 
 
 struct StructField {
-
     struct Data {
         std::string_view name;
 
@@ -448,15 +453,18 @@ struct StructField {
         }
     };
 
+    static void create(Buffer &buffer, const Data data) {
+        // Since we can create a Data object any time the current buffer position might not be aligned, so we have to ensure alignment.
+        create_padded<const Data&>(buffer, data);
+    }
+
     [[nodiscard]] const Data& data () const {
         // The object of type Data can be found at its next natural alignment.
-        return *get_padded<const Data>(this);
+        return get_padded<const Data>(this);
     }
 };
 
 struct EnumField {
-    std::string_view name;
-
     struct Value {
         uint64_t value;
         bool is_negative;
@@ -491,7 +499,10 @@ struct EnumField {
         static constexpr Value intitial () {
             return Value{-1};
         }
-    } value;
+    };
+
+    std::string_view name;
+    Value value;
 };
 
 struct StructDefinitionData {
@@ -513,10 +524,6 @@ struct StructDefinitionData {
 };
 
 struct StructDefinition : IdentifiedDefinition::Base<StructDefinition, StructDefinitionData, KEYWORDS::STRUCT> {
-    static StructField::Data& reserve_field(Buffer &buffer) {
-        // Since we can create a Data object any time the current buffer position might not be aligned, so we have to ensure alignment.
-        return *create_padded<StructField::Data>(buffer);
-    }
 private:
     [[nodiscard]] const StructField* first_field() const {
         return estd::ptr_cast<const StructField>(this + 1);
@@ -548,7 +555,7 @@ struct EnumDefinition : IdentifiedDefinition::Base<EnumDefinition, EnumDefinitio
     static void add_field (Buffer &buffer, const EnumField& field) {
         // We only create one EnumField after the other, so the alignment is always correct.
         static_assert(alignof(EnumDefinition) >= alignof(EnumField));
-        *buffer.get_next_aligned<EnumField>() = field;
+        buffer.get_next<EnumField>() = field;
     }
 
     std::span<EnumField> fields() {
@@ -559,7 +566,7 @@ struct EnumDefinition : IdentifiedDefinition::Base<EnumDefinition, EnumDefinitio
 
 const IdentifiedDefinition::Data& IdentifiedDefinition::data () const {
     // The object of type Data is created when classes, which are derived from Data, are created.
-    return *get_extended<const Data, IdentifiedDefinition>(this);
+    return get_extended<const Data, IdentifiedDefinition>(this);
 }
 
 [[nodiscard]] inline const StructDefinition& IdentifiedDefinition::Data::as_struct () const {

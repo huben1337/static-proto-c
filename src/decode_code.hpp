@@ -142,29 +142,21 @@ struct ArrayLengths {
 struct SizeChainCodeGenerator {
     SizeChainCodeGenerator(
         const ReadOnlyBuffer& var_offset_buffer,
-        const Buffer::View<uint64_t>& size_chain
-    ) :
-    size_chain_data(var_offset_buffer.get_aligned(size_chain.start_idx)),
-    size_chain_length(size_chain.length)
-    {}
+        const Buffer::Base::View<uint64_t>& size_chain
+    ) : size_chain(var_offset_buffer.get(size_chain)) {}
 
-    SizeChainCodeGenerator(
-        const uint64_t* const size_chain_data,
-        const Buffer::View<uint64_t>::length_t size_chain_length
-    ) :
-    size_chain_data(size_chain_data),
-    size_chain_length(size_chain_length)
-    {}
+    explicit SizeChainCodeGenerator(
+        const std::span<uint64_t> size_chain
+    ) : size_chain(size_chain) {}
 
-    const uint64_t* size_chain_data;
-    Buffer::View<uint64_t>::length_t size_chain_length;
+    std::span<uint64_t> size_chain;
     
     char* write(char* dst) const {
-        for (Buffer::index_t i = 0; i < size_chain_length; i++) {
+        for (Buffer::index_t i = 0; i < size_chain.size(); i++) {
             dst = stringify::write_string(dst, " + size"_sl);
             dst = stringify::write_string(dst, i);
             dst = stringify::write_string(dst, "(base)"_sl);
-            const uint64_t size = size_chain_data[i];
+            const uint64_t size = size_chain[i];
             if (size != 1) {
                 dst = stringify::write_string(dst, " * "_sl);
                 dst = stringify::write_string(dst, size);
@@ -174,9 +166,9 @@ struct SizeChainCodeGenerator {
     }
 
     [[nodiscard]] size_t get_size() const {
-        size_t offset_str_size = ( size_chain_length * (" + size"_sl.size() + "(base)"_sl.size()) ) + fast_math::sum_of_digits_unsafe(size_chain_length);
-        for (Buffer::index_t i = 0; i < size_chain_length; i++) {
-            const uint64_t size = size_chain_data[i];
+        size_t offset_str_size = ( size_chain.size() * (" + size"_sl.size() + "(base)"_sl.size()) ) + fast_math::sum_of_digits_unsafe(size_chain.size());
+        for (Buffer::index_t i = 0; i < size_chain.size(); i++) {
+            const uint64_t size = size_chain[i];
             if (size != 1) {
                 offset_str_size += " * "_sl.size() + fast_math::log_unsafe<10>(size) + 1;
             }

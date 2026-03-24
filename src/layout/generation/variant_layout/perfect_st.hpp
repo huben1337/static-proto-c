@@ -40,7 +40,7 @@ requires (alignment != SIZE::SIZE_1)
             const uint64_t word_offset = already_applied_space / dp_bitset_base::WORD_BITS;
             // CSSERT(total_required_space, <=, target);
             const auto to_apply_word_count = dp_bitset_base::bitset_word_count(total_required_space);
-            console.log("total_required_space: ", total_required_space);
+            console.debug("total_required_space: ", total_required_space);
             sum_intersection_dp_bitset::generate_bits(to_apply_bits, to_apply_word_count, queued_fields_buffer, meta);
             const uint16_t sub_word_offset = already_applied_space - (word_offset * dp_bitset_base::WORD_BITS);
             if (sub_word_offset != 0) {

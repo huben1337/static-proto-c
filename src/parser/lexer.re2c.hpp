@@ -239,21 +239,6 @@ inline void add_identifier (IdentifierMap &identifier_map, std::string_view name
     }
 }
 
-template <typename DefinitionProvider, bool target_defined>
-[[nodiscard]] inline const char* add_defintion (const char* YYCURSOR, Buffer& buffer, IdentifierMap &identifier_map) {
-    auto name_result = lex_identifier_name(YYCURSOR);
-    YYCURSOR = name_result.cursor;
-    auto [definition_data_idx, definition_idx] = DefinitionProvider::create(buffer);
-    *buffer.get(definition_idx) = {KEYWORDS::STRUCT};
-    buffer.get(definition_data_idx)->name = name_result.value;
-    YYCURSOR = DefinitionProvider::lex(YYCURSOR, definition_data_idx, identifier_map, buffer);
-    add_identifier(identifier_map, name_result.value, definition_idx);
-    if constexpr (target_defined) {
-        console.warn("no possible path from target to struct ", name_result.value, " can be created.");
-    }
-}
-
-
 struct LexTypeResult {
     const char* cursor;
     LeafCounts level_fixed_leafs;
@@ -295,7 +280,7 @@ template <bool is_dynamic, bool expect_fixed, typename BufferedTypeMeta>
     uint64_t inner_max_byte_size,
     Buffer& buffer,
 	Buffer&& type_meta_buffer,
-    const __CreateExtendedResult<DynamicVariantType, Type> created_variant_type,
+    const CreateExtendedResult<DynamicVariantType, Type> created_variant_type,
     const uint16_t variant_count,
     const uint16_t sublevel_fixed_leafs,
     const uint16_t pack_count,
@@ -311,11 +296,11 @@ template <bool is_dynamic, bool expect_fixed, typename BufferedTypeMeta>
     const size_t meta_padding = get_padding<out_type_meta_t>(buffer.position_idx<uint8_t>().value);
     
     const Buffer::Index<out_type_meta_t> meta_dst_idx {buffer.next_multi_byte<uint8_t>(
-        (variant_count * sizeof(out_type_meta_t)) + meta_padding
+        meta_padding + (variant_count * sizeof(out_type_meta_t))
     ).add(meta_padding).value};
     
-    out_type_meta_t* meta_dst = buffer.get_aligned(meta_dst_idx);
-    BufferedTypeMeta* meta_src = type_meta_buffer.get(Buffer::Index<BufferedTypeMeta>{0});
+    out_type_meta_t* meta_dst = &buffer.get(meta_dst_idx);
+    BufferedTypeMeta* meta_src = &type_meta_buffer.get(Buffer::Index<BufferedTypeMeta>{0});
     for (size_t i = 0; i < variant_count; i++) {
         if constexpr (expect_fixed) {
             static_assert(!is_dynamic);
@@ -335,17 +320,17 @@ template <bool is_dynamic, bool expect_fixed, typename BufferedTypeMeta>
 
     if constexpr (is_dynamic) {
         console.debug("Lexer found DYNAMIC_VARIANT");
-        *buffer.get(created_variant_type.base) = Type{DYNAMIC_VARIANT};
+        buffer.get(created_variant_type.base) = Type{DYNAMIC_VARIANT};
     } else {
         if ((inner_max_byte_size - inner_min_byte_size) > max_wasted_bytes) {
             console.debug("Packing variant to satisfy size requirements");
-            *buffer.get(created_variant_type.base) = Type{PACKED_VARIANT};
+            buffer.get(created_variant_type.base) = Type{PACKED_VARIANT};
         } else {
-            *buffer.get(created_variant_type.base) = Type{FIXED_VARIANT};
+            buffer.get(created_variant_type.base) = Type{FIXED_VARIANT};
         }
     }
 
-    auto* const variant_type = buffer.get_aligned(created_variant_type.extended);
+    auto& variant_type = buffer.get(created_variant_type.extended);
     BSSERT(meta_dst_idx.value > created_variant_type.extended.value);
     const Buffer::index_t type_metas_offset = meta_dst_idx.value - created_variant_type.extended.value;
 
@@ -415,7 +400,7 @@ template <bool is_dynamic, bool expect_fixed, typename BufferedTypeMeta>
 
         #undef ADD_SIZE_LEAF_PRE
 
-        *variant_type = {
+        variant_type = {
             inner_min_byte_size,
             type_metas_offset,
             variant_count,
@@ -425,7 +410,7 @@ template <bool is_dynamic, bool expect_fixed, typename BufferedTypeMeta>
             size_size
         };
     } else {
-        *variant_type = {
+        variant_type = {
             static_cast<uint64_t>(-1),
             type_metas_offset,
             variant_count,
@@ -495,7 +480,7 @@ template <bool is_dynamic, bool expect_fixed, typename BufferedTypeMetaT>
     Buffer& buffer,
 	Buffer&& type_meta_buffer,
     IdentifierMap& identifier_map,
-    __CreateExtendedResult<DynamicVariantType, Type> created_variant_type,
+    CreateExtendedResult<DynamicVariantType, Type> created_variant_type,
     uint16_t variant_count,
     uint16_t sublevel_fixed_leafs,
     uint16_t pack_count,
@@ -508,13 +493,13 @@ template <bool is_dynamic, bool expect_fixed, typename BufferedTypeMetaT>
         YYCURSOR = result.cursor;
 
         if constexpr (expect_fixed) {
-            *type_meta_buffer.get_next<FixedVariantTypeMeta>() = {
+            type_meta_buffer.get_next<FixedVariantTypeMeta>() = {
                 result.level_fixed_leafs,
                 result.level_fixed_variants,
                 result.level_fixed_arrays
             };
         } else {
-            *type_meta_buffer.get_next<DynamicVariantTypeMeta>() = {
+            type_meta_buffer.get_next<DynamicVariantTypeMeta>() = {
                 result.level_fixed_leafs,
                 result.var_leaf_counts,
                 result.level_fixed_variants,
@@ -615,7 +600,7 @@ template <bool expect_fixed, FIELD_TYPE field_type>
         || field_type == FIELD_TYPE::FLOAT64,
         "unsupported type for simple_type"
     );
-    *buffer.get_next<Type>() = Type{field_type};
+    buffer.get_next<Type>() = Type{field_type};
     constexpr SIZE alignment = type_alignment<field_type>;
     if constexpr (expect_fixed) {
         return LexFixedTypeResult{
@@ -812,11 +797,11 @@ template <bool expect_fixed>
                     const char* cursor,
                     uint32_t length,
                     LexFixedTypeResult&& result,
-                    Type* base,
-                    ArrayType* extended
+                    Type& base,
+                    ArrayType& extended
                 )->LexTypeResult {
-                    *base = Type{ARRAY_FIXED};
-                    *extended = {
+                    base = Type{ARRAY_FIXED};
+                    extended = {
                         result.level_fixed_leafs,
                         length,
                         static_cast<uint16_t>(-1),
@@ -847,10 +832,10 @@ template <bool expect_fixed>
                     uint32_t min_length,
                     uint32_t max_length,
                     LexFixedTypeResult&& result,
-                    Type* base,
-                    ArrayType* extended
+                    Type& base,
+                    ArrayType& extended
                 )->LexTypeResult {
-                    *base = Type{ARRAY};
+                    base = Type{ARRAY};
                     uint32_t delta = max_length - min_length;
 
                     LeafCounts level_fixed_leafs;
@@ -894,7 +879,7 @@ template <bool expect_fixed>
                     min_byte_size += result.byte_size * min_length;
                     max_byte_size += result.byte_size * max_length;
 
-                    *extended = {
+                    extended = {
                         result.level_fixed_leafs,
                         min_length,
                         static_cast<uint16_t>(-1),
@@ -929,11 +914,11 @@ template <bool expect_fixed>
                     const char* cursor,
                     uint32_t length,
                     LexFixedTypeResult&& result,
-                    Type* base,
-                    ArrayType* extended
+                    Type& base,
+                    ArrayType& extended
                 )->LexFixedTypeResult {
-                    *base = Type{ARRAY_FIXED};
-                    *extended = ArrayType{
+                    base = Type{ARRAY_FIXED};
+                    extended = ArrayType{
                         result.level_fixed_leafs,
                         length,
                         static_cast<uint16_t>(-1),
@@ -1071,8 +1056,8 @@ template <bool expect_fixed>
             }
         };
 
-        const IdentifiedDefinition* const identifier = buffer.get(identifier_index);
-        return identifier->visit(IdentifiedVisitor{}, YYCURSOR, type_name);
+        const IdentifiedDefinition& identifier = buffer.get(identifier_index);
+        return identifier.visit(IdentifiedVisitor{}, YYCURSOR, type_name);
     }
 }
 
@@ -1108,7 +1093,7 @@ template <bool is_first_field>
         if constexpr (is_first_field) {
             show_syntax_error("expected at least one field", YYCURSOR - 1);
         } else {
-            buffer.get(definition_data_idx)->data = {
+            buffer.get(definition_data_idx).data = {
                 level_fixed_leafs,
                 var_leaf_counts,
                 min_byte_size,
@@ -1135,7 +1120,7 @@ template <bool is_first_field>
     name_end:
     const std::string_view field_name {field_name_start, gsl::narrow_cast<size_t>(YYCURSOR - field_name_start)};
     if constexpr (!is_first_field) {
-        buffer.get(definition_data_idx)->visit_uninitialized([&](const StructField::Data& field_data) -> const StructField& {
+        buffer.get(definition_data_idx).visit_uninitialized([&](const StructField::Data& field_data) -> const StructField& {
             if (field_data.name == field_name) {
                 show_syntax_error("field already defined", field_name);
             }
@@ -1148,8 +1133,7 @@ template <bool is_first_field>
     */
 
     struct_field: {
-        StructField::Data& field = StructDefinition::reserve_field(buffer);
-        field = {field_name};
+        StructField::create(buffer, {field_name});
 
         auto result = lex_type<false>(YYCURSOR, buffer, identifier_map);
         YYCURSOR = result.cursor;
@@ -1351,7 +1335,7 @@ template <bool is_signed>
         show_syntax_error("expected at least one member", YYCURSOR - 1);
     }
     SIZE type_size = get_size_size(max_value_unsigned);
-    buffer.get(definition_data_idx)->data = {
+    buffer.get(definition_data_idx).data = {
         field_count,
         type_size
     };
@@ -1415,7 +1399,7 @@ template <bool target_defined>
             auto type_idx = Buffer::Index<Type>{buffer.current_position()};
             YYCURSOR = lex_type<false>(YYCURSOR, buffer, identifier_map).cursor;
             YYCURSOR = lex_symbol<';'>(YYCURSOR);
-            Type& type = *buffer.get(type_idx);
+            Type& type = buffer.get(type_idx);
             
             struct TargetTypeVisitor {
                 [[nodiscard]] const StructDefinition& on_struct (

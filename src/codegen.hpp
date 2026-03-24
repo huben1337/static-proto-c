@@ -69,8 +69,7 @@ struct CodeData {
     constexpr void write_strs (T&&... strs) {
         uint16_t indent_size = indent * 4;
         size_t size = (... + stringify::get_str_size(strs)) + indent_size;
-        Buffer::Index<char> dst_idx = buffer.next_multi_byte<char>(size);
-        char *dst = buffer.get(dst_idx);
+        char *dst = buffer.get_next_multi_byte<char>(size);
         dst = make_indent(indent_size, dst);
         ((
             dst = stringify::_write_string(dst, std::forward<T>(strs), buffer)
@@ -104,7 +103,7 @@ public:
     constexpr explicit ClosedCodeBlock (Buffer&& buffer) : buffer(std::move(buffer)) {}
 
     [[nodiscard]] constexpr const char* const& data () const {
-        return reinterpret_cast<const char *const &>(buffer.data());
+        return reinterpret_cast<const char* const&>(buffer.data());
     }
 
     [[nodiscard]] constexpr const Buffer::index_t& size () const { return buffer.current_position(); }
@@ -365,7 +364,7 @@ struct StructWithNameBase : Base {
 
     template <typename T, typename U>
     constexpr EmptyCtor<Base> ctor (T&& args, U&& initializers) && {
-        this->_line(std::string_view{name.begin(this->buffer), name.length}, " (", std::forward<T>(args), ") : ", std::forward<U>(initializers), " {}");
+        this->_line(std::string_view{this->buffer.get(name)}, " (", std::forward<T>(args), ") : ", std::forward<U>(initializers), " {}");
         return std::move(this->template as<EmptyCtor<Base>>());
     }
 
