@@ -56,12 +56,12 @@ struct LexResult {
     white_space = [ \t];
 */
 
-inline const char* lex_argument_list_start (const char* YYCURSOR) {
+[[nodiscard]] inline const char* lex_argument_list_start (const char* YYCURSOR) {
     return lex_symbol<'<', "expected argument list">(YYCURSOR);
 }
 
 
-inline const char* lex_argument_list_end (const char* YYCURSOR) {
+[[nodiscard]] inline const char* lex_argument_list_end (const char* YYCURSOR) {
     return lex_symbol<'>', "expected end of argument list">(YYCURSOR);
 }
 
@@ -73,7 +73,7 @@ template <
     typename G,
     typename... ArgsT
 >
-inline T lex_range_argument (const char* YYCURSOR, F on_fixed, G on_range, ArgsT&&... args) {
+[[nodiscard]] inline T lex_range_argument (const char* YYCURSOR, F on_fixed, G on_range, ArgsT&&... args) {
 
     auto parsed_0 = parse_uint_skip_white_space<uint32_t, true>(YYCURSOR);
     YYCURSOR = parsed_0.cursor;
@@ -115,7 +115,7 @@ inline T lex_range_argument (const char* YYCURSOR, F on_fixed, G on_range, ArgsT
 }
 
 template <std::unsigned_integral T, T max = std::numeric_limits<T>::max()>
-inline ParseNumberResult<T> lex_attribute_value (const char* YYCURSOR) {
+[[nodiscard]] inline ParseNumberResult<T> lex_attribute_value (const char* YYCURSOR) {
     YYCURSOR = lex_symbol<'=', "Expected value assignment for attribute">(YYCURSOR);
     return parse_uint_skip_white_space<T, false, max>(YYCURSOR);
 }
@@ -129,7 +129,7 @@ struct VariantAttributes {
     [[nodiscard]] constexpr bool has_shared_id () const { return shared_id != NO_SHARED_ID; };
 };
 
-inline LexResult<VariantAttributes> lex_variant_attributes (const char* YYCURSOR) {
+[[nodiscard]] inline LexResult<VariantAttributes> lex_variant_attributes (const char* YYCURSOR) {
 
     /*!local:re2c
         white_space* "["    { goto maybe_lex_attributes; }
@@ -195,7 +195,7 @@ inline LexResult<VariantAttributes> lex_variant_attributes (const char* YYCURSOR
 }
 
 
-inline LexResult<std::string_view> lex_identifier_name (const char* YYCURSOR) {
+[[nodiscard]] inline LexResult<std::string_view> lex_identifier_name (const char* YYCURSOR) {
     const char* start;
 
     /*!stags:re2c format = 'const char *@@;\n'; */
@@ -239,6 +239,20 @@ inline void add_identifier (IdentifierMap &identifier_map, std::string_view name
     }
 }
 
+template <typename DefinitionProvider, bool target_defined>
+[[nodiscard]] inline const char* add_defintion (const char* YYCURSOR, Buffer& buffer, IdentifierMap &identifier_map) {
+    auto name_result = lex_identifier_name(YYCURSOR);
+    YYCURSOR = name_result.cursor;
+    auto [definition_data_idx, definition_idx] = DefinitionProvider::create(buffer);
+    *buffer.get(definition_idx) = {KEYWORDS::STRUCT};
+    buffer.get(definition_data_idx)->name = name_result.value;
+    YYCURSOR = DefinitionProvider::lex(YYCURSOR, definition_data_idx, identifier_map, buffer);
+    add_identifier(identifier_map, name_result.value, definition_idx);
+    if constexpr (target_defined) {
+        console.warn("no possible path from target to struct ", name_result.value, " can be created.");
+    }
+}
+
 
 struct LexTypeResult {
     const char* cursor;
@@ -275,7 +289,7 @@ template <bool expect_fixed>
 std::conditional_t<expect_fixed, LexFixedTypeResult, LexTypeResult> lex_type (const char* YYCURSOR, Buffer &buffer, IdentifierMap &identifier_map);
 
 template <bool is_dynamic, bool expect_fixed, typename BufferedTypeMeta>
-inline std::conditional_t<expect_fixed, LexFixedTypeResult, LexTypeResult> add_variant_type (
+[[nodiscard]] inline std::conditional_t<expect_fixed, LexFixedTypeResult, LexTypeResult> add_variant_type (
     const char* YYCURSOR,
     uint64_t inner_min_byte_size,
     uint64_t inner_max_byte_size,
@@ -321,13 +335,13 @@ inline std::conditional_t<expect_fixed, LexFixedTypeResult, LexTypeResult> add_v
 
     if constexpr (is_dynamic) {
         console.debug("Lexer found DYNAMIC_VARIANT");
-        *buffer.get(created_variant_type.base) = {DYNAMIC_VARIANT};
+        *buffer.get(created_variant_type.base) = Type{DYNAMIC_VARIANT};
     } else {
         if ((inner_max_byte_size - inner_min_byte_size) > max_wasted_bytes) {
             console.debug("Packing variant to satisfy size requirements");
-            *buffer.get(created_variant_type.base) = {PACKED_VARIANT};
+            *buffer.get(created_variant_type.base) = Type{PACKED_VARIANT};
         } else {
-            *buffer.get(created_variant_type.base) = {FIXED_VARIANT};
+            *buffer.get(created_variant_type.base) = Type{FIXED_VARIANT};
         }
     }
 
@@ -474,7 +488,7 @@ inline std::conditional_t<expect_fixed, LexFixedTypeResult, LexTypeResult> add_v
 }
 
 template <bool is_dynamic, bool expect_fixed, typename BufferedTypeMetaT>
-inline std::conditional_t<expect_fixed, LexFixedTypeResult, LexTypeResult> lex_variant_types (
+[[nodiscard]] inline std::conditional_t<expect_fixed, LexFixedTypeResult, LexTypeResult> lex_variant_types (
     const char* YYCURSOR,
     uint64_t min_byte_size,
     uint64_t max_byte_size,
@@ -601,7 +615,7 @@ template <bool expect_fixed, FIELD_TYPE field_type>
         || field_type == FIELD_TYPE::FLOAT64,
         "unsupported type for simple_type"
     );
-    *buffer.get_next<Type>() = {field_type};
+    *buffer.get_next<Type>() = Type{field_type};
     constexpr SIZE alignment = type_alignment<field_type>;
     if constexpr (expect_fixed) {
         return LexFixedTypeResult{
@@ -636,7 +650,7 @@ template <bool expect_fixed, FIELD_TYPE field_type>
 }
 
 template <bool expect_fixed>
-std::conditional_t<expect_fixed, LexFixedTypeResult, LexTypeResult> lex_type (const char* YYCURSOR, Buffer &buffer, IdentifierMap &identifier_map) {
+[[nodiscard]] std::conditional_t<expect_fixed, LexFixedTypeResult, LexTypeResult> lex_type (const char* YYCURSOR, Buffer &buffer, IdentifierMap &identifier_map) {
 
     const char* typename_start; // Only initialized for non-simple types
 
@@ -801,7 +815,7 @@ std::conditional_t<expect_fixed, LexFixedTypeResult, LexTypeResult> lex_type (co
                     Type* base,
                     ArrayType* extended
                 )->LexTypeResult {
-                    *base = {ARRAY_FIXED};
+                    *base = Type{ARRAY_FIXED};
                     *extended = {
                         result.level_fixed_leafs,
                         length,
@@ -836,7 +850,7 @@ std::conditional_t<expect_fixed, LexFixedTypeResult, LexTypeResult> lex_type (co
                     Type* base,
                     ArrayType* extended
                 )->LexTypeResult {
-                    *base = {ARRAY};
+                    *base = Type{ARRAY};
                     uint32_t delta = max_length - min_length;
 
                     LeafCounts level_fixed_leafs;
@@ -918,7 +932,7 @@ std::conditional_t<expect_fixed, LexFixedTypeResult, LexTypeResult> lex_type (co
                     Type* base,
                     ArrayType* extended
                 )->LexFixedTypeResult {
-                    *base = {ARRAY_FIXED};
+                    *base = Type{ARRAY_FIXED};
                     *extended = ArrayType{
                         result.level_fixed_leafs,
                         length,
@@ -974,97 +988,96 @@ std::conditional_t<expect_fixed, LexFixedTypeResult, LexTypeResult> lex_type (co
     }
 
     identifier: {
-        const char* const typename_end = YYCURSOR;
+        const std::string_view type_name {typename_start, YYCURSOR};
 
-        auto identifier_idx_iter = identifier_map.find(std::string_view{typename_start, typename_end});
+        auto identifier_idx_iter = identifier_map.find(type_name);
         if (identifier_idx_iter == identifier_map.end()) {
-            show_syntax_error("identifier not defined", typename_start, typename_end - 1);
+            show_syntax_error("identifier not defined", type_name);
         }
         auto identifier_index = identifier_idx_iter->second;
         IdentifiedType::create(buffer, identifier_index);
 
-        const IdentifiedDefinition* const identifier = buffer.get(identifier_index);
-        switch (identifier->keyword)
-        {
-        case STRUCT: {
-            const StructDefinition* const struct_definition = identifier->data()->as_struct();
-            if constexpr (!expect_fixed) {
-                return LexTypeResult{
-                    YYCURSOR,
-                    struct_definition->level_fixed_leafs,
-                    struct_definition->var_leaf_counts,
-                    struct_definition->min_byte_size,
-                    struct_definition->max_byte_size,
-                    struct_definition->level_fixed_variants,
-                    struct_definition->level_fixed_arrays,
-                    struct_definition->level_variant_fields,
-                    struct_definition->sublevel_fixed_leafs,
-                    struct_definition->pack_count,
-                    struct_definition->total_variant_var_leafs,
-                    struct_definition->level_size_leafs,
-                    struct_definition->max_alignment
-                };
-            } else {
-                if (!struct_definition->var_leaf_counts.empty()) {
-                    show_syntax_error("fixed size struct expected", typename_start, YYCURSOR - 1);
+        struct IdentifiedVisitor {
+            [[nodiscard]] auto on_struct (const StructDefinition& struct_definition, const char* YYCURSOR, const std::string_view type_name) const {
+                const StructDefinitionData& definition_data = struct_definition.data;
+                if constexpr (!expect_fixed) {
+                    return LexTypeResult{
+                        YYCURSOR,
+                        definition_data.level_fixed_leafs,
+                        definition_data.var_leaf_counts,
+                        definition_data.min_byte_size,
+                        definition_data.max_byte_size,
+                        definition_data.level_fixed_variants,
+                        definition_data.level_fixed_arrays,
+                        definition_data.level_variant_fields,
+                        definition_data.sublevel_fixed_leafs,
+                        definition_data.pack_count,
+                        definition_data.total_variant_var_leafs,
+                        definition_data.level_size_leafs,
+                        definition_data.max_alignment
+                    };
+                } else {
+                    if (!definition_data.var_leaf_counts.empty()) {
+                        show_syntax_error("fixed size struct expected", type_name);
+                    }
+                    return LexFixedTypeResult{
+                        YYCURSOR,
+                        definition_data.level_fixed_leafs,
+                        definition_data.min_byte_size,
+                        definition_data.level_fixed_variants,
+                        definition_data.level_fixed_arrays,
+                        definition_data.level_variant_fields,
+                        definition_data.sublevel_fixed_leafs,
+                        definition_data.pack_count,
+                        definition_data.max_alignment
+                    };
                 }
-                return LexFixedTypeResult{
-                    YYCURSOR,
-                    struct_definition->level_fixed_leafs,
-                    struct_definition->min_byte_size,
-                    struct_definition->level_fixed_variants,
-                    struct_definition->level_fixed_arrays,
-                    struct_definition->level_variant_fields,
-                    struct_definition->sublevel_fixed_leafs,
-                    struct_definition->pack_count,
-                    struct_definition->max_alignment
-                };
-            }
 
-        }
-        case ENUM: {
-            const EnumDefinition* enum_definition = identifier->data()->as_enum();
-            SIZE type_size = enum_definition->type_size;
-            LeafCounts level_fixed_leafs {type_size};
-            uint64_t byte_size = type_size.byte_size();
-            if constexpr (!expect_fixed) {
-                return LexTypeResult{
-                    YYCURSOR,
-                    level_fixed_leafs,
-                    LeafCounts::zero(),
-                    byte_size,
-                    byte_size,
-                    0,
-                    0,
-                    0,
-                    0,
-                    0,
-                    0,
-                    0,
-                    type_size
-                };
-            } else {
-                return LexFixedTypeResult{
-                    YYCURSOR,
-                    level_fixed_leafs,
-                    byte_size,
-                    0,
-                    0,
-                    0,
-                    0,
-                    0,
-                    type_size
-                };
             }
-        }
-        default:
-            INTERNAL_ERROR("unreachable");
-        }
+            [[nodiscard]] auto on_enum (const EnumDefinition& enum_definitiona, const char* YYCURSOR, const std::string_view /*unused*/) const {
+                const EnumDefinitionData& definition_data = enum_definitiona.data;
+                SIZE type_size = definition_data.type_size;
+                LeafCounts level_fixed_leafs {type_size};
+                uint64_t byte_size = type_size.byte_size();
+                if constexpr (!expect_fixed) {
+                    return LexTypeResult{
+                        YYCURSOR,
+                        level_fixed_leafs,
+                        LeafCounts::zero(),
+                        byte_size,
+                        byte_size,
+                        0,
+                        0,
+                        0,
+                        0,
+                        0,
+                        0,
+                        0,
+                        type_size
+                    };
+                } else {
+                    return LexFixedTypeResult{
+                        YYCURSOR,
+                        level_fixed_leafs,
+                        byte_size,
+                        0,
+                        0,
+                        0,
+                        0,
+                        0,
+                        type_size
+                    };
+                }
+            }
+        };
+
+        const IdentifiedDefinition* const identifier = buffer.get(identifier_index);
+        return identifier->visit(IdentifiedVisitor{}, YYCURSOR, type_name);
     }
 }
 
 template <bool is_first_field>
-inline const char* lex_struct_fields (
+[[nodiscard]] inline const char* lex_struct_fields (
     const char* YYCURSOR,
     Buffer::Index<StructDefinition> definition_data_idx,
     IdentifierMap &identifier_map,
@@ -1095,9 +1108,7 @@ inline const char* lex_struct_fields (
         if constexpr (is_first_field) {
             show_syntax_error("expected at least one field", YYCURSOR - 1);
         } else {
-            StructDefinition* const definition_data = buffer.get(definition_data_idx);
-            *definition_data = StructDefinition{
-                {definition_data->name}, // TODO: fix this clanky shit
+            buffer.get(definition_data_idx)->data = {
                 level_fixed_leafs,
                 var_leaf_counts,
                 min_byte_size,
@@ -1124,11 +1135,11 @@ inline const char* lex_struct_fields (
     name_end:
     const std::string_view field_name {field_name_start, gsl::narrow_cast<size_t>(YYCURSOR - field_name_start)};
     if constexpr (!is_first_field) {
-        buffer.get(definition_data_idx)->visit_uninitialized([&](const lexer::StructField::Data* const field_data) {
-            if (field_data->name == field_name) {
+        buffer.get(definition_data_idx)->visit_uninitialized([&](const StructField::Data& field_data) -> const StructField& {
+            if (field_data.name == field_name) {
                 show_syntax_error("field already defined", field_name);
             }
-            return field_data->type()->skip<const StructField>();
+            return field_data.type().skip<const StructField>();
         }, field_count);
     }
     /*!local:re2c
@@ -1137,8 +1148,8 @@ inline const char* lex_struct_fields (
     */
 
     struct_field: {
-        StructField::Data* field = StructDefinition::reserve_field(buffer);
-        *field = {field_name};
+        StructField::Data& field = StructDefinition::reserve_field(buffer);
+        field = {field_name};
 
         auto result = lex_type<false>(YYCURSOR, buffer, identifier_map);
         YYCURSOR = result.cursor;
@@ -1185,7 +1196,7 @@ inline const char* lex_struct_fields (
 
 }
 
-inline const char* lex_struct(
+[[nodiscard]] inline const char* lex_struct(
     const char* YYCURSOR,
     Buffer::Index<StructDefinition> definition_data_idx,
     IdentifierMap &identifier_map,
@@ -1217,7 +1228,7 @@ inline const char* lex_struct(
 
 
 template <bool is_signed>
-inline const char* lex_enum_fields (
+[[nodiscard]] inline const char* lex_enum_fields (
     const char* YYCURSOR,
     Buffer::Index<EnumDefinition> definition_data_idx,
     uint16_t field_count,
@@ -1230,33 +1241,10 @@ inline const char* lex_enum_fields (
     while (true) {
         /*!local:re2c
             any_white_space* [a-zA-Z_]   { goto name_start; }
-            any_white_space* "}"         { goto enum_end; }
+            any_white_space* "}"         { break; }
 
             any_white_space* { show_syntax_error("Expected field name or end of struct", YYCURSOR - 1); }
         */
-
-        enum_end: {
-            if (field_count == 0) {
-                show_syntax_error("expected at least one member", YYCURSOR - 1);
-            }
-            SIZE type_size;
-            if (max_value_unsigned <= UINT8_MAX) {
-                type_size = SIZE::SIZE_1;
-            } else if (max_value_unsigned <= UINT16_MAX) {
-                type_size = SIZE::SIZE_2;
-            } else if (max_value_unsigned <= UINT32_MAX) {
-                type_size = SIZE::SIZE_4;
-            } else {
-                type_size = SIZE::SIZE_8;
-            }
-            EnumDefinition* const definition_data = buffer.get(definition_data_idx);
-            *definition_data = {
-                {definition_data->name},
-                field_count,
-                type_size
-            };
-            return YYCURSOR;
-        }
 
         name_start:
         const char* start = YYCURSOR - 1;
@@ -1305,9 +1293,13 @@ inline const char* lex_enum_fields (
                     any_white_space* { UNEXPECTED_INPUT("expected ',' or end of enum definition"); }
                 */
                 enum_member_signed: {
-                    field_count++;
-                    EnumDefinition::add_field(buffer, {name, value});
-                    return lex_enum_fields<true>(YYCURSOR, definition_data_idx, field_count, value, max_value_unsigned, std::move(member_names), identifier_map, buffer);
+                    if constexpr (is_signed) {
+                        goto enum_member;
+                    } else {
+                        field_count++;
+                        EnumDefinition::add_field(buffer, {name, value});
+                        return lex_enum_fields<true>(YYCURSOR, definition_data_idx, field_count, value, max_value_unsigned, std::move(member_names), identifier_map, buffer);
+                    }
                 }
             }
 
@@ -1338,6 +1330,12 @@ inline const char* lex_enum_fields (
             }
         }
 
+        enum_member: {
+            field_count++;
+            EnumDefinition::add_field(buffer, {name, value});
+            continue;
+        }
+
         default_last_member: {
             value.increment();
             goto last_member;
@@ -1346,17 +1344,21 @@ inline const char* lex_enum_fields (
         last_member: {
             field_count++;
             EnumDefinition::add_field(buffer, {name, value});
-            goto enum_end;
-        }
-
-        enum_member: {
-            field_count++;
-            EnumDefinition::add_field(buffer, {name, value});
+            break;
         }
     }
+    if (field_count == 0) {
+        show_syntax_error("expected at least one member", YYCURSOR - 1);
+    }
+    SIZE type_size = get_size_size(max_value_unsigned);
+    buffer.get(definition_data_idx)->data = {
+        field_count,
+        type_size
+    };
+    return YYCURSOR;
 }
 
-inline const char* lex_enum (
+[[nodiscard]] inline const char* lex_enum (
     const char* YYCURSOR,
     Buffer::Index<EnumDefinition> definition_data_idx,
     IdentifierMap &identifier_map,
@@ -1368,7 +1370,7 @@ inline const char* lex_enum (
 
 
 template <bool target_defined>
-inline const StructDefinition* lex (const char* YYCURSOR, IdentifierMap &identifier_map, Buffer &buffer, std::conditional_t<target_defined, const StructDefinition*, estd::empty> target) {
+[[nodiscard]] inline const StructDefinition& lex (const char* YYCURSOR, IdentifierMap &identifier_map, Buffer &buffer, std::conditional_t<target_defined, const StructDefinition&, estd::empty> target) {
     loop: {
     /*!local:re2c
 
@@ -1387,9 +1389,7 @@ inline const StructDefinition* lex (const char* YYCURSOR, IdentifierMap &identif
     struct_keyword: {
         auto name_result = lex_identifier_name(YYCURSOR);
         YYCURSOR = name_result.cursor;
-        auto [definition_data_idx, definition_idx] = StructDefinition::create(buffer);
-        *buffer.get(definition_idx) = {KEYWORDS::STRUCT};
-        buffer.get(definition_data_idx)->name = name_result.value;
+        auto [definition_data_idx, definition_idx] = StructDefinition::create(buffer, name_result.value);
         YYCURSOR = lex_struct(YYCURSOR, definition_data_idx, identifier_map, buffer);
         add_identifier(identifier_map, name_result.value, definition_idx);
         if constexpr (target_defined) {
@@ -1400,9 +1400,7 @@ inline const StructDefinition* lex (const char* YYCURSOR, IdentifierMap &identif
     enum_keyword: {
         auto name_result = lex_identifier_name(YYCURSOR);
         YYCURSOR = name_result.cursor;
-        auto [definition_data_idx, definition_idx] = EnumDefinition::create(buffer);
-        *buffer.get(definition_idx) = {KEYWORDS::ENUM};
-        buffer.get(definition_data_idx)->name = name_result.value;
+        auto [definition_data_idx, definition_idx] = EnumDefinition::create(buffer, name_result.value);
         YYCURSOR = lex_enum(YYCURSOR, definition_data_idx, identifier_map, buffer);
         add_identifier(identifier_map, name_result.value, definition_idx);
         if constexpr (target_defined) {
@@ -1417,16 +1415,37 @@ inline const StructDefinition* lex (const char* YYCURSOR, IdentifierMap &identif
             auto type_idx = Buffer::Index<Type>{buffer.current_position()};
             YYCURSOR = lex_type<false>(YYCURSOR, buffer, identifier_map).cursor;
             YYCURSOR = lex_symbol<';'>(YYCURSOR);
-            Type* const type = buffer.get(type_idx);
-            if (type->type != FIELD_TYPE::IDENTIFIER) {
-                INTERNAL_ERROR("target must be an identifier");
-            }
-            auto identifier_idx = type->as_identifier()->identifier_idx;
-            const IdentifiedDefinition* const identified_definition = buffer.get(identifier_idx);
-            if (identified_definition->keyword != KEYWORDS::STRUCT) {
-                INTERNAL_ERROR("target must be a struct");
-            }
-            return lex<true>(YYCURSOR, identifier_map, buffer, identified_definition->data()->as_struct());
+            Type& type = *buffer.get(type_idx);
+            
+            struct TargetTypeVisitor {
+                [[nodiscard]] const StructDefinition& on_struct (
+                    const StructDefinition& struct_definition,
+                    Buffer& buffer,
+                    const char* YYCURSOR,
+                    IdentifierMap& identifier_map
+                ) const {
+                    return lex<true>(YYCURSOR, identifier_map, buffer, struct_definition);
+                }
+
+                [[nodiscard]] const StructDefinition& on_enum (
+                    const EnumDefinition& /*unused*/,
+                    Buffer& /*unused*/,
+                    const char* /*unused*/,
+                    IdentifierMap& /*unused*/
+                ) const {
+                    INTERNAL_ERROR("target must be a struct");
+                }
+
+                [[nodiscard]] const StructDefinition& on_fail (
+                    Buffer& /*unused*/,
+                    const char* /*unused*/,
+                    IdentifierMap& /*unused*/
+                ) const {
+                    INTERNAL_ERROR("target must be an identifier");
+                }
+            };
+
+            return type.try_visit_identifier(TargetTypeVisitor{}, buffer, YYCURSOR, identifier_map);
         }
     }
 

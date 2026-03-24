@@ -23,6 +23,7 @@
 #include "./QueuedField.hpp"
 #include "./variant_layout/variant_layout.hpp"
 #include "./tvs.hpp"
+#include "nameof.hpp"
 
 
 namespace layout::generation {
@@ -53,9 +54,11 @@ struct TypeVisitor {
 
     State state;
 
+    [[nodiscard]] const ReadOnlyBuffer& get_ast_buffer () const { return state.const_state.shared().ast_buffer; }
+
     template <lexer::FIELD_TYPE field_type>
     void on_simple () const {
-        console.debug("[on_simple] field_type: ", (uint8_t)field_type);
+        console.debug("[on_simple] field_type: ", nameof::nameof_enum(field_type));
         constexpr SIZE alignment = lexer::type_alignment<field_type>;
         state.template next_simple<alignment>();
     }
@@ -72,18 +75,18 @@ struct TypeVisitor {
     void on_float32  () const { on_simple<lexer::FIELD_TYPE::FLOAT32>(); }
     void on_float64  () const { on_simple<lexer::FIELD_TYPE::FLOAT64>(); }
 
-    void on_fixed_string (const lexer::FixedStringType* const fixed_string_type) const {
-        const uint32_t length = fixed_string_type->length;
+    void on_fixed_string (const lexer::FixedStringType& fixed_string_type) const {
+        const uint32_t length = fixed_string_type.length;
         state.template next_simple<SIZE::SIZE_1>(length);
     }
 
-    void on_string (const lexer::StringType* const string_type) const {
+    void on_string (const lexer::StringType& string_type) const {
         if constexpr (in_array) {
             INTERNAL_ERROR("Variable length strings in arrays not supported");
         } else if constexpr (std::is_same_v<State, FixedVariantLevel::State>) {
             INTERNAL_ERROR("Variable length strings in fixed variant are nonsensical");
         } else {
-            const SIZE stored_size_size = string_type->stored_size_size;
+            const SIZE stored_size_size = string_type.stored_size_size;
             state.template next_simple_var<SIZE::SIZE_1>();
 
             state.next_simple(stored_size_size, 1);
@@ -125,9 +128,9 @@ struct TypeVisitor {
         }
     }
 
-    [[nodiscard]] result_t on_fixed_array(lexer::ArrayType* const fixed_array_type) const {
+    [[nodiscard]] result_t on_fixed_array(lexer::ArrayType& fixed_array_type) const {
         const uint16_t pack_info_base_idx = state.next_pack_info_base_idx();
-        fixed_array_type->pack_info_base_idx = pack_info_base_idx;
+        fixed_array_type.pack_info_base_idx = pack_info_base_idx;
         
         const uint16_t fixed_offset_idx_begin = state.get_fixed_offset_idx();
 
@@ -152,45 +155,30 @@ struct TypeVisitor {
                 }
             }
         };
-        result_t result = fixed_array_type->inner_type()->visit(visitor);
+        result_t result = fixed_array_type.inner_type().visit(visitor);
 
         add_fixed_array_packs<SIZE::SIZE_8>(
             visitor.state,
             pack_info_base_idx,
             fixed_offset_idx_begin,
             0,
-            fixed_array_type->length
+            fixed_array_type.length
         );
 
         return result;
     }
 
 
-    [[nodiscard]] result_t on_array (const lexer::ArrayType* const /**/) const {
+    [[nodiscard]] result_t on_array (const lexer::ArrayType& /**/) const {
         INTERNAL_ERROR("Dynamic array not supported yet");
-        /* if constexpr (in_array) {
-            INTERNAL_ERROR("Dynamic array cant be nested");
-        } else {
-            const SIZE stored_size_size = array_type->stored_size_size;
-
-            auto result = array_type->inner_type()->visit(TypeVisitor<next_type_t, TopLevel::State, true, false>{
-                state
-            });
-
-            state.next_simple(stored_size_size, stored_size_size.byte_size());
-
-            state.mutable_state.level().current_size_leaf_idx++;
-
-            return result;
-        } */
     }
 
-    void on_fixed_variant (lexer::FixedVariantType* const fixed_variant_type) const {
+    void on_fixed_variant (lexer::FixedVariantType& fixed_variant_type) const {
         if constexpr (in_array && !in_fixed_size) {
             INTERNAL_ERROR("Fixed variants in variabl sized arrays not supported yet");
         } else {
 
-        const uint16_t variant_count = fixed_variant_type->variant_count;
+        const uint16_t variant_count = fixed_variant_type.variant_count;
 
         if (variant_count <= UINT8_MAX) {
             state.template next_simple<SIZE::SIZE_1>();
@@ -201,7 +189,7 @@ struct TypeVisitor {
         uint16_t fixed_field_packs_total = 0;
         lexer::LeafCounts fixed_leaf_counts_total = lexer::LeafCounts::zero();
         for (uint16_t i = 0; i < variant_count; i++) {
-            const lexer::FixedVariantTypeMeta& meta = fixed_variant_type->type_metas()[i];
+            const lexer::FixedVariantTypeMeta& meta = fixed_variant_type.type_metas()[i];
             fixed_field_packs_total += (meta.level_fixed_variants + meta.level_fixed_arrays) * 4;
             fixed_leaf_counts_total += meta.level_fixed_leafs;
         }
@@ -222,9 +210,9 @@ struct TypeVisitor {
         
         const uint16_t fixed_offset_idx_begin_bak = state.get_fixed_offset_idx();
 
-        const auto* type = fixed_variant_type->first_variant();
+        const lexer::Type* type = &fixed_variant_type.first_variant();
         for (uint16_t i = 0; i < variant_count; i++) {
-            const auto& type_meta = fixed_variant_type->type_metas()[i];
+            const auto& type_meta = fixed_variant_type.type_metas()[i];
 
 
             const auto field_counts = (type_meta.level_fixed_leafs
@@ -244,7 +232,7 @@ struct TypeVisitor {
             console.debug("variant fields: ", field_counts);
             console.debug("Queued position: ", level_mutable_state.queue_position , " total: ", field_count_total);
 
-            type = type->visit(TypeVisitor<lexer::Type, FixedVariantLevel::State, in_array, in_fixed_size>{
+            type = &type->visit(TypeVisitor<lexer::Type, FixedVariantLevel::State, in_array, in_fixed_size>{
                 FixedVariantLevel::State{
                     FixedVariantLevel::ConstState{
                         state.const_state.shared(),
@@ -299,29 +287,27 @@ struct TypeVisitor {
         }
     }
 
-    void on_packed_variant (const lexer::PackedVariantType* const  /*unused*/) const {
+    void on_packed_variant (const lexer::PackedVariantType&  /*unused*/) const {
         INTERNAL_ERROR("Packed variant not supported yet");
     }
 
-    void on_dynamic_variant (const lexer::DynamicVariantType* const /*unused*/) const {
+    void on_dynamic_variant (const lexer::DynamicVariantType& /*unused*/) const {
         INTERNAL_ERROR("Dynamic variant not supported yet");
     }
 
-    void on_identifier (const lexer::IdentifiedType* const identified_type) const {
-        const auto* const identifier = state.const_state.shared().ast_buffer.get(identified_type->identifier_idx);
-        if (identifier->keyword != lexer::KEYWORDS::STRUCT) {
-            INTERNAL_ERROR("expected struct");
-        }
-        const auto* const struct_type = identifier->data()->as_struct();
-
-        struct_type->visit([&](const lexer::StructField::Data* field_data) {
-            return field_data->type()->visit(this->as_visitor_for<lexer::StructField>()).next_type;
+    void on_struct (const lexer::StructDefinition& struct_definition) const {
+        struct_definition.visit([&](const lexer::StructField::Data& field_data) -> const lexer::StructField& {
+            return field_data.type().visit(as_visitor_for<lexer::StructField>()).next_type;
         });
     }
 
+    void on_enum (const lexer::EnumDefinition& /*unused*/) const {
+        INTERNAL_ERROR("not implemented");
+    }
+
     template<typename NewNextType>
-    [[nodiscard]] constexpr const TypeVisitor<NewNextType, State, in_array, in_fixed_size>& as_visitor_for() const {
-        return estd::sibling_cast<const TypeVisitor<NewNextType, State, in_array, in_fixed_size>&>(*this);
+    [[nodiscard]] constexpr const TypeVisitor<NewNextType, State, in_array, in_fixed_size>& as_visitor_for(this const TypeVisitor& self) {
+        return estd::sibling_cast<const TypeVisitor<NewNextType, State, in_array, in_fixed_size>&>(self);
     }
 };
 
@@ -331,7 +317,7 @@ struct GenerateResult {
 };
 
 GenerateResult generate (
-    const lexer::StructDefinition* target_struct,
+    const lexer::StructDefinition& target_struct,
     const ReadOnlyBuffer& ast_buffer,
     const std::span<FixedOffset> fixed_offsets,
     const std::span<Buffer::View<uint64_t>> var_offsets,
@@ -393,8 +379,8 @@ GenerateResult generate (
 
     console.debug("TopLevel:: ... left_fields: ", top_level_visitor.state.mutable_state.level().left_fields);
 
-    target_struct->visit([&top_level_visitor](const lexer::StructField::Data* field_data) {
-        return field_data->type()->visit(top_level_visitor).next_type;
+    target_struct.visit([&top_level_visitor](const lexer::StructField::Data& field_data) -> const lexer::StructField& {
+        return field_data.type().visit(top_level_visitor).next_type;
     });
 
     uint64_t offset = top_level_mutable_state_data.level.current_offset;

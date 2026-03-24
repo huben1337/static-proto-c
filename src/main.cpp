@@ -1,6 +1,7 @@
 #include <string>
 #include <chrono>
 #include "estd/utility.hpp"
+#include "parser/lexer_types.hpp"
 
 #if IS_MINGW
 #include <cstdlib>
@@ -88,7 +89,7 @@ int main (const int argc, const char* const* const argv) {
 
     lexer::IdentifierMap identifier_map;
     Buffer ast_buffer = BUFFER_INIT_STACK(4096);
-    const auto *const target_struct = lexer::lex<false>(global::input::start, identifier_map, ast_buffer, {});
+    const lexer::StructDefinition& target_struct = lexer::lex<false>(global::input::start, identifier_map, ast_buffer, {});
 
     decode_code::generate(target_struct, ReadOnlyBuffer{ast_buffer}, std::move(output_file));
 
