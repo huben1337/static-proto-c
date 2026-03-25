@@ -163,8 +163,8 @@ struct IdentifiedDefinition {
         constexpr Base() = default;
 
     public:
-        [[nodiscard]] static auto create(Buffer &buffer, const std::string_view name) {
-            CreateExtendedResult<Derived, IdentifiedDefinition> created = create_extended<Derived, IdentifiedDefinition>(buffer);
+        [[nodiscard]] static CreateExtendedResult<Derived, IdentifiedDefinition> create(Buffer &buffer, const std::string_view name) {
+            const CreateExtendedResult<Derived, IdentifiedDefinition> created = create_extended<Derived, IdentifiedDefinition>(buffer);
             buffer.get(created.base) = IdentifiedDefinition{keyword};
             buffer.get(created.extended).name = name;
             return created;
@@ -194,6 +194,16 @@ struct FixedStringType;
 struct StringType;
 struct ArrayType;
 
+template <typename TypeMeta>
+struct VariantTypeBase;
+
+struct FixedVariantTypeMeta;
+struct DynamicVariantTypeMeta;
+
+using FixedVariantType = VariantTypeBase<FixedVariantTypeMeta>;
+using PackedVariantType = VariantTypeBase<FixedVariantTypeMeta>;
+using DynamicVariantType = VariantTypeBase<DynamicVariantTypeMeta>;
+
 struct Type {
 private:
     FIELD_TYPE type;
@@ -206,9 +216,9 @@ private:
     [[nodiscard]] const FixedStringType& as_fixed_string () const;
     [[nodiscard]] const StringType& as_string () const;
     [[nodiscard]] ArrayType& as_array () const;
-    [[nodiscard]] auto& as_fixed_variant () const;
-    [[nodiscard]] auto& as_packed_variant () const;
-    [[nodiscard]] auto& as_dynamic_variant () const;
+    [[nodiscard]] FixedVariantType& as_fixed_variant () const;
+    [[nodiscard]] PackedVariantType& as_packed_variant () const;
+    [[nodiscard]] DynamicVariantType& as_dynamic_variant () const;
 
 public:
     template <typename NextTypeT, typename ValueT = void>
@@ -428,18 +438,15 @@ struct DynamicVariantTypeMeta {
     uint16_t level_size_leafs;
 };
 
-using FixedVariantType = VariantTypeBase<FixedVariantTypeMeta>;
-[[nodiscard]] inline auto& Type::as_fixed_variant () const {
+[[nodiscard]] inline FixedVariantType& Type::as_fixed_variant () const {
     return get_extended_type<FixedVariantType>(this);
 }
 
-using PackedVariantType = VariantTypeBase<FixedVariantTypeMeta>;
-[[nodiscard]] inline auto& Type::as_packed_variant () const {
+[[nodiscard]] inline PackedVariantType& Type::as_packed_variant () const {
     return get_extended_type<PackedVariantType>(this);
 }
 
-using DynamicVariantType = VariantTypeBase<DynamicVariantTypeMeta>;
-[[nodiscard]] inline auto& Type::as_dynamic_variant () const {
+[[nodiscard]] inline DynamicVariantType& Type::as_dynamic_variant () const {
     return get_extended_type<DynamicVariantType>(this);
 }
 
