@@ -543,13 +543,13 @@ struct InvariantWithBoolIdProvider_ {
 
         [[nodiscard]] constexpr auto id (this const auto& self) {
             if constexpr (std::is_convertible_v<T, int8_t> || std::is_convertible_v<T, uint8_t>) {
-                return static_cast<uint16_t>((self._data << 1) | self.bool_tag);
-            } else if constexpr (std::is_convertible_v<T, int16_t> | std::is_convertible_v<T, uint16_t>) {
-                return static_cast<uint32_t>((self._data << 1) || self.bool_tag);
-            } else if constexpr (std::is_convertible_v<T, int32_t> | std::is_convertible_v<T, uint32_t>) {
-                return static_cast<uint64_t>((self._data << 1) || self.bool_tag);
-            } else if constexpr (std::is_convertible_v<T, int64_t> | std::is_convertible_v<T, uint64_t>) {
-                return static_cast<__uint128_t>((self._data << 1) | self.bool_tag);
+                return (static_cast<uint16_t>(self._data)  << 1) | self.bool_tag;
+            } else if constexpr (std::is_convertible_v<T, int16_t> || std::is_convertible_v<T, uint16_t>) {
+                return (static_cast<uint32_t>(self._data)  << 1) | self.bool_tag;
+            } else if constexpr (std::is_convertible_v<T, int32_t> || std::is_convertible_v<T, uint32_t>) {
+                return (static_cast<uint64_t>(self._data)  << 1) | self.bool_tag;
+            } else if constexpr (std::is_convertible_v<T, int64_t> || std::is_convertible_v<T, uint64_t>) {
+                return (static_cast<__uint128_t>(self._data)  << 1) | self.bool_tag;
             } else {
                 static_assert(false);
             }
