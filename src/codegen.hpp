@@ -2,6 +2,7 @@
 
 #include <cstddef>
 #include <cstdint>
+#include <gsl/util>
 #include <string_view>
 #include <cstring>
 #include <type_traits>
@@ -69,7 +70,7 @@ struct CodeData {
     constexpr void write_strs (T&&... strs) {
         uint16_t indent_size = indent * 4;
         size_t size = (... + stringify::get_str_size(strs)) + indent_size;
-        char *dst = buffer.get_next_multi_byte<char>(size);
+        char *dst = buffer.get_next_multi_byte<char>(gsl::narrow_cast<Buffer::index_t>(size));
         dst = make_indent(indent_size, dst);
         ((
             dst = stringify::_write_string(dst, std::forward<T>(strs), buffer)
@@ -102,8 +103,8 @@ struct ClosedCodeBlock {
 public:
     constexpr explicit ClosedCodeBlock (Buffer&& buffer) : buffer(std::move(buffer)) {}
 
-    [[nodiscard]] constexpr const char* const& data () const {
-        return reinterpret_cast<const char* const&>(buffer.data());
+    [[nodiscard]] constexpr const char* data () const {
+        return estd::ptr_cast<const char>(buffer.data());
     }
 
     [[nodiscard]] constexpr const Buffer::index_t& size () const { return buffer.current_position(); }
@@ -187,7 +188,7 @@ struct Switch : CodeData {
         _line("case ", std::forward<T>(value), ": {");
         indent++;
         return std::move(as<Case<Last>>());
-    };
+    }
 
     constexpr Case<Last> _default () && {
         _line("default: {");

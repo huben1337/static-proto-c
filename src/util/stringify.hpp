@@ -96,7 +96,7 @@ namespace stringify {
             public:
             explicit Allocator (Buffer& buffer) : buffer(buffer) {}
 
-            void allocate (size_t size) const {
+            void allocate (Buffer::index_t size) const {
                 buffer.next_multi_byte<char>(size);
             }
         };
@@ -188,7 +188,7 @@ namespace stringify {
             *dst = '0';
             return dst + 1;
         } else {
-            const uint8_t i = fast_math::log_unsafe<10>(value);
+            const uint32_t i = fast_math::log_unsafe<10>(value);
             char* const end = dst + i + 1;
             dst += i;
             *(dst--) = gsl::narrow_cast<char>('0' + (value % 10));

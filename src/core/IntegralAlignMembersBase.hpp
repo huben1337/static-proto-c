@@ -1,5 +1,6 @@
 #pragma once
 
+#include <cassert>
 #include <concepts>
 #include <limits>
 
@@ -25,10 +26,9 @@ private:
     template <SIZE... alignments_to_check>
     requires (sizeof...(alignments_to_check) > 0)
     [[nodiscard]] constexpr SIZE _largest_align (estd::variadic_v<alignments_to_check...> /*unused*/) const {
-        SIZE result;
-        const bool checked_matched = (((Base::template get<alignments_to_check>() != 0) ? (result = alignments_to_check, true) : false) || ...);
-        if (checked_matched) return result;
-        return SIZE::SIZE_1;
+        SIZE result = SIZE::SIZE_1;
+        std::ignore = (((Base::template get<alignments_to_check>() != 0) ? (result = alignments_to_check, true) : false) || ...);
+        return result;
     }
 
 public:

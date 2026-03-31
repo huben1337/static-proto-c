@@ -94,7 +94,7 @@ namespace estd {
                 ...
             };
             using idx_t = estd::fitting_uint_t<sizeof...(Variants)>;
-            idx_t idx = -1;
+            idx_t idx = static_cast<idx_t>(-1);
             const bool matched = (
                 (variant_matches<Comparer, Mapper, Variants>(self)
                     ? ((idx = estd::variadic_type_index_v<Variants, Variants...>), true)

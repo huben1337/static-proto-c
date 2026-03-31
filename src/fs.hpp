@@ -213,7 +213,7 @@ private:
 
 public:
     template <typename InvalidHandler = estd::empty, typename ValidHandler = estd::empty, OPEN_FLAGS... flags, PERMISSION_MODE... permission_modes>
-    [[nodiscard]] static auto open (
+    [[nodiscard]] static decltype(auto) open (
         const std::string& path,
         estd::variadic_v<flags...> /*unused*/ = {},
         estd::variadic_v<permission_modes...> /*unused*/ = {},
@@ -284,11 +284,11 @@ public:
         std::perror("[File.~File] failed to close file.");
     }
 
-    [[nodiscard]] int write (const void* const buf, size_t nbytes) const {
+    [[nodiscard]] ssize_t write (const void* const buf, size_t nbytes) const {
         return ::write(_fd, buf, nbytes);
     }
 
-    [[nodiscard]] int read (void* const buf, size_t nbytes) const {
+    [[nodiscard]] ssize_t read (void* const buf, size_t nbytes) const {
         return ::read(_fd, buf, nbytes);
     }
 
@@ -341,7 +341,7 @@ public:
         typename ErrorHandler = estd::empty,
         typename SuccessHandler = estd::empty
     >
-    [[nodiscard]] auto stat (
+    [[nodiscard]] decltype(auto) stat (
         ErrorHandler&& error_handler = {},
         SuccessHandler&& success_handler = {}
     ) const {
@@ -491,7 +491,7 @@ public:
     }
 
     template <typename ValidHandler, typename InvalidHandler>
-    [[nodiscard]] constexpr auto check (ValidHandler&& on_valid, InvalidHandler&& on_invalid) && {
+    [[nodiscard]] constexpr decltype(auto) check (ValidHandler&& on_valid, InvalidHandler&& on_invalid) && {
         if (has_fd()) {
             const int fd = _fd();
             reset();
@@ -533,12 +533,12 @@ inline std::string realpath (const std::string& path) {
 }
 
 #ifdef O_NONBLOCK
-[[nodiscard]] int set_nonblocking (int fd, int current_flags) {
+[[nodiscard]] inline int set_nonblocking (int fd, int current_flags) {
     // NOLINTNEXTLINE(cppcoreguidelines-pro-type-vararg)
     return fcntl(fd, F_SETFL, current_flags | O_NONBLOCK);
 }
 
-[[nodiscard]] int set_nonblocking (int fd) {
+[[nodiscard]] inline int set_nonblocking (int fd) {
     // NOLINTNEXTLINE(cppcoreguidelines-pro-type-vararg)
     int flags = fcntl(fd, F_GETFL);
     if (flags == -1) {

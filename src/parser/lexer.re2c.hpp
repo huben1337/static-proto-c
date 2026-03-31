@@ -122,11 +122,11 @@ template <std::unsigned_integral T, T max = std::numeric_limits<T>::max()>
 
 struct VariantAttributes {
     using shared_id_t = uint32_t;
-    static constexpr shared_id_t NO_SHARED_ID = -1;
+    static constexpr shared_id_t no_shared_id = static_cast<shared_id_t>(-1);
     uint64_t max_wasted_bytes = 32;
-    shared_id_t shared_id = NO_SHARED_ID;
+    shared_id_t shared_id = no_shared_id;
 
-    [[nodiscard]] constexpr bool has_shared_id () const { return shared_id != NO_SHARED_ID; };
+    [[nodiscard]] constexpr bool has_shared_id () const { return shared_id != no_shared_id; }
 };
 
 [[nodiscard]] inline LexResult<VariantAttributes> lex_variant_attributes (const char* YYCURSOR) {
@@ -169,7 +169,7 @@ struct VariantAttributes {
                 if (attributes.has_shared_id()) {
                     show_syntax_error("conflicting attributes", YYCURSOR - 1);
                 }
-                auto parsed = lex_attribute_value<uint32_t, VariantAttributes::NO_SHARED_ID - 1>(YYCURSOR);
+                auto parsed = lex_attribute_value<uint32_t, VariantAttributes::no_shared_id - 1>(YYCURSOR);
                 attributes.shared_id = parsed.value;
                 YYCURSOR = parsed.cursor;
                 goto attribute_end;
@@ -293,7 +293,7 @@ template <bool is_dynamic, bool expect_fixed, typename BufferedTypeMeta>
 
     using out_type_meta_t = variant_type_meta_t<is_dynamic>;
 
-    const size_t meta_padding = get_padding<out_type_meta_t>(buffer.position_idx<uint8_t>().value);
+    const auto meta_padding = get_padding<out_type_meta_t>(buffer.position_idx<uint8_t>().value);
     
     const Buffer::Index<out_type_meta_t> meta_dst_idx {buffer.next_multi_byte<uint8_t>(
         meta_padding + (variant_count * sizeof(out_type_meta_t))

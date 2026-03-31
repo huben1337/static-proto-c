@@ -23,11 +23,11 @@ namespace ce {
 
 
     template <typename T, T... Values, typename F>
-    constexpr void for_(F&& lambda) {
+    constexpr void for_ (F&& lambda) {
         (std::forward<F>(lambda).template operator()<Values>(), ...);
     }
     template <typename T, T... Values, typename F>
-    constexpr void for_(F&& lambda, std::integer_sequence<T, Values...> /*unused*/) {
+    constexpr void for_ (F&& lambda, std::integer_sequence<T, Values...> /*unused*/) {
         (std::forward<F>(lambda).template operator()<Values>(), ...);
     }
 
@@ -76,10 +76,8 @@ namespace ce {
         }
 
         template <size_t i>
-        constexpr double _log2f_coefficient = gsl::narrow_cast<double>(
-            ((i % 2 == 0) ? 1.0L : -1.0L)
-            / ((i + 1) * std::numbers::ln2_v<long double>)
-        );
+        constexpr auto _log2f_coefficient =
+            ((i % 2 == 0) ? 1.0L : -1.0L) / ((i + 1) * std::numbers::ln2_v<long double>);
 
         template <Double x>
         consteval double _log2f () {
@@ -106,7 +104,8 @@ namespace ce {
             double y_pow = y;
             double log2_mantissa = 0.0;
             for_([&]<size_t i>() {
-                log2_mantissa += _log2f_coefficient<i> * y_pow;
+                constexpr double coefficient = gsl::narrow_cast<double>(_log2f_coefficient<i>);
+                log2_mantissa += coefficient * y_pow;
                 y_pow *= y;
             }, std::make_index_sequence<13>{});
 

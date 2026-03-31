@@ -9,16 +9,17 @@
 namespace lexer {
 
 template <typename T>
-[[nodiscard]] constexpr size_t get_padding(uintptr_t position) {
-    size_t mod = position % alignof(T);
-    size_t padding = (alignof(T) - mod) & (alignof(T) - 1);
+[[nodiscard]] constexpr auto get_padding(uintptr_t position) {
+    using num_t = estd::fitting_uint_t<alignof(T)>;
+    num_t mod = position % alignof(T);
+    num_t padding = (alignof(T) - mod) & (alignof(T) - 1);
     return padding;
 }
 
 namespace _detail {
     template <typename T>
     [[nodiscard]] constexpr T& get_padded (uintptr_t address) {
-        size_t padding = get_padding<T>(address);
+        auto padding = get_padding<T>(address);
         return *std::assume_aligned<alignof(T)>(reinterpret_cast<T*>(address + padding));
     }
 
@@ -30,7 +31,7 @@ template <typename T>
 
 template <typename T>
 [[nodiscard]] inline Buffer::Index<T> create_padded (Buffer &buffer) {
-    size_t padding = get_padding<T>(buffer.current_position());
+    auto padding = get_padding<T>(buffer.current_position());
     Buffer::Index<T> idx = buffer.next_multi_byte<T>(sizeof(T) + padding);
     return idx.add(padding);
 }
@@ -55,7 +56,7 @@ struct CreateExtendedResult {
 template <typename T, typename Base, typename Next = void>
 requires (alignof(Base) == 1 && std::is_void_v<Next>)
 [[nodiscard]] inline CreateExtendedResult<T, Base> create_extended (Buffer &buffer) {
-    size_t padding = get_padding<T>(buffer.current_position() + sizeof(Base));
+    auto padding = get_padding<T>(buffer.current_position() + sizeof(Base));
     Buffer::Index<Base> base_idx = buffer.next_multi_byte<Base>(sizeof(Base) + padding + sizeof(T));
     Buffer::Index<T> extended_idx {static_cast<Buffer::index_t>(base_idx.value + padding + sizeof(Base))};
     return {extended_idx, base_idx};
@@ -65,9 +66,9 @@ template <typename T, typename Base, typename Next>
 requires (alignof(Base) == 1 && !std::is_void_v<Next>)
 [[nodiscard]] inline CreateExtendedResult<T, Base> create_extended (Buffer &buffer) {
     Buffer::index_t pos = buffer.current_position();
-    size_t padding_before = get_padding<T>(pos + sizeof(Base));
-    size_t size = sizeof(Base) + padding_before + sizeof(T);
-    size_t padding_after = get_padding<Next>(pos + size);
+    auto padding_before = get_padding<T>(pos + sizeof(Base));
+    estd::fitting_uint_t<sizeof(Base) + alignof(T) + sizeof(T)> size = sizeof(Base) + padding_before + sizeof(T);
+    auto padding_after = get_padding<Next>(pos + size);
     Buffer::Index<Base> base_idx = buffer.next_multi_byte<Base>(size + padding_after);
     Buffer::Index<T> extended_idx {static_cast<Buffer::index_t>(base_idx.value + padding_before + sizeof(Base))};
     return {extended_idx, base_idx};

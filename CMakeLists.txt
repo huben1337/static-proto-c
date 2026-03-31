@@ -38,7 +38,7 @@ function(re2c_add_command INPUT OUTPUT)
   message(STATUS "Registered: re2c compiling ${INPUT} to ${OUTPUT}")
   add_custom_command(
     OUTPUT ${OUTPUT}
-    COMMAND ${RE2C_EXE} ${INPUT} -c -W -i --case-ranges -o ${OUTPUT}
+    COMMAND ${RE2C_EXE} ${INPUT} -c -W -i -o ${OUTPUT}
     DEPENDS ${INPUT}
     WORKING_DIRECTORY ${CMAKE_CURRENT_BINARY_DIR}
     COMMENT "re2c compiling ${INPUT} to ${OUTPUT}"
@@ -207,9 +207,32 @@ add_compile_options(
   $<$<COMPILE_LANGUAGE:C,CXX>:-Wall>
   $<$<COMPILE_LANGUAGE:C,CXX>:-Wextra>
   $<$<COMPILE_LANGUAGE:C,CXX>:-Wpedantic>
-  $<$<COMPILE_LANGUAGE:C,CXX>:-Wno-gnu-case-range>
-  $<$<COMPILE_LANGUAGE:C,CXX>:-Wno-variadic-macros>
+  $<$<COMPILE_LANGUAGE:C,CXX>:-Weverything>
+  $<$<COMPILE_LANGUAGE:C,CXX>:-Wno-c++-compat>
+  $<$<COMPILE_LANGUAGE:C,CXX>:-Wno-c++98-compat>
+  $<$<COMPILE_LANGUAGE:C,CXX>:-Wno-c++98-compat-pedantic>
+  $<$<COMPILE_LANGUAGE:C,CXX>:-Wno-pre-c++14-compat>
+  $<$<COMPILE_LANGUAGE:C,CXX>:-Wno-pre-c++17-compat>
+  $<$<COMPILE_LANGUAGE:C,CXX>:-Wno-pre-c++20-compat>
+  $<$<COMPILE_LANGUAGE:C,CXX>:-Wno-newline-eof>
+  $<$<COMPILE_LANGUAGE:C,CXX>:-Wno-extra-semi-stmt>
+  $<$<COMPILE_LANGUAGE:C,CXX>:-Wno-comma>
+  $<$<COMPILE_LANGUAGE:C,CXX>:-Wno-shadow>
+  $<$<COMPILE_LANGUAGE:C,CXX>:-Wno-shadow-field>
+  $<$<COMPILE_LANGUAGE:C,CXX>:-Wno-shadow-field-in-constructor>
+  $<$<COMPILE_LANGUAGE:C,CXX>:-Wno-covered-switch-default>
+  $<$<COMPILE_LANGUAGE:C,CXX>:-Wno-padded>
+  $<$<COMPILE_LANGUAGE:C,CXX>:-Wno-global-constructors>
+  $<$<COMPILE_LANGUAGE:C,CXX>:-Wno-exit-time-destructors>
+  # $<$<COMPILE_LANGUAGE:C,CXX>:-Wno-ctad-maybe-unsupported>
+  $<$<COMPILE_LANGUAGE:C,CXX>:-Wno-missing-variable-declarations>
+  $<$<COMPILE_LANGUAGE:C,CXX>:-Wno-unsafe-buffer-usage>
+  $<$<COMPILE_LANGUAGE:C,CXX>:-Wno-alloca>
+  # $<$<COMPILE_LANGUAGE:C,CXX>:-Wno-gnu-case-range>
+  # $<$<COMPILE_LANGUAGE:C,CXX>:-Wno-variadic-macros>
+  # $<$<COMPILE_LANGUAGE:C,CXX>:-Wno-gnu-zero-variadic-macro-arguments>
   ############ C++ ############
+  $<$<COMPILE_LANGUAGE:C,CXX>:-D_GLIBCXX_DEBUG>
   $<$<COMPILE_LANGUAGE:C,CXX>:-fno-exceptions>
   $<$<COMPILE_LANGUAGE:C,CXX>:-Wno-vla-cxx-extension>
   $<$<COMPILE_LANGUAGE:CXX>:-fconstexpr-depth=${CONSTEXPR_DEPTH}>

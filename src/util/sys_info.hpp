@@ -104,4 +104,4 @@ struct info_t {
 
 };
 
-static const info_t sys_info = info_t::create();
+static inline const info_t sys_info = info_t::create();

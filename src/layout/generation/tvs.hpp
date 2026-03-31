@@ -102,15 +102,15 @@ struct MutableStateBase {
 
 // O(n * t) | 0 < t < MAX_SUM
 inline void generate_sum_subset_chains (const uint64_t target, const std::vector<QueuedField>& queued_fields, const std::span<uint16_t> sum_chains) {
-    // NOLINTNEXTLINE(readability-simplify-boolean-expr)
+    constexpr uint16_t empty_chain_link = static_cast<uint16_t>(-1);
+    
     BSSERT(target != 0, "[subset_sum_perfect::solve] invalid target: ", target);
-    constexpr uint16_t NO_CHAIN_VAL = -1;
 
     // const std::unique_ptr<uint16_t[]> sum_chains = std::make_unique_for_overwrite<uint16_t[]>(target + 1);
     sum_chains[0] = uint16_t{0};
-    std::uninitialized_fill_n(sum_chains.data() + 1, target, NO_CHAIN_VAL);
+    std::uninitialized_fill_n(sum_chains.data() + 1, target, empty_chain_link);
     
-    const uint16_t queue_size = queued_fields.size();
+    const uint16_t queue_size = gsl::narrow_cast<uint16_t>(queued_fields.size());
     // console.debug("Extracting from queue with length: ", queue_size);
     for (uint16_t queue_idx = 0; queue_idx < queue_size; queue_idx++) {
         const uint64_t num = math::mod1(queued_fields[queue_idx].size, SIZE::MAX.byte_size());
@@ -120,9 +120,9 @@ inline void generate_sum_subset_chains (const uint64_t target, const std::vector
         // #pragma clang loop vectorize(enable)
         for (uint64_t i = target - num; ;) {
             const uint16_t old_chain_entry = sum_chains[i];
-            if (old_chain_entry != NO_CHAIN_VAL) {
+            if (old_chain_entry != empty_chain_link) {
                 uint16_t& new_chain_entry = sum_chains[i + num];
-                if (new_chain_entry == NO_CHAIN_VAL) {
+                if (new_chain_entry == empty_chain_link) {
                     new_chain_entry = queue_idx;
                 }
             }
@@ -130,11 +130,11 @@ inline void generate_sum_subset_chains (const uint64_t target, const std::vector
             i--;
         }
     
-        if (sum_chains[target] != NO_CHAIN_VAL) return;
+        if (sum_chains[target] != empty_chain_link) return;
     }
 
     BSSERT(false, "[subset_sum_perfect::solve] reached unreachable. target: ", target);
-    std::unreachable();
+    // std::unreachable();
 }
 
 
@@ -233,7 +233,7 @@ public:
     ) {
         const uint16_t map_idx = self.next_map_idx();
         console.debug("using map_idx: ", map_idx);
-        self.const_state.shared().idx_map[map_idx] = -1; // Mark as not set
+        self.const_state.shared().idx_map[map_idx] = static_cast<uint16_t>(-1); // Mark as not set
         self.template enqueue<alignment>(QueuedField{alignment.byte_size() * count, SimpleField{map_idx, alignment}});
     }
 

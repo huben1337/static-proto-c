@@ -258,7 +258,7 @@ private:
     }
 
 public:
-    explicit logger (const int output_fd) 
+    explicit logger (const int output_fd)
     : output_pollfd({
         .fd = output_fd,
         .events = POLLOUT,
@@ -269,14 +269,14 @@ public:
     : logger{open_output_file(output_path)} {}
 
 private:
-    void _handled_write_stdout (const char* src, size_t size) {
-        size_t left = size;
+    void _handled_write_stdout (const char* src, size_t left) {
         try_write:
-        auto write_result = ::write(output_pollfd.fd, src, left);
+        const ssize_t write_result = ::write(output_pollfd.fd, src, left);
         if (write_result >= 0) {
-            if (gsl::narrow_cast<size_t>(write_result) == left) return;
-            left -= write_result;
-            src += write_result;
+            const size_t written = gsl::narrow_cast<size_t>(write_result);
+            if (written == left) return;
+            left -= written;
+            src += written;
             goto try_write;
         }
         if (write_result == -1) {
@@ -321,17 +321,21 @@ private:
         }
     }
 
+    [[nodiscard]] constexpr size_t buffered_size () const {
+        return gsl::narrow_cast<size_t>(buffer_dst - buffer);
+    }
+
     template <bool is_first, bool is_last>
     requires (!is_first) 
     void write_string_view (const char* begin, size_t length) {
         if (buffer_dst == buffer) {
             return write_string_view<true, is_last>(begin, length);
         }
-        size_t free_space = buffer_end - buffer_dst;
+        size_t free_space = gsl::narrow_cast<size_t>(buffer_end - buffer_dst);
         if (free_space >= length) {
             if constexpr (is_last) {
                 std::memcpy(buffer_dst, begin, length);
-                handled_write_buffer_stdout(buffer_dst - buffer + length);
+                handled_write_buffer_stdout(buffered_size() + length);
                 buffer_dst = buffer;
             } else /* if constexpr (!is_last) */ {
                 std::memcpy(buffer_dst, begin, length);
@@ -339,7 +343,7 @@ private:
             }
         } else {
             if constexpr (is_last) {
-                handled_write_buffer_stdout(buffer_dst - buffer);
+                handled_write_buffer_stdout(buffered_size());
                 buffer_dst = buffer;
                 _handled_write_stdout(begin, length);
             } else {
@@ -361,24 +365,12 @@ private:
     [[gnu::always_inline]] void write (const std::string_view& msg) {
         return write_string_view<is_first, is_last>(msg.data(), msg.size());
     }
-    template <bool is_first, bool is_last>
-    [[gnu::always_inline]] void write (std::string_view&& msg) {
-        return write_string_view<is_first, is_last>(msg.data(), msg.size());
-    }
     template <bool is_first, bool is_last, size_t N>
     [[gnu::always_inline]] void write (const char (&value)[N]) {
         return write_string_view<is_first, is_last>(static_cast<const char*>(value), N - 1);
     }
     template <bool is_first, bool is_last, size_t N>
-    [[gnu::always_inline]] void write (char (&&value)[N]) {
-        return write_string_view<is_first, is_last>(static_cast<const char*>(value), N - 1);
-    }
-    template <bool is_first, bool is_last, size_t N>
     [[gnu::always_inline]] void write (const StringLiteral<N>& value) {
-        return write_string_view<is_first, is_last>(static_cast<const char*>(value.data), N - 1);
-    }
-    template <bool is_first, bool is_last, size_t N>
-    [[gnu::always_inline]] void write (StringLiteral<N>&& value) {
         return write_string_view<is_first, is_last>(static_cast<const char*>(value.data), N - 1);
     }
     template <bool is_first, bool is_last, typename T>
@@ -395,7 +387,7 @@ private:
                 _handled_write_stdout(char_buffer, 1);
             } else {
                 *(buffer_dst++) = C;
-                handled_write_buffer_stdout(buffer_dst - buffer);
+                handled_write_buffer_stdout(buffered_size());
                 buffer_dst = buffer;
             }
         } else /* if constexpr (!is_last) */ {
@@ -411,17 +403,17 @@ private:
 
     template <bool is_first, bool is_last, bool is_negative, std::unsigned_integral T>
     void write_nonzero (T value) {
-        uint8_t log10_of_value = fast_math::log_unsafe<10>(value);
+        auto log10_of_value = fast_math::log_unsafe<10>(value);
         constexpr size_t sign_size = is_negative ? 1 : 0;
         if constexpr (is_negative) {
             *(buffer_dst++) = '-';
         }
-        size_t length = log10_of_value + 1;
+        auto length = log10_of_value + 1;
         char* end; // End is only initialized if !is_first
         if constexpr (!is_first || buffer_size <= (ce::log10<std::numeric_limits<uint64_t>::max()> + sign_size)) {
             end = buffer_dst + length;
             if (end >= buffer_end) {
-                handled_write_buffer_stdout(buffer_dst - buffer);
+                handled_write_buffer_stdout(buffered_size());
                 buffer_dst = buffer;
                 end = buffer_dst + length;
             }
@@ -437,7 +429,7 @@ private:
             if constexpr (is_first) {
                 handled_write_buffer_stdout(length);
             } else /* if constexpr (!is_first) */ {
-                handled_write_buffer_stdout(end - buffer);
+                handled_write_buffer_stdout(gsl::narrow_cast<size_t>(end - buffer));
             }
             buffer_dst = buffer;
         } else {
@@ -552,11 +544,11 @@ public:
     }
 
     template <bool buffered = false, StringLiteral first_value, typename... T>
-    void debug (T&&... values) {
+    void debug ([[maybe_unused]] T&&... values) {
         write_values<debug_prefix + first_value, buffered>(std::forward<T>(values)...);
     }
     template <bool buffered = false, typename... T>
-    void debug (T&&... values) {
+    void debug ([[maybe_unused]] T&&... values) {
         write_values<debug_prefix, buffered>(std::forward<T>(values)...);
     }
 
@@ -580,7 +572,7 @@ public:
 
     void flush () {
         if (buffer_dst == buffer) return;
-        handled_write_buffer_stdout(buffer_dst - buffer);
+        handled_write_buffer_stdout(buffered_size());
         buffer_dst = buffer;
     }
 };
@@ -613,7 +605,7 @@ namespace logger_detail {
     };
 }
 
-static logger console{"/dev/stdout"};
+static logger console{"/dev/stdout"}; // TODO Static might cause probelms when switching to multiple TUs
 
 template <StringLiteral auto_msg, typename... ArgsT>
 [[noreturn, gnu::noinline, gnu::cold]] void bssert_fail (ArgsT&&... args) {
@@ -657,8 +649,8 @@ template<StringLiteral auto_msg, StringLiteral op, typename T, typename U, typen
     __builtin_trap();
 }
 
-#define CSSERT(LHS, OP, RHS, ...)                                                                                                                              \
-/* NOLINTNEXTLINE(readability-simplify-boolean-expr) */                                                                                                        \
-if (!(LHS OP RHS)) {                                                                                                                                           \
-    cssert_fail<"Assertion `" #LHS " " #OP " " #RHS "` at " __FILE__ ":" BOOST_PP_STRINGIZE(__LINE__) " failed with `", " " #OP " ">(LHS, RHS, ##__VA_ARGS__); \
+#define CSSERT(LHS, OP, RHS, ...)                                                                                                                                           \
+/* NOLINTNEXTLINE(readability-simplify-boolean-expr) */                                                                                                                     \
+if (!(LHS OP RHS)) {                                                                                                                                                        \
+    cssert_fail<"Assertion `" #LHS " " #OP " " #RHS "` at " __FILE__ ":" BOOST_PP_STRINGIZE(__LINE__) " failed with `", " " #OP " ">(LHS, RHS __VA_OPT__(,) __VA_ARGS__);   \
 }

@@ -3,6 +3,7 @@
 #include <cassert>
 #include <compare>
 #include <concepts>
+#include <gsl/util>
 #include <type_traits>
 
 #include "../estd/utility.hpp"
@@ -25,7 +26,7 @@ struct SIZE : estd::enum_<uint8_t, SIZE> {
     static const SIZE MIN;
     static const SIZE MAX;
 
-    constexpr SIZE () : SIZE{SIZE_0} {};
+    constexpr SIZE () : SIZE{SIZE_0} {}
 
     [[nodiscard]] constexpr std::strong_ordering operator <=> (this const SIZE& self, const SIZE& other) {
         return self.ordinal() <=> other.ordinal();
@@ -75,7 +76,7 @@ public:
     }
 
     [[nodiscard]] constexpr value_t byte_size () const {
-        return value_t{1} << ordinal();
+        return gsl::narrow_cast<value_t>(1 << ordinal());
     }
 
 private:
@@ -88,14 +89,14 @@ public:
             next_smaller_is_invalid_for_this_size();
         }
         return SIZE{gsl::narrow_cast<value_t>(self.ordinal() - 1)};
-    };
+    }
 
     [[nodiscard]] consteval SIZE next_bigger (this const SIZE& self) {
         if (self == SIZE_0 || self == SIZE_8) {
             next_bigger_is_invalid_for_this_size();
         }
         return SIZE{gsl::narrow_cast<value_t>(self.ordinal() + 1)};
-    };
+    }
 
     template <std::unsigned_integral T>
     [[nodiscard]] static SIZE from_integral (const T i) {

@@ -55,7 +55,7 @@ void enqueueing_for_level (auto& level, const std::vector<uint16_t>& idxs) {
 }
 
 template <SIZE to_align, SIZE max_align, typename... T>
-static void add_to_align (
+inline void add_to_align (
     auto& level,
     const uint16_t i,
     // QueuedField& field,
@@ -88,7 +88,7 @@ static void add_to_align (
 
 // TODO: Make it possible to pass already dereferenced/indexed field instead of the index only
 template<SIZE target_align>
-static void add_field (
+inline void add_field (
     auto& level,
     const uint16_t field_idx,
     Fields<target_align>& fields,

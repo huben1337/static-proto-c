@@ -449,7 +449,7 @@ struct InvariantBasedFlowControlBase_ {
 };
 
 template <typename From, typename... To>
-static constexpr bool is_convertable_to_any_of_v = (std::is_convertible_v<From, To> || ...);
+constexpr bool is_convertable_to_any_of_v = (std::is_convertible_v<From, To> || ...);
 
 template <
     typename T,

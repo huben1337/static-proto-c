@@ -124,7 +124,7 @@ private:
             views[size.ordinal()] = {data_pos, type_str.size()};
             data_pos += type_str.size();
         });
-    };
+    }
 
 public:
     [[nodiscard]] static constexpr std::string_view get (const SIZE size) {
@@ -198,9 +198,9 @@ private:
         Buffer::index_t size;
 
         if constexpr (last_is_direct) {
-            size = ((array_depth - 1) * (" + idx_"_sl.size() + " * "_sl.size() + 19)) + "idx"_sl.size() + fast_math::sum_of_digits_unsafe(gsl::narrow_cast<uint8_t>(array_depth - 1));
+            size = ((array_depth - 1) * (" + idx_"_sl.size() + " * "_sl.size() + 19)) + "idx"_sl.size() + fast_math::sum_of_digits_unsafe<uint8_t, uint32_t>(gsl::narrow_cast<uint8_t>(array_depth - 1));
         } else {
-            size = (array_depth * " + idx_"_sl.size()) + ((array_depth - 1) * (" * "_sl.size() + 19)) + fast_math::sum_of_digits_unsafe(array_depth);
+            size = (array_depth * " + idx_"_sl.size()) + ((array_depth - 1) * (" * "_sl.size() + 19)) + fast_math::sum_of_digits_unsafe<uint8_t, uint32_t>(array_depth);
         }
 
         if constexpr (!no_multiply) {
@@ -1247,7 +1247,7 @@ struct TypeVisitor {
     }
 };
 
-void generate (
+inline void generate (
     const lexer::StructDefinition& target_struct,
     const ReadOnlyBuffer& ast_buffer,
     const fs::File output_file

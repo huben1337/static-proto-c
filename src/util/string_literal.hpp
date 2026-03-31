@@ -110,7 +110,7 @@ private:
         static_assert(start < end, "start must be less than end");
         static_assert(start < N, "start must be less than string size");
         static_assert(end < N, "end must be less than string size");
-    };
+    }
 };
 
 template <size_t N>

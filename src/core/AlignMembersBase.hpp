@@ -40,11 +40,11 @@ private:
 
     template <SIZE... alignments>
     constexpr explicit AlignMembersBase (estd::variadic_v<alignments...> /*unused*/)
-        : align((static_cast<void>(alignments), T{})...) {};
+        : align{(static_cast<void>(alignments), T{})...} {}
     
 public:
     constexpr explicit AlignMembersBase () requires (std::is_default_constructible_v<T>)
-        : AlignMembersBase{alignments{}} {};
+        : AlignMembersBase{alignments{}} {}
 
     constexpr explicit AlignMembersBase (const T (&align)[alignments_count])
         : align(align) {}
@@ -56,12 +56,12 @@ public:
     requires (alignments_count > 1 && sizeof...(U) == alignments_count)
     // NOLINTNEXTLINE(google-explicit-constructor)
     constexpr AlignMembersBase (U&&... aligns)
-        : align(std::forward<U>(aligns) ...) {}
+        : align{std::forward<U>(aligns) ...} {}
 
     template <typename U>
     requires (alignments_count == 1)
     constexpr explicit AlignMembersBase (U&& align)
-        : align(std::forward<U>(align)) {}
+        : align{std::forward<U>(align)} {}
 
     #define IDENTITY(...) __VA_ARGS__
 

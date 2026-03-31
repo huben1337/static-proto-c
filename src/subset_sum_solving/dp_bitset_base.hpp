@@ -45,11 +45,11 @@ using lane_t = uint64_t;
 #endif
 
 using slane_t = std::make_signed_t<lane_t>;
-constexpr size_t WORD_BYTES = sizeof(word_t);
-constexpr size_t WORD_BITS = WORD_BYTES * 8;
-constexpr size_t LANE_BYTES = sizeof(lane_t);
-constexpr size_t LANE_BITS = LANE_BYTES * 8;
-constexpr size_t WORD_LANE_COUNT = WORD_BYTES / LANE_BYTES;
+constexpr uint32_t WORD_BYTES = sizeof(word_t);
+constexpr uint32_t WORD_BITS = WORD_BYTES * 8;
+constexpr uint32_t LANE_BYTES = sizeof(lane_t);
+constexpr uint32_t LANE_BITS = LANE_BYTES * 8;
+constexpr uint32_t WORD_LANE_COUNT = WORD_BYTES / LANE_BYTES;
 
 
 [[nodiscard, gnu::always_inline]] constexpr num_t bitset_word_count (num_t target) {
@@ -76,7 +76,7 @@ enum FillDirection : uint8_t {
 namespace detail {
     template <FillDirection direction>
     [[nodiscard, gnu::always_inline]] constexpr slane_t make_partial_lane (const uint16_t n) {
-        const auto remaining = n % LANE_BITS;
+        const uint8_t remaining = n % LANE_BITS;
         if constexpr (direction == TO) {
             return std::bit_cast<slane_t>((lane_t{1} << remaining) - 1);
         } else {
@@ -89,7 +89,7 @@ namespace detail {
         if constexpr (direction == TO) {
             return full_lane_mask - 1;
         } else {
-            return -full_lane_mask;
+            return 0 - full_lane_mask;
         }
     }
 }
@@ -107,11 +107,11 @@ template <FillDirection direction, OnesStrategys strategy = HYBRID_LUT_VECTOR>
                 }
             }
         };
-        constexpr Table table {};
+        constexpr Table table;
 
         return table.data[n];
     } else {
-        const size_t lane_idx = n / LANE_BITS;
+        const uint16_t lane_idx = n / LANE_BITS;
 
         if constexpr (strategy == HYBRID_LUT_SCALAR || strategy == HYBRID_LUT_VECTOR) {
             struct Table {
@@ -130,7 +130,7 @@ template <FillDirection direction, OnesStrategys strategy = HYBRID_LUT_VECTOR>
                     }
                 }
             };
-            constexpr Table full_lane_words {};
+            constexpr Table full_lane_words;
 
             #define MAKE_WORD() full_lane_words.data[lane_idx]
 
@@ -148,7 +148,7 @@ template <FillDirection direction, OnesStrategys strategy = HYBRID_LUT_VECTOR>
 
             #undef MAKE_WORD
         } else {
-            const __mmask8 full_words_mask = __mmask8{1} << lane_idx;
+            const uint32_t full_words_mask = 1 << lane_idx;
 
             #define MAKE_WORD() mmXXX_movm_epi64(detail::make_lane_value_mask<direction>(full_words_mask))
 
@@ -176,7 +176,7 @@ inline void and_merge (word_t* const bigger_bits, word_t* const smaller_bits, co
         bigger_bits[j] = mmXXX_and_siXXX(bigger_bits[j], smaller_bits[i]);
     }
 
-    const uint16_t left_over_bits = smaller_bits_count - (full_bitset_words * WORD_BITS);
+    const uint16_t left_over_bits = smaller_bits_count % WORD_BITS;
     
     if (left_over_bits != 0) {
         const num_t& i = full_bitset_words;
@@ -314,10 +314,10 @@ template <size_t N>
 namespace {
 
 template <size_t lane_shift>
-[[clang::always_inline]] inline void apply_num_unsafe_ (const uint64_t num, word_t* const words, const size_t word_count) {
-    const uint16_t bit_shift = num % LANE_BITS;
-    const uint16_t rbit_shift = LANE_BITS - bit_shift;
-    const size_t word_shift = num / WORD_BITS;
+[[clang::always_inline]] inline void apply_num_unsafe_ (const num_t num, word_t* const words, const num_t word_count) {
+    const uint8_t bit_shift = num % LANE_BITS;
+    const uint8_t rbit_shift = LANE_BITS - bit_shift;
+    const num_t word_shift = num / WORD_BITS;
 
     const num_t last_out_idx = word_count - 1;
     const num_t last_in_idx = last_out_idx - word_shift;

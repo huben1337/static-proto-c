@@ -30,10 +30,10 @@ public:
     }
 
     [[nodiscard]] constexpr const value_t& ordinal () const {
-        #pragma clang diagnostic push
-        #pragma clang diagnostic ignored "-Wdeprecated-declarations"
+        #pragma GCC diagnostic push
+        #pragma GCC diagnostic ignored "-Wdeprecated-declarations"
         return _value;
-        #pragma clang diagnostic pop
+        #pragma GCC diagnostic pop
     }
 
     template <typename Result, auto... variants, typename... U, typename Visitor>

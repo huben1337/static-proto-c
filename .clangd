@@ -2,10 +2,12 @@
 CompileFlags:
   CompilationDatabase: "./build/unix-make-clang"
   Add: [
+    -Wno-unused-label,
+    -Wno-uninitialized,
     # -std=gnu++23,
     # -march=native,
-    # -fconstexpr-depth=1000,
-    # -fconstexpr-steps=100000000,
+    -fconstexpr-depth=128,
+    -fconstexpr-steps=10000000,
     # -I/home/huben/Projects/static-proto-c/extern/nameof/include,
     # -I/home/huben/Projects/static-proto-c/include/quickcpplib/include,
     # -I/home/huben/Projects/static-proto-c/include/outcome/include,
@@ -27,7 +29,7 @@ Diagnostics:
       readability*,
       cppcoreguidelines*,
       # fuchsia-statically-constructed-objects,
-      fuchsia-trailing-return,
+      # fuchsia-trailing-return,
       google-default-arguments,
       google-explicit-constructor,
       google-global-names-in-headers,
@@ -50,7 +52,7 @@ Diagnostics:
       cppcoreguidelines-init-variables,
       cppcoreguidelines-init-variables,
       cppcoreguidelines-macro-usage,
-      cppcoreguidelines-no-malloc,
+      # cppcoreguidelines-no-malloc,
       cppcoreguidelines-pro-bounds*,
       # cppcoreguidelines-pro-type-reinterpret-cast
     ]

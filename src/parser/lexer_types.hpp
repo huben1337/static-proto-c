@@ -347,7 +347,7 @@ struct IdentifiedType {
 private:
     IdentifedDefinitionIndex identifier_idx;
 
-    constexpr explicit IdentifiedType(IdentifedDefinitionIndex idx) : identifier_idx(idx) {};
+    constexpr explicit IdentifiedType(IdentifedDefinitionIndex idx) : identifier_idx(idx) {}
 
 public:
     [[nodiscard]] const IdentifiedDefinition& get(const ReadOnlyBuffer& buffer) const {

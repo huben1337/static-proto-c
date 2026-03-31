@@ -316,7 +316,7 @@ struct GenerateResult {
     uint64_t var_leafs_start;
 };
 
-GenerateResult generate (
+[[nodiscard]] inline GenerateResult generate (
     const lexer::StructDefinition& target_struct,
     const ReadOnlyBuffer& ast_buffer,
     const std::span<FixedOffset> fixed_offsets,

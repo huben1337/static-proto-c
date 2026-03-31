@@ -19,13 +19,13 @@
 
 namespace layout::generation::variant_layout {
 
-constexpr uint16_t empty_chain_link = -1;
-
-[[nodiscard]] std::unique_ptr<const uint16_t[]> generate_sum_subset_chains (
+[[nodiscard]] inline std::unique_ptr<const uint16_t[]> generate_sum_subset_chains (
     const uint64_t target,
     const std::span<QueuedField> queued_fields_buffer,
     const estd::integral_range<uint16_t> queued_field_idxs
 ) {
+    constexpr uint16_t empty_chain_link = static_cast<uint16_t>(-1);
+
     std::unique_ptr<uint16_t[]> sum_chains = std::make_unique_for_overwrite<uint16_t[]>(target + 1);
     sum_chains[0] = 0;
     std::uninitialized_fill_n(sum_chains.get() + 1, target, empty_chain_link);

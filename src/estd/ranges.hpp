@@ -118,4 +118,10 @@ namespace estd {
             return access_ptr<U, With>(p);
         }
     };
+
+    template <std::integral T>
+    integral_range(T from, T to) -> integral_range<T>;
+
+    template <std::integral T, typename U>
+    integral_range(T from, integral_range_size<U> size) -> integral_range<T>;
 }

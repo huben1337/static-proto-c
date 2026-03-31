@@ -221,7 +221,7 @@ public:
 
         other.reset();
         return *this;
-    };
+    }
 
 
     constexpr ~Memory () {
@@ -240,8 +240,8 @@ private:
     }
     
 public:
-    [[nodiscard]] constexpr uint8_t* const& data () const {
-        return reinterpret_cast<uint8_t* const&>(_data);
+    [[nodiscard]] constexpr uint8_t* data () const {
+        return estd::ptr_cast<uint8_t>(_data);
     }
 
     [[nodiscard]] constexpr const U& current_position () const {

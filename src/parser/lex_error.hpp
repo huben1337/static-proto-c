@@ -2,6 +2,8 @@
 
 #include <cstddef>
 
+#include <cstdint>
+#include <gsl/util>
 #include <string_view>
 #include "../global.hpp"
 #include "../util/logger.hpp"
@@ -24,7 +26,7 @@ namespace lexer {
 
 #define ERROR_PATH_ATTRIBUTES [[noreturn, clang::noinline, gnu::noinline, msvc::noinline, gnu::cold]]
 
-ERROR_PATH_ATTRIBUTES void show_syntax_error (const std::string_view& msg, const char* const error, const size_t error_squiggles = 0) {
+ERROR_PATH_ATTRIBUTES void inline show_syntax_error (const std::string_view& msg, const char* const error, const size_t error_squiggles = 0) {
     BSSERT(global::input::start != nullptr, "[show_syntax_error] called before input_start set");
 
     const char *start = error;
@@ -45,7 +47,7 @@ ERROR_PATH_ATTRIBUTES void show_syntax_error (const std::string_view& msg, const
         }
     }
 
-    uint64_t column = error - start;
+    size_t column = gsl::narrow_cast<size_t>(error - start);
 
     for (; end > start; end++) {
         const char c = *end;
@@ -61,15 +63,15 @@ ERROR_PATH_ATTRIBUTES void show_syntax_error (const std::string_view& msg, const
     exit(1);
 }
 
-ERROR_PATH_ATTRIBUTES void show_syntax_error (const std::string_view& msg, const char* const error, const char* const error_squiggle_end) {
+ERROR_PATH_ATTRIBUTES void inline show_syntax_error (const std::string_view& msg, const char* const error, const char* const error_squiggle_end) {
     if (error_squiggle_end > error) {
-        show_syntax_error(msg, error, error_squiggle_end - error);
+        show_syntax_error(msg, error, gsl::narrow_cast<size_t>(error_squiggle_end - error));
     } else {
         show_syntax_error(msg, error);
     }
 }
 
-ERROR_PATH_ATTRIBUTES void show_syntax_error (const std::string_view& msg, const std::string_view& error_section) {
+ERROR_PATH_ATTRIBUTES void inline show_syntax_error (const std::string_view& msg, const std::string_view& error_section) {
     show_syntax_error(msg, error_section.begin(), error_section.end());
 }
 

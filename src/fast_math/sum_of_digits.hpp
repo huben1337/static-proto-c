@@ -62,91 +62,109 @@ namespace fast_math {
                 if constexpr (sizeof(U) >= 1) {
                     return 10ULL + ((value - 10ULL) * 2);
                 }
+                break;
             }
             case 2: {
                 if constexpr (sizeof(U) >= 2) {
                     return 190ULL + ((value - 100ULL) * 3);
                 }
+                break;
             }
             case 3: {
                 if constexpr (sizeof(U) >= 2) {
                     return 2890ULL + ((value - 1000ULL) * 4);
                 }
+                break;
             }
             case 4: {
                 if constexpr (sizeof(U) >= 3) {
                     return 38890ULL + ((value - 10000ULL) * 5);
                 }
+                break;
             }
             case 5: {
                 if constexpr (sizeof(U) >= 3) {
                     return 488890ULL + ((value - 100000ULL) * 6);
                 }
+                break;
             }
             case 6: {
                 if constexpr (sizeof(U) >= 4) {
                     return 5888890ULL + ((value - 1000000ULL) * 7);
                 }
+                break;
             }
             case 7: {
                 if constexpr (sizeof(U) >= 4) {
                     return 68888890ULL + ((value - 10000000ULL) * 8);
                 }
+                break;
             }
             case 8: {
                 if constexpr (sizeof(U) >= 5) {
                     return 788888890ULL + ((value - 100000000ULL) * 9);
                 }
+                break;
             }
             case 9: {
                 if constexpr (sizeof(U) >= 5) {
                     return 8888888890ULL + ((value - 1000000000ULL) * 10);
                 }
+                break;
             }
             case 10: {
                 if constexpr (sizeof(U) >= 5) {
                     return 98888888890ULL + ((value - 10000000000ULL) * 11);
                 }
+                break;
             }
             case 11: {
                 if constexpr (sizeof(U) >= 6) {
                     return 1088888888890ULL + ((value - 100000000000ULL) * 12);
                 }
+                break;
             }
             case 12: {
                 if constexpr (sizeof(U) >= 6) {
                     return 11888888888890ULL + ((value - 1000000000000ULL) * 13);
                 }
+                break;
             }
             case 13: {
                 if constexpr (sizeof(U) >= 7) {
                     return 128888888888890ULL + ((value - 10000000000000ULL) * 14);
                 }
+                break;
             }
             case 14: {
                 if constexpr (sizeof(U) >= 7) {
                     return 1388888888888890ULL + ((value - 100000000000000ULL) * 15);
                 }
+                break;
             }
             case 15: {
                 if constexpr (sizeof(U) >= 7) {
                     return 14888888888888890ULL + ((value - 1000000000000000ULL) * 16);
                 }
+                break;
             }
             case 16: {
                 if constexpr (sizeof(U) >= 8) {
                     return 158888888888888890ULL + ((value - 10000000000000000ULL) * 17);
                 }
+                break;
             }
             case 17: {
                 if constexpr (sizeof(U) >= 8) {
                     return 1688888888888888890ULL + ((value - 100000000000000000ULL) * 18);
                 }
+                break;
             }
             case 18: {
                 if constexpr (sizeof(U) >= 8) {
                     return 17888888888888888890ULL + ((value - 1000000000000000000ULL) * 19);
                 }
+                break;
             }
             #if __SIZEOF_INT128__ == 16
             case 19: {
@@ -154,11 +172,11 @@ namespace fast_math {
                     static constexpr __uint128_t base = (static_cast<__uint128_t>(1888888888888888888ULL) * 100) + 90;
                     return base + ((static_cast<__uint128_t>(value) - 10000000000000000000ULL) * 20);
                 }
+                break;
             }
             #endif
-            default: {
-                std::unreachable();
-            }
+            default:
         }
+        std::unreachable();
     }
-}
+} // namespace fast_math

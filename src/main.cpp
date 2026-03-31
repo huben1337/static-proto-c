@@ -1,5 +1,16 @@
+#include <cstddef>
+#include <cstdio>
+#include <gsl/util>
 #include <string>
 #include <chrono>
+
+#pragma GCC diagnostic push
+#pragma GCC diagnostic ignored "-Wnrvo"
+#pragma GCC diagnostic ignored "-Wunsafe-buffer-usage"
+#include <nameof.hpp>
+
+#pragma GCC diagnostic pop
+
 #include "estd/utility.hpp"
 #include "parser/lexer_types.hpp"
 
@@ -67,19 +78,25 @@ int main (const int argc, const char* const* const argv) {
         std::perror("Failed to get file stats for output file.");
     }));
 
-    const auto input_file_size = input_file_stat.st_size;
-    if (input_file_size <= 0) {
-        console.error("Input file had invalid size of: ", input_file_size);
+    if (input_file_stat.st_size <= 0) {
+        console.error("Input file had invalid size of: ", input_file_stat.st_size);
         return 1;
     }
+    const size_t input_file_size = gsl::narrow_cast<size_t>(input_file_stat.st_size);
 
     char input_buffer[input_file_size + 1];
-    auto read_result = input_file.read(input_buffer, input_file_size);
-    input_buffer[input_file_size] = 0;
-    if (read_result != input_file_size) {
+    const ssize_t read_result = input_file.read(input_buffer, input_file_size);
+    if (read_result < 0) {
+        std::perror("Failed to read input file.");
+    }
+
+    const size_t read_input_length = gsl::narrow_cast<size_t>(read_result);
+    if (read_input_length != input_file_size) {
         console.error("read size mismatch");
         return 1;
     }
+
+    input_buffer[input_file_size] = 0; // Null termineate input for lexer
 
     global::input::start = input_buffer;
 
@@ -89,7 +106,7 @@ int main (const int argc, const char* const* const argv) {
 
     lexer::IdentifierMap identifier_map;
     Buffer ast_buffer = BUFFER_INIT_STACK(4096);
-    const lexer::StructDefinition& target_struct = lexer::lex<false>(global::input::start, identifier_map, ast_buffer, {});
+    const lexer::StructDefinition& target_struct = lexer::lex<false>(input_buffer, identifier_map, ast_buffer, {});
 
     decode_code::generate(target_struct, ReadOnlyBuffer{ast_buffer}, std::move(output_file));
 

@@ -25,7 +25,7 @@ struct FixedOffset {
 
     constexpr void set_offset (uint64_t value) { offset = value; }
 
-    constexpr void increment_offset (uint64_t value) { offset += value; };
+    constexpr void increment_offset (uint64_t value) { offset += value; }
 
     [[nodiscard]] constexpr bool operator == (const FixedOffset& other) const {
         return offset == other.offset
