@@ -20,6 +20,7 @@
 #endif
 
 #include "./global.hpp"
+#include "./sys/errno.hpp"
 #include "./fs.hpp"
 #include "./container/memory.hpp"
 #include "./parser/lexer.re2c.hpp"
@@ -46,12 +47,12 @@ int main (const int argc, const char* const* const argv) {
             fs::OPEN_FLAGS::RDONLY
         >{},
         {},
-        [](const fs::OPEN_ERROR, const std::string& path) {
+        [](const sys::OPEN_ERROR, const std::string& path) {
             console.error("Failed to open input file: ", path);
         }
     );
 
-    auto input_file_stat = input_file.stat([](const fs::STAT_ERROR) {
+    auto input_file_stat = input_file.stat([](const sys::STAT_ERROR) {
         std::perror("Failed to get file stats for input file.");
     });
     fs::assert_regular(input_path, input_file_stat);
@@ -69,12 +70,12 @@ int main (const int argc, const char* const* const argv) {
             fs::PERMISSION_MODE::IRUSR,
             fs::PERMISSION_MODE::IWUSR
         >{},
-        [](const fs::OPEN_ERROR, const std::string& path) {
+        [](const sys::OPEN_ERROR, const std::string& path) {
             console.error("Failed to open output file: ", path);
         }
     );
     
-    fs::assert_regular(output_path, output_file.stat([](const fs::STAT_ERROR) {
+    fs::assert_regular(output_path, output_file.stat([](const sys::STAT_ERROR) {
         std::perror("Failed to get file stats for output file.");
     }));
 
@@ -85,12 +86,12 @@ int main (const int argc, const char* const* const argv) {
     const size_t input_file_size = gsl::narrow_cast<size_t>(input_file_stat.st_size);
 
     char input_buffer[input_file_size + 1];
-    const ssize_t read_result = input_file.read(input_buffer, input_file_size);
-    if (read_result < 0) {
+    const auto read_result = input_file.read(input_buffer, input_file_size);
+    if (read_result.has_error()) {
         std::perror("Failed to read input file.");
     }
 
-    const size_t read_input_length = gsl::narrow_cast<size_t>(read_result);
+    const size_t read_input_length = read_result.uvalue();
     if (read_input_length != input_file_size) {
         console.error("read size mismatch");
         return 1;
