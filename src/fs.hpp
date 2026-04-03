@@ -1,7 +1,7 @@
 #pragma once
 
 #include <cassert>
-#include <cerrno>
+#include <concepts>
 #include <cstddef>
 #include <cstdint>
 #include <cstdio>
@@ -16,13 +16,12 @@
 #include <sys/stat.h>
 #include <fcntl.h>
 #include <unistd.h>
+
 #include "base.hpp"
+#include "./sys/errno.hpp"
 #include "./util/logger.hpp"
-#include "estd/class_constraints.hpp"
 #include "estd/empty.hpp"
 #include "estd/utility.hpp"
-#include "nameof.hpp"
-#include "util/string_literal.hpp"
 
 #if !IS_MINGW
 #include <linux/limits.h>
@@ -98,66 +97,82 @@ enum class PERMISSION_MODE : uint16_t {
     IRWXO = S_IRWXO, /* Read, write, and execute by others.  */
 };
 
-template<OPEN_FLAGS flag>
-struct IsRWFlag {
-    static constexpr bool value =
-        flag == OPEN_FLAGS::RDONLY ||
-        flag == OPEN_FLAGS::WRONLY ||
-        flag == OPEN_FLAGS::RDWR;
-};
 
-enum class CLOSE_ERROR : uint8_t {
-    NONE = 0,
-    BADF = EBADF,
-    INT = EINTR,
-    IO = EIO,
-    NOSPC = ENOSPC,
-    DQUOT = EDQUOT
-};
+template<std::signed_integral T, typename Error>
+struct simple_operation_result {
+    using unsigned_t = std::make_unsigned_t<T>;
 
-enum class OPEN_ERROR : uint8_t {
-    NONE = 0,
-    ACCES = EACCES,
-    BADF = EBADF,
-    BUSY = EBUSY,
-    DQUOT = EDQUOT,
-    EXIST = EEXIST,
-    FAULT = EFAULT,
-    FBIG = EFBIG,
-    INTR = EINTR,
-    INVAL = EINVAL,
-    ISDIR = EISDIR,
-    LOOP = ELOOP,
-    MFILE = EMFILE,
-    NAMETOOLONG = ENAMETOOLONG,
-    NFILE = ENFILE,
-    NODEV = ENODEV,
-    NOENT = ENOENT,
-    NOMEM = ENOMEM,
-    NOSPC = ENOSPC,
-    NOTDIR = ENOTDIR,
-    NXIO = ENXIO,
-    OPNOTSUPP = EOPNOTSUPP,
-    OVERFLOW = EOVERFLOW,
-    PERM = EPERM,
-    ROFS = EROFS,
-    TXTBSY = ETXTBSY,
-    WOULDBLOCK = EWOULDBLOCK,
-};
+    static constexpr T invriant = T{-1};
 
-enum STAT_ERROR : uint8_t {
-    NONE = 0,
-    BADF = EBADF,
-    IO = EIO,
-    OVERFLOW = EOVERFLOW,
-};
+private:
+    T _data = invriant;
 
-template <typename Data = std::string>
-struct FailErrorHandler {
-    Data data;
+    [[nodiscard]] static constexpr T from_errno (const Error e) {
+        return -static_cast<T>(e) + invriant;
+    }
+
+    [[nodiscard]] static constexpr T from_errno (const int e) {
+        return -static_cast<T>(e) + invriant;
+    }
+
+    [[nodiscard]] static constexpr T make_data (T result) {
+        if (result >= 0) {
+            return result;
+        }
+        return from_errno(errno);
+    }
+
+public:
+    consteval simple_operation_result() = default;
+
+    constexpr explicit simple_operation_result(const T result)
+        : _data(result) {}
+
+    [[nodiscard]] constexpr bool operator==(const simple_operation_result& other) const {
+        return _data == other._data;
+    }
+
+    [[nodiscard]] constexpr bool has_error() const {
+        return _data < invriant;
+    }
+
+    [[nodiscard]] constexpr bool has_value() const {
+        return _data > invriant;
+    }
+
+    [[nodiscard]] constexpr bool has_invariant() const {
+        return _data == invriant;
+    }
+
+    [[nodiscard]] constexpr Error error() const {
+        assert(has_error());
+        return gsl::narrow_cast<Error>(-_data + invriant);
+    }
+
+    [[nodiscard]] constexpr const T& value() const {
+        assert(has_value());
+        return _data;
+    }
+
+    [[nodiscard]] constexpr unsigned_t uvalue() const {
+        static_assert(invriant + 1 >= 0);
+        return gsl::narrow_cast<unsigned_t>(value());
+    }
+
+    constexpr void clear() {
+        _data = invriant;
+    }
 };
 
 namespace _detail {
+    template<OPEN_FLAGS flag>
+    struct IsRWFlag {
+        static constexpr bool value =
+            flag == OPEN_FLAGS::RDONLY ||
+            flag == OPEN_FLAGS::WRONLY ||
+            flag == OPEN_FLAGS::RDWR;
+    };
+
     template <bool is_callable, typename Func, typename... Args>
     constexpr bool returns_void_with = false;
     template <typename Func, typename... Args>
@@ -172,9 +187,12 @@ namespace _detail {
 
     template <typename Value, typename Error>
     struct to_expected {
+
+        using result_t = std::expected<Value, Error>;
+
         template <typename T>
-        [[nodiscard]] auto operator()(T&& t) const {
-            return std::expected<Value, Error>{std::forward<T>(t)};
+        [[nodiscard]] result_t operator()(T&& t) const {
+            return result_t{std::unexpect_t{}, std::forward<T>(t)};
         }
     };
 
@@ -196,10 +214,10 @@ namespace _detail {
     }
 
     template <estd::discouraged_annotation>
-    [[nodiscard]] CLOSE_ERROR direct_close (const int fd) {
+    [[nodiscard]] sys::CLOSE_ERROR direct_close (const int fd) {
         const int close_result = ::close(fd);
-        if (close_result == 0) return CLOSE_ERROR::NONE;
-        return static_cast<CLOSE_ERROR>(errno);
+        if (close_result == 0) return sys::CLOSE_ERROR::NONE;
+        return static_cast<sys::CLOSE_ERROR>(errno);
     }
 }
 
@@ -210,6 +228,10 @@ private:
     int _fd = empty_fd;
 
     constexpr explicit File(const int fd) : _fd(fd) {}
+
+    constexpr void reset () {
+        _fd = empty_fd;
+    }
 
 public:
     template <typename InvalidHandler = estd::empty, typename ValidHandler = estd::empty, OPEN_FLAGS... flags, PERMISSION_MODE... permission_modes>
@@ -232,17 +254,13 @@ public:
             std::perror("[File::open] failed.");
             std::exit(1);
         } else {
-            if constexpr (_detail::returns_void_with<true, InvalidHandler, OPEN_ERROR, const std::string&>) {
-                std::forward<InvalidHandler>(on_invalid)(static_cast<OPEN_ERROR>(errno), path);
+            if constexpr (_detail::returns_void_with<true, InvalidHandler, sys::OPEN_ERROR, const std::string&>) {
+                std::forward<InvalidHandler>(on_invalid)(static_cast<sys::OPEN_ERROR>(errno), path);
                 std::exit(1);
             } else {
-                return std::forward<InvalidHandler>(on_invalid)(static_cast<OPEN_ERROR>(errno), path);
+                return std::forward<InvalidHandler>(on_invalid)(static_cast<sys::OPEN_ERROR>(errno), path);
             }
         }
-    }
-
-    constexpr void reset () {
-        _fd = empty_fd;
     }
 
     [[nodiscard]] constexpr bool has_fd () const {
@@ -258,10 +276,10 @@ public:
     }
 
     [[nodiscard]] constexpr File& operator= (this File& self, File&& other) {
-        if (&self == &other) return self;
+        if (self._fd == other._fd) return self;
 
-        const CLOSE_ERROR close_error = _detail::direct_close<estd::discouraged>(self._fd);
-        if (close_error != CLOSE_ERROR::NONE) {
+        const sys::CLOSE_ERROR close_error = _detail::direct_close<estd::discouraged>(self._fd);
+        if (close_error != sys::CLOSE_ERROR::NONE) {
             std::perror("[File.operator=] failed to close file.");
         }
 
@@ -271,25 +289,26 @@ public:
         return self;      
     }
 
-    [[nodiscard]] constexpr CLOSE_ERROR close () {
-        if (!has_fd()) return CLOSE_ERROR::NONE;
-        const CLOSE_ERROR result = _detail::direct_close<estd::discouraged>(_fd);
+    [[nodiscard]] constexpr sys::CLOSE_ERROR close () {
+        if (!has_fd()) return sys::CLOSE_ERROR::NONE;
+        const sys::CLOSE_ERROR result = _detail::direct_close<estd::discouraged>(_fd);
         reset();
         return result;
     }
     
     constexpr ~File () {
-        const CLOSE_ERROR close_error = close();
-        if (close_error == CLOSE_ERROR::NONE) return;
+        const sys::CLOSE_ERROR close_error = close();
+        if (close_error == sys::CLOSE_ERROR::NONE) return;
         std::perror("[File.~File] failed to close file.");
     }
 
-    [[nodiscard]] ssize_t write (const void* const buf, size_t nbytes) const {
-        return ::write(_fd, buf, nbytes);
+    [[nodiscard]] simple_operation_result<ssize_t, unsigned int> write (const void* const buf, size_t nbytes) const {
+        return simple_operation_result<ssize_t, unsigned int>{::write(_fd, buf, nbytes)};
     }
+        
 
-    [[nodiscard]] ssize_t read (void* const buf, size_t nbytes) const {
-        return ::read(_fd, buf, nbytes);
+    [[nodiscard]] simple_operation_result<ssize_t, unsigned int> read (void* const buf, size_t nbytes) const {
+        return simple_operation_result<ssize_t, unsigned int>{::read(_fd, buf, nbytes)};
     }
 
     template <
@@ -332,7 +351,7 @@ public:
                 
             }
         } else {
-            return std::expected<Data, Error>{static_cast<Error>(errno)};
+            return std::expected<Data, Error>{std::unexpect_t{}, static_cast<Error>(errno)};
         }
         
     }
@@ -353,71 +372,27 @@ public:
                 return result == 0;
             }
         };
-        return handled_operation<StatOperation, struct ::stat, STAT_ERROR>(
+        return handled_operation<StatOperation, struct ::stat, sys::STAT_ERROR>(
             std::forward<ErrorHandler>(error_handler),
             std::forward<SuccessHandler>(success_handler),
             _fd
         );
     }
-
-    /* template <
-        typename ErrorHandler = estd::empty,
-        typename SuccessHandler = estd::empty
-    >
-    [[nodiscard]] auto stat (
-        ErrorHandler&& error_handler = {},
-        SuccessHandler&& success_handler = {}) const {
-        constexpr bool custom_error_handler = !std::is_same_v<estd::empty, ErrorHandler>;
-        constexpr bool custom_success_handler = !std::is_same_v<estd::empty, SuccessHandler>;
-        constexpr bool noexit_on_error =
-            _detail::returns_void_with<custom_error_handler, ErrorHandler, STAT_ERROR>;
-
-        struct ::stat stat{};
-        if (::fstat(_fd, &stat)  == 0) {
-            if constexpr (custom_success_handler) {
-                return std::forward<SuccessHandler>(success_handler)(std::move(stat));
-            } else {
-                if constexpr (noexit_on_error) {
-                    return stat;
-                } else {
-                    return std::expected<struct ::stat, STAT_ERROR>{stat};
-                }
-            }
-        }
-        if constexpr (custom_error_handler) {
-            if constexpr (noexit_on_error) {
-                std::forward<ErrorHandler>(error_handler)(static_cast<STAT_ERROR>(errno));
-                std::exit(1);
-            } else {
-                return std::forward<ErrorHandler>(error_handler)(static_cast<STAT_ERROR>(errno));
-                
-            }
-        } else {
-            return std::expected<struct ::stat, STAT_ERROR>{static_cast<STAT_ERROR>(errno)};
-        }
-        
-    } */
 };
 
-namespace _detail {
-    [[nodiscard]] static constexpr int errno_to_data (const OPEN_ERROR e) {
-        return -static_cast<int>(e) - 1;
-    }
-
-    [[nodiscard]] static constexpr OPEN_ERROR data_to_errno (const int data) {
-        return gsl::narrow_cast<OPEN_ERROR>(-data - 1);
-    }
-}
-
 struct UncheckedFile {
+    using result_t = simple_operation_result<int, sys::OPEN_ERROR>;
 private:
-    static constexpr int empty_fd = _detail::errno_to_data(OPEN_ERROR::NONE);
+    static_assert(result_t::invriant < 0, "Empty file descriptor must not be valid file descriptor");
 
-    static_assert(empty_fd < 0, "Empty file descriptor must not be valid file descriptor");
+    result_t _result;
 
-    int _data = empty_fd;
 
-    constexpr explicit UncheckedFile(const int data) : _data(data) {}
+    constexpr void reset () {
+        _result.clear();
+    }
+
+    constexpr explicit UncheckedFile(const result_t result) : _result(result) {}
 public:
     consteval UncheckedFile() = default;
 
@@ -425,21 +400,21 @@ public:
 
     UncheckedFile& operator=(const UncheckedFile&) = delete;
 
-    constexpr UncheckedFile(UncheckedFile&& other) : _data(other._data) {
+    constexpr UncheckedFile(UncheckedFile&& other) : _result(other._result) {
         other.reset();
     }
 
     [[nodiscard]] constexpr UncheckedFile& operator= (this UncheckedFile& self, UncheckedFile&& other) {
-        if (&self == &other) return self;
+        if (self._result == other._result) return self;
 
         if (self.has_fd()) {
-            const CLOSE_ERROR close_error = _detail::direct_close<estd::discouraged>(self._fd());
-            if (close_error != CLOSE_ERROR::NONE) {
+            const sys::CLOSE_ERROR close_error = _detail::direct_close<estd::discouraged>(self._fd());
+            if (close_error != sys::CLOSE_ERROR::NONE) {
                 std::perror("[UncheckedFile.operator=] failed to close file.");
             }
         }
 
-        self._data = other._data;
+        self._result = other._result;
         other.reset();
         
         return self;      
@@ -451,42 +426,37 @@ public:
         estd::variadic_v<flags...> /*unused*/ = {},
         estd::variadic_v<permission_modes...> /*unused*/ = {}
     ) {
-        const int result = _detail::open_direct<estd::discouraged, flags..., permission_modes...>(path);
-        if (result >= 0) return UncheckedFile{result};
-        return UncheckedFile{_detail::errno_to_data(static_cast<OPEN_ERROR>(errno))};
-    }
-
-    constexpr void reset () {
-        _data = empty_fd;
+        return UncheckedFile{result_t{
+            _detail::open_direct<estd::discouraged, flags..., permission_modes...>(path)}};
     }
 
     [[nodiscard]] constexpr const int& _fd () const {
-        return _data;
+        return _result.value();
     }
 
     [[nodiscard]] constexpr bool has_fd () const {
-        return _data >= 0;
+        return _result.has_value();
     }
 
     [[nodiscard]] constexpr bool has_error () const {
-        return _data < empty_fd;
+        return _result.has_error();
     }
 
-    [[nodiscard]] constexpr OPEN_ERROR get_error () const {
-        if (!has_error()) return OPEN_ERROR::NONE;
-        return gsl::narrow_cast<OPEN_ERROR>(_data);
+    [[nodiscard]] constexpr sys::OPEN_ERROR get_error () const {
+        if (!has_error()) return sys::OPEN_ERROR::NONE;
+        return _result.error();
     }
 
-    [[nodiscard]] constexpr CLOSE_ERROR close () {
-        if (!has_fd()) return CLOSE_ERROR::NONE;
-        const CLOSE_ERROR result = _detail::direct_close<estd::discouraged>(_fd());
+    [[nodiscard]] constexpr sys::CLOSE_ERROR close () {
+        if (!has_fd()) return sys::CLOSE_ERROR::NONE;
+        const sys::CLOSE_ERROR result = _detail::direct_close<estd::discouraged>(_fd());
         reset();
         return result;
     }
 
     constexpr ~UncheckedFile () {
-        const CLOSE_ERROR close_error = close();
-        if (close_error == CLOSE_ERROR::NONE) return;
+        const sys::CLOSE_ERROR close_error = close();
+        if (close_error == sys::CLOSE_ERROR::NONE) return;
         std::perror("[UncheckedFile.~UncheckedFile] failed to close file.");
     }
 
