@@ -32,7 +32,7 @@
 #include "./code_generation_static_data.hpp"
 #include "./layout/generation/generate.hpp"
 #include "./estd/empty.hpp"
-#include "./fs.hpp"
+#include "./sys/fs.hpp"
 
 namespace decode_code {
 
@@ -1402,8 +1402,8 @@ inline void generate (
             console.info(AlignMembersBase<int, SIZE::SIZE_8, SIZE::SIZE_2>{1, 2, 3});
             #define DO_WRITE_OUTPUT 1
             #if DO_WRITE_OUTPUT
-            auto write_result = output_file.write(code_done.data(), code_done.size());
-            if (write_result == -1) {
+            const auto write_result = output_file.write(code_done.data(), code_done.size());
+            if (write_result.has_error()) {
                 std::perror("write failed");
                 std::exit(1);
             }
