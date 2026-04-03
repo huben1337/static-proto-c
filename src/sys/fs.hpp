@@ -484,11 +484,7 @@ static_assert(!UncheckedFile{}.has_error(), "Empty unchecked file must not have 
 
 
 inline char* realpath (const std::string& path, char* resolved_path) {
-    #if IS_MINGW
-    const char* const res = _fullpath(resolved_path, path.data(), PATH_MAX);
-    #else
-    char* res = ::realpath(path.data(), resolved_path);
-    #endif
+    char* const res = ::realpath(path.data(), resolved_path);
     if (res == nullptr) {
         console.error("could not get real path for: ", path, " ERRNO: ", errno);
         std::exit(1);

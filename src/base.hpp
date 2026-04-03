@@ -1,7 +1,5 @@
 #pragma once
 
-#define INLINE inline
-
 #define static_warn(msg)                                                                        \
 {                                                                                               \
     struct Warning {                                                                            \
@@ -9,10 +7,3 @@
     };                                                                                          \
     Warning::warn();                                                                            \
 }
-
-
-#if defined(__MINGW32__) || defined(__MINGW64__)
-#define IS_MINGW 1
-#else
-#define IS_MINGW 0
-#endif

@@ -8,18 +8,6 @@
 #include "../global.hpp"
 #include "../util/logger.hpp"
 
-#if IS_MINGW
-
-#include <cstdio>
-#include <cstlib>
-
-#else
-
-#include <linux/limits.h>
-
-#endif
-
-
 #define UNEXPECTED_INPUT(msg) show_syntax_error(msg, YYCURSOR);
 
 namespace lexer {

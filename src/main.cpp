@@ -13,10 +13,6 @@
 #include "estd/utility.hpp"
 #include "parser/lexer_types.hpp"
 
-#if IS_MINGW
-#include <cstdlib>
-#include <cstdarg>
-#endif
 
 #include "./global.hpp"
 #include "./sys/errno.hpp"
@@ -24,11 +20,6 @@
 #include "./container/memory.hpp"
 #include "./parser/lexer.re2c.hpp"
 #include "./decode_code.hpp"
-
-// #include "./subset_sum_solving/test.dp_bitset_base.hpp"
-// #include "./subset_sum_solving/bench.dp_bitset_base.ones_up_to.hpp"
-// #include "./subset_sum_solving/bench.dp_bitset_base.apply_num_unsafe.hpp"
-
 
 int main (const int argc, const char* const* const argv) {
     console.debug("spc");
