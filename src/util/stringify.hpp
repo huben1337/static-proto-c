@@ -150,14 +150,13 @@ namespace stringify {
 
 
     template <size_t N, size_t... Indices>
-    constexpr char* _write_sl (char* dst, const StringLiteral<N>& value, std::index_sequence<Indices...> /*unused*/) {
+    constexpr void _write_sl (char* dst, const StringLiteral<N>& value, std::index_sequence<Indices...> /*unused*/) {
         ((dst[Indices] = value.data[Indices]), ...);
-        return dst;
     }
     template <size_t N>
     constexpr char* write_string (char* dst, const StringLiteral<N>& value) {
         _write_sl(dst, value, std::make_index_sequence<N>{});
-        return dst + N - 1;
+        return dst + N;
     }
     template <size_t N>
     constexpr char* _write_string (char* dst, const StringLiteral<N>& value, const Buffer& /*unused*/) {
@@ -166,7 +165,7 @@ namespace stringify {
 
     template <size_t N>
     constexpr size_t get_str_size (const StringLiteral<N>& /*unused*/) {
-        return N - 1;
+        return N;
     }
 
 

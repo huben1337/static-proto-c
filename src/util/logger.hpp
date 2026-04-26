@@ -371,7 +371,7 @@ private:
     }
     template <bool is_first, bool is_last, size_t N>
     [[gnu::always_inline]] void write (const StringLiteral<N>& value) {
-        return write_string_view<is_first, is_last>(static_cast<const char*>(value.data), N - 1);
+        return write_string_view<is_first, is_last>(static_cast<const char*>(value.data), N);
     }
     template <bool is_first, bool is_last, typename T>
     requires (!trivially_loggable<std::remove_cvref_t<T>>)

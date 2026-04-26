@@ -59,7 +59,7 @@ private:
 
     template <size_t M>
     [[nodiscard]] static consteval char* copy_str (const StringLiteral<M>& str, char* const pos) {
-        return std::copy_n(str.data, M - 1, pos);
+        return std::copy_n(str.data, M, pos);
     }
 
     template <size_t M>
