@@ -19,222 +19,72 @@
 #include "../fast_math/log.hpp"
 #include "../estd/class_constraints.hpp"
 #include "../estd/type_traits.hpp"
+#include "./escape_sequences.hpp"
 
 #include <unistd.h>
 #include <poll.h>
 #include <fcntl.h>
 
+template <typename T>
+concept trivially_loggable =
+       std::is_same_v<std::string_view, T>
+    || std::is_constructible_v<std::string_view, T>
+    || std::is_integral_v<T>
+    || estd::is_char_array_v<T>
+    || is_string_literal_v<T>;
 
-namespace escape_sequences {
-    namespace colors {
-        namespace basic {
-            namespace foreground {
-                constexpr auto black    = "30"_sl;
-                constexpr auto red      = "31"_sl;
-                constexpr auto green    = "32"_sl;
-                constexpr auto yellow   = "33"_sl;
-                constexpr auto blue     = "34"_sl;
-                constexpr auto magenta  = "35"_sl;
-                constexpr auto cyan     = "36"_sl;
-                constexpr auto white    = "37"_sl;
-                constexpr auto _default = "39"_sl;
-            } // namespace foreground
-            namespace background {
-                constexpr auto black    = "40"_sl;
-                constexpr auto red      = "41"_sl;
-                constexpr auto green    = "42"_sl;
-                constexpr auto yellow   = "43"_sl;
-                constexpr auto blue     = "44"_sl;
-                constexpr auto magenta  = "45"_sl;
-                constexpr auto cyan     = "46"_sl;
-                constexpr auto white    = "47"_sl;
-                constexpr auto _default = "49"_sl;
-            } // namespace background
-        } // namespace basic
 
-        namespace bright {
-            namespace foreground {
-                constexpr auto black   = "90"_sl;
-                constexpr auto red     = "91"_sl;
-                constexpr auto green   = "92"_sl;
-                constexpr auto yellow  = "93"_sl;
-                constexpr auto blue    = "94"_sl;
-                constexpr auto magenta = "95"_sl;
-                constexpr auto cyan    = "96"_sl;
-                constexpr auto white   = "97"_sl;
-            } // namespace foreground
-            namespace background {
-                constexpr auto black   = "100"_sl;
-                constexpr auto red     = "101"_sl;
-                constexpr auto green   = "102"_sl;
-                constexpr auto yellow  = "103"_sl;
-                constexpr auto blue    = "104"_sl;
-                constexpr auto magenta = "105"_sl;
-                constexpr auto cyan    = "106"_sl;
-                constexpr auto white   = "107"_sl;
-            } // namespace background
-        } // namespace bright
+class logger : estd::unique_only {
+public:
 
-        namespace _256 {
-            namespace {
-                template <StringLiteral code>
-                constexpr auto fgc = "38;5;"_sl + code;
+    /* Example implementation of loggable
+    ```template <typename writer_params>
+        void log (const logger::writer<writer_params>& lw) const```
+    */
+    template <typename ParamsT>
+    class writer {
+    public:
+        friend class ::logger;
 
-                template <StringLiteral code>
-                constexpr auto bgc = "48;5;"_sl + code;
+    private:
+        static constexpr bool outer_is_first = ParamsT::outer_is_first;
+        static constexpr bool outer_is_last = ParamsT::outer_is_last;
+        // NOLINTNEXTLINE(cppcoreguidelines-avoid-const-or-ref-data-members)
+        logger& target;
 
-                namespace _basic {
-                    constexpr auto black   = "0"_sl;
-                    constexpr auto red     = "1"_sl;
-                    constexpr auto green   = "2"_sl;
-                    constexpr auto yellow  = "3"_sl;
-                    constexpr auto blue    = "4"_sl;
-                    constexpr auto magenta = "5"_sl;
-                    constexpr auto cyan    = "6"_sl;
-                    constexpr auto white   = "7"_sl;
-                } // namespace _basic
+        [[gnu::always_inline]] constexpr explicit writer (logger& target) : target(target) {}
 
-                namespace _bright {
-                    constexpr auto black   = "8"_sl;
-                    constexpr auto red     = "9"_sl;
-                    constexpr auto green   = "10"_sl;
-                    constexpr auto yellow  = "11"_sl;
-                    constexpr auto blue    = "12"_sl;
-                    constexpr auto magenta = "13"_sl;
-                    constexpr auto cyan    = "14"_sl;
-                    constexpr auto white   = "15"_sl;
-                } // namespace _bright
+    public:
+        template <bool is_first, bool is_last, typename FirstT, typename... RestT>
+        [[gnu::always_inline]] void write (FirstT&& first, RestT&&... rest) const {
+            constexpr bool has_rest = sizeof...(RestT) > 0;
+            target.write<
+                outer_is_first && is_first,
+                outer_is_last && is_last && !has_rest
+            >(std::forward<FirstT>(first));
+            if constexpr (has_rest) {
+                write<false, is_last>(std::forward<RestT>(rest)...);
+            }
+        }
+    };
 
-                template <uint8_t v>
-                constexpr uint8_t closest_cube6 = v / ( 256.0 / ( 216.0 / 43.0 ) );
-
-                template <uint8_t r, uint8_t g, uint8_t b>
-                constexpr auto _cube6
-                = "2;"_sl + string_literal::from<closest_cube6<r>>
-                + ";"_sl + string_literal::from<closest_cube6<g>>()
-                + ";"_sl + string_literal::from<closest_cube6<b>>();
-
-                template <uint8_t v>
-                requires (v < 24)
-                constexpr auto _gray_scale = "2;"_sl + string_literal::from<232 + v>;
-            } // namespace
-
-            namespace foreground {
-                namespace basic {
-                    constexpr auto black   = fgc<_basic::black>;
-                    constexpr auto red     = fgc<_basic::red>;
-                    constexpr auto green   = fgc<_basic::green>;
-                    constexpr auto yellow  = fgc<_basic::yellow>;
-                    constexpr auto blue    = fgc<_basic::blue>;
-                    constexpr auto magenta = fgc<_basic::magenta>;
-                    constexpr auto cyan    = fgc<_basic::cyan>;
-                    constexpr auto white   = fgc<_basic::white>;
-                } // namespace basic
-
-                namespace bright {
-                    constexpr auto black   = fgc<_bright::black>;
-                    constexpr auto red     = fgc<_bright::red>;
-                    constexpr auto green   = fgc<_bright::green>;
-                    constexpr auto yellow  = fgc<_bright::yellow>;
-                    constexpr auto blue    = fgc<_bright::blue>;
-                    constexpr auto magenta = fgc<_bright::magenta>;
-                    constexpr auto cyan    = fgc<_bright::cyan>;
-                    constexpr auto white   = fgc<_bright::white>;
-                } // namespace bright
-
-                template <uint8_t r, uint8_t g, uint8_t b>
-                constexpr auto cube6 = fgc<_cube6<r, g, b>>;
-
-                template <uint8_t v>
-                constexpr auto gray_scale = fgc<_gray_scale<v>>;
-            } // namespace foreground
-
-            namespace background {
-                namespace basic {
-                    constexpr auto black   = bgc<_basic::black>;
-                    constexpr auto red     = bgc<_basic::red>;
-                    constexpr auto green   = bgc<_basic::green>;
-                    constexpr auto yellow  = bgc<_basic::yellow>;
-                    constexpr auto blue    = bgc<_basic::blue>;
-                    constexpr auto magenta = bgc<_basic::magenta>;
-                    constexpr auto cyan    = bgc<_basic::cyan>;
-                    constexpr auto white   = bgc<_basic::white>;
-                } // namespace basic
-
-                namespace bright {
-                    constexpr auto black   = bgc<_bright::black>;
-                    constexpr auto red     = bgc<_bright::red>;
-                    constexpr auto green   = bgc<_bright::green>;
-                    constexpr auto yellow  = bgc<_bright::yellow>;
-                    constexpr auto blue    = bgc<_bright::blue>;
-                    constexpr auto magenta = bgc<_bright::magenta>;
-                    constexpr auto cyan    = bgc<_bright::cyan>;
-                    constexpr auto white   = bgc<_bright::white>;
-                } // namespace bright
-
-                template <uint8_t r, uint8_t g, uint8_t b>
-                constexpr auto cube6 = bgc<_cube6<r, g, b>>;
-
-                template <uint8_t v>
-                constexpr auto gray_scale = bgc<_gray_scale<v>>;
-            } // namespace background
-        } // namespace _256
-    } // namespace colors
-} // namespace escape_sequences
-
-namespace logger_detail {
     template <bool outer_is_first_, bool outer_is_last_>
     struct writer_params {
         static constexpr bool outer_is_first = outer_is_first_;
         static constexpr bool outer_is_last = outer_is_last_;
     };
 
-    template <typename ParamsT>
-    class writer;
-}
-
-template <typename T> 
-concept trivially_loggable =
-       std::is_same_v<std::string_view, T>
-    || std::is_constructible_v<std::string_view, T> 
-    || std::is_integral_v<T>
-    || estd::is_char_array_v<T>
-    || is_string_literal_v<T>;
-
-template <typename T>
-concept custom_loggable = requires (T t) {
-    { t.log(std::declval<logger_detail::writer<logger_detail::writer_params<false, false>>>()) } -> std::same_as<void>;
-    { t.log(std::declval<logger_detail::writer<logger_detail::writer_params<false, true >>>()) } -> std::same_as<void>;
-    { t.log(std::declval<logger_detail::writer<logger_detail::writer_params<true , false>>>()) } -> std::same_as<void>;
-    { t.log(std::declval<logger_detail::writer<logger_detail::writer_params<true , true >>>()) } -> std::same_as<void>;
-};
-
-
-template <typename T>
-concept loggable = trivially_loggable<T> || custom_loggable<T>;
-
-class logger : estd::unique_only {
-public:
-    template <typename ParamsT>
-    friend class logger_detail::writer;
-    /* Example implementation of loggable
-    ```template <typename writer_params>
-        void log (const logger::writer<writer_params>& lw) const```
-    */
-    template <typename ParamsT>
-    using writer = logger_detail::writer<ParamsT>;
-
     static constexpr size_t buffer_size = 1 << 12;
     static constexpr size_t buffer_alignment = std::max(buffer_size, 4096UL);
 
-    template <StringLiteral name, StringLiteral color_code>
-    static constexpr auto log_level = "\033["_sl + color_code + "m["_sl + name + "]\033[0m "_sl;
+    template <StringLiteral name, StringLiteral style>
+    static constexpr auto log_level = string_literal::concat_v<style, "["_sl, name, "]"_sl, escape_sequences::mode::reset, " "_sl>;
 
-    static constexpr auto debug_prefix = log_level<"DEBUG", escape_sequences::colors::bright::foreground::yellow>;
-    static constexpr auto info_prefix = log_level<"INFO", escape_sequences::colors::bright::foreground::green>;
-    static constexpr auto error_prefix = log_level<"ERROR", escape_sequences::colors::bright::foreground::red>;
-    static constexpr auto warn_prefix = log_level<"WARN", escape_sequences::colors::bright::foreground::magenta>;
-    
+    static constexpr auto debug_prefix = log_level<"DEBUG", escape_sequences::style<escape_sequences::colors::foreground::yellow ::bright>::value>;
+    static constexpr auto info_prefix  = log_level<"INFO" , escape_sequences::style<escape_sequences::colors::foreground::green  ::bright>::value>;
+    static constexpr auto error_prefix = log_level<"ERROR", escape_sequences::style<escape_sequences::colors::foreground::red    ::bright>::value>;
+    static constexpr auto warn_prefix  = log_level<"WARN" , escape_sequences::style<escape_sequences::colors::foreground::magenta::bright>::value>;
+
 private:
     alignas(64) char _buffer_a[buffer_size] {};
     alignas(64) char _buffer_b[buffer_size] {};
@@ -265,8 +115,8 @@ public:
         .revents = 0
     }) {}
 
-    explicit logger (const char* const output_path) 
-    : logger{open_output_file(output_path)} {}
+    explicit logger (const char* const output_path)
+        : logger{open_output_file(output_path)} {}
 
 private:
     void _handled_write_stdout (const char* src, size_t left) {
@@ -326,7 +176,7 @@ private:
     }
 
     template <bool is_first, bool is_last>
-    requires (!is_first) 
+    requires (!is_first)
     void write_string_view (const char* begin, size_t length) {
         if (buffer_dst == buffer) {
             return write_string_view<true, is_last>(begin, length);
@@ -376,14 +226,14 @@ private:
     template <bool is_first, bool is_last, typename T>
     requires (!trivially_loggable<std::remove_cvref_t<T>>)
     [[gnu::always_inline]] void write (const T& loggable) {
-        loggable.log(writer<logger_detail::writer_params<is_first, is_last>>{*this});
+        loggable.log(writer<writer_params<is_first, is_last>>{*this});
     }
 
     template <bool is_first, bool is_last, char C>
     [[gnu::always_inline]] void write_char () {
         if constexpr (is_last) {
             if constexpr (is_first) {
-                constexpr char char_buffer[1] = {C};
+                constexpr char char_buffer[1] {C};
                 _handled_write_stdout(char_buffer, 1);
             } else {
                 *(buffer_dst++) = C;
@@ -577,35 +427,22 @@ public:
     }
 };
 
-namespace logger_detail {
-    template <typename ParamsT>
-    class writer {
-    public:
-        friend class ::logger;
-    private:
-        static constexpr bool outer_is_first = ParamsT::outer_is_first;
-        static constexpr bool outer_is_last = ParamsT::outer_is_last;
-        // NOLINTNEXTLINE(cppcoreguidelines-avoid-const-or-ref-data-members)
-        logger& target;
 
-        [[gnu::always_inline]] constexpr explicit writer (logger& target) : target(target) {}
 
-    public:
-        template <bool is_first, bool is_last, typename FirstT, typename... RestT>
-        [[gnu::always_inline]] void write (FirstT&& first, RestT&&... rest) const {
-            constexpr bool has_rest = sizeof...(RestT) > 0;
-            target.write<
-                outer_is_first && is_first,
-                outer_is_last && is_last && !has_rest
-            >(std::forward<FirstT>(first));
-            if constexpr (has_rest) {
-                write<false, is_last>(std::forward<RestT>(rest)...);
-            }
-        }
-    };
-}
 
-static logger console{"/dev/stdout"}; // TODO Static might cause probelms when switching to multiple TUs
+template <typename T>
+concept custom_loggable = requires (T t) {
+    { t.log(std::declval<logger::writer<logger::writer_params<false, false>>>()) } -> std::same_as<void>;
+    { t.log(std::declval<logger::writer<logger::writer_params<false, true >>>()) } -> std::same_as<void>;
+    { t.log(std::declval<logger::writer<logger::writer_params<true , false>>>()) } -> std::same_as<void>;
+    { t.log(std::declval<logger::writer<logger::writer_params<true , true >>>()) } -> std::same_as<void>;
+};
+
+
+template <typename T>
+concept loggable = trivially_loggable<T> || custom_loggable<T>;
+
+static logger console {"/dev/stdout"}; // TODO Static might cause probelms when switching to multiple TUs
 
 template <StringLiteral auto_msg, typename... ArgsT>
 [[noreturn, gnu::noinline, gnu::cold]] void bssert_fail (ArgsT&&... args) {
@@ -617,10 +454,10 @@ template <StringLiteral auto_msg, typename... ArgsT>
     __builtin_trap();
 }
 
-#define BSSERT(EXPR, ...)                                                                                   \
-/* NOLINTNEXTLINE(readability-simplify-boolean-expr) */                                                     \
-if (!(EXPR)) {                                                                                              \
-    bssert_fail<"Assertion `" #EXPR "` at " __FILE__ ":" BOOST_PP_STRINGIZE(__LINE__) " failed">(__VA_ARGS__); \
+#define BSSERT(EXPR, ...)                                                                                       \
+/* NOLINTNEXTLINE(readability-simplify-boolean-expr) */                                                         \
+if (!(EXPR)) {                                                                                                  \
+    bssert_fail<"Assertion `" #EXPR "` at " __FILE__ ":" BOOST_PP_STRINGIZE(__LINE__) " failed">(__VA_ARGS__);  \
 }
 
 template<StringLiteral auto_msg, StringLiteral op, typename T, typename U, typename... ArgsT>
@@ -630,7 +467,7 @@ template<StringLiteral auto_msg, StringLiteral op, typename T, typename U, typen
         console.log<true, true>(std::forward<T>(lhs), op);
     } else {
         static constexpr auto lhs_type_name = string_literal::from_([](){ return nameof::nameof_type<T>(); });
-        console.log<true, true, lhs_type_name + "{?}"_sl + op>();
+        console.log<true, true, string_literal::concat_v<lhs_type_name, "{?}"_sl, op>>();
     }
     if constexpr (loggable<std::remove_cvref_t<U>>) {
         if constexpr (sizeof...(ArgsT) > 0) {
