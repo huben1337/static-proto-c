@@ -103,7 +103,7 @@ struct SizeTypeStrs {
 private:
 
     template <SIZE size>
-    static constexpr StringLiteral size_type_str_v = "uint"_sl + string_literal::from<size.byte_size() * 8> + "_t"_sl;
+    static constexpr StringLiteral size_type_str_v = string_literal::concat_v<"uint"_sl, size.byte_size() * 8, "_t"_sl>;
 
     template <SIZE... sizes>
     struct size_type_strs_size {
@@ -115,7 +115,7 @@ private:
     char data[SIZE::enums::template apply<size_type_strs_size>::value];
     std::string_view views[types_count];
 
-    // NOLINTNEXTLINE(cppcoreguidelines-pro-type-member-init). consteval dissallows uninitialized objects, so we use this to garuantee that our string wrting works
+    // NOLINTNEXTLINE(cppcoreguidelines-pro-type-member-init)
     consteval SizeTypeStrs () {
         char* data_pos = data;
         SIZE::enums::foreach([&, this]<SIZE size>() {
@@ -428,10 +428,10 @@ template <StringLiteral type_name, char target>
 constexpr bool is_last_non_whitespace = is_last_non_whitespace_<type_name, target>();
 
 template <StringLiteral type_name, StringLiteral postfix, bool is_pointer>
-constexpr auto first_return_line_part_ = "return *reinterpret_cast<"_sl + type_name + "*>(base"_sl + postfix;
+constexpr auto first_return_line_part_ = string_literal::concat_v<"return *reinterpret_cast<"_sl, type_name, "*>(base"_sl, postfix>;
 
 template <StringLiteral type_name, StringLiteral postfix>
-constexpr auto first_return_line_part_<type_name, postfix, true> = "return reinterpret_cast<"_sl + type_name + ">(base"_sl + postfix;
+constexpr auto first_return_line_part_<type_name, postfix, true> = string_literal::concat_v<"return reinterpret_cast<"_sl, type_name, ">(base"_sl, postfix>;
 
 template <StringLiteral type_name, StringLiteral postfix = " + ">
 constexpr auto first_return_line_part = first_return_line_part_<type_name, postfix, is_last_non_whitespace<type_name, '*'>>;
@@ -475,11 +475,11 @@ template <bool is_array_element, StringLiteral type_name, SIZE type_size, bool i
             constexpr auto type_size_str = string_literal::from<type_size.byte_size()>;
             if (offset == 0) {
                 return std::move(get_method)
-                .line(first_return_line_part<type_name, "">, IdxCalcCodeGenerator<false, is_array_element>{offsets_accessor.pack_infos, pack_info_idx, array_depth}, " * "_sl + type_size_str + ");"_sl)
+                .line(first_return_line_part<type_name, "">, IdxCalcCodeGenerator<false, is_array_element>{offsets_accessor.pack_infos, pack_info_idx, array_depth}, string_literal::concat_v<" * "_sl, type_size_str, ");"_sl>)
                 .end();
             } else {
                 return std::move(get_method)
-                .line(first_return_line_part<type_name>, offset, IdxCalcCodeGenerator<false, is_array_element>{offsets_accessor.pack_infos, pack_info_idx, array_depth}, " * "_sl + type_size_str + ");"_sl)
+                .line(first_return_line_part<type_name>, offset, IdxCalcCodeGenerator<false, is_array_element>{offsets_accessor.pack_infos, pack_info_idx, array_depth}, string_literal::concat_v<" * "_sl, type_size_str, ");"_sl>)
                 .end();
             }
         }
@@ -572,11 +572,11 @@ template <bool is_array_element, StringLiteral type_name, SIZE type_size, bool i
             constexpr auto type_size_str = string_literal::from<type_size.byte_size()>;
             if (size_chain.empty()) {
                 return std::move(get_method)
-                .line(first_return_line_part<type_name>, var_leafs_start, IdxCalcCodeGenerator<false, is_array_element>{offsets_accessor.pack_infos, pack_info_idx, array_depth}, " * "_sl + type_size_str + ");"_sl)
+                .line(first_return_line_part<type_name>, var_leafs_start, IdxCalcCodeGenerator<false, is_array_element>{offsets_accessor.pack_infos, pack_info_idx, array_depth}, string_literal::concat_v<" * "_sl, type_size_str, ");"_sl>)
                 .end();
             } else {
                 return std::move(get_method)
-                .line(first_return_line_part<type_name>, var_leafs_start, SizeChainCodeGenerator{offsets_accessor.var_offset_buffer, size_chain}, IdxCalcCodeGenerator<false, is_array_element>{offsets_accessor.pack_infos, pack_info_idx, array_depth}, " * "_sl + type_size_str + ");"_sl)
+                .line(first_return_line_part<type_name>, var_leafs_start, SizeChainCodeGenerator{offsets_accessor.var_offset_buffer, size_chain}, IdxCalcCodeGenerator<false, is_array_element>{offsets_accessor.pack_infos, pack_info_idx, array_depth}, string_literal::concat_v<" * "_sl, type_size_str, ");"_sl>)
                 .end();
             }
         }

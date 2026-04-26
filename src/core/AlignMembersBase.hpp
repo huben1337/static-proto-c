@@ -92,11 +92,11 @@ private:
     template <typename writer_params, SIZE first, SIZE... rest>
     void log_ (const logger::writer<writer_params> w, estd::variadic_v<first, rest...> /*unused*/) const {
         if constexpr (sizeof...(rest) > 0) {
-            w.template write<true, false>(outside_name + "{align"_sl + string_literal::from<first.byte_size()> + ": "_sl, get<first>());
-            (w.template write<false, false>(", align"_sl + string_literal::from<rest.byte_size()> + ": "_sl , get<rest>()), ...);
+            w.template write<true, false>(string_literal::concat_v<outside_name, "{align"_sl, string_literal::from<first.byte_size()>, ": "_sl>, get<first>());
+            (w.template write<false, false>(string_literal::concat_v<", align"_sl, string_literal::from<rest.byte_size()>, ": "_sl>, get<rest>()), ...);
             w.template write<false, true>("}");
         } else {
-            w.template write<true, true>(outside_name + "{align"_sl + string_literal::from<first.byte_size()> + ": "_sl, get<first>(), "}");
+            w.template write<true, true>(string_literal::concat_v<outside_name, "{align"_sl, string_literal::from<first.byte_size()>, ": "_sl>, get<first>(), "}");
         }
     }
 

@@ -184,6 +184,7 @@ template <SIZE alignment, bool has_pre_selected>
                             CSSERT(fields.template get<v>().idxs.size(), ==, 0);
                             // enqueueing_for_level<alignment>(field_consumer, fields.template get<v>().idxs);
                         }, fields);
+                        
                         CSSERT(fields.template get<alignment.next_smaller()>().idxs.size(), ==, 0);
                         return apply_solution<next_alignment, has_pre_selected>(
                             chain_idx,
@@ -271,7 +272,10 @@ template <SIZE alignment, bool has_pre_selected>
 ) {
     const uint64_t required_space = meta.required_spaces.get<alignment>();
     
-    BSSERT(layout_space >= required_space, "The layout doesn't fulfill space requirements for "_sl + string_literal::from<alignment.byte_size()> + " byte aligned section of Variant "_sl, layout_space, " >= ", required_space);
+    BSSERT(
+        layout_space >= required_space,
+        string_literal::concat_v<"The layout doesn't fulfill space requirements for "_sl, string_literal::from<alignment.byte_size()>, " byte aligned section of Variant "_sl>, layout_space, " >= ", required_space
+    );
 
     console.debug(
         "meta.used_space: ", meta.used_space,
