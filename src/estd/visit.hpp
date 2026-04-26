@@ -97,7 +97,7 @@ namespace estd {
             idx_t idx = static_cast<idx_t>(-1);
             const bool matched = (
                 (variant_matches<Comparer, Mapper, Variants>(self)
-                    ? ((idx = estd::variadic_type_index_v<Variants, Variants...>), true)
+                    ? ((idx = estd::variadic_t_index<Variants>::template apply<Variants...>::value), true)
                     : false) ||
                 ...
             );

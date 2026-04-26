@@ -23,7 +23,7 @@ namespace estd {
 
     namespace _detail {
         template <typename To, typename From>
-        consteval void check_casting_const_correctness_ () {
+        consteval void check_casting_const_correctness () {
             if constexpr (std::is_const_v<std::remove_reference_t<From>>) {
                 static_assert(std::is_const_v<std::remove_reference_t<To>>, "Can't cast away const");
             }
@@ -33,7 +33,7 @@ namespace estd {
     template <typename To, typename From>
     [[nodiscard, gnu::always_inline]] constexpr To* ptr_cast (From* from) {
         static_assert(alignof(From) >= alignof(To), "Can't cast pointer to type of lower alignment");
-        _detail::check_casting_const_correctness_<To, From>();
+        _detail::check_casting_const_correctness<To, From>();
         return reinterpret_cast<To*>(from);
     }
 
@@ -43,7 +43,7 @@ namespace estd {
             "Siblings must be layout compatible");
         if constexpr (std::is_lvalue_reference_v<To>) {
             static_assert(std::is_lvalue_reference_v<From>, "Can not cast from rvalue to lvalue");
-            _detail::check_casting_const_correctness_<To, From>();
+            _detail::check_casting_const_correctness<To, From>();
         } else {
             if constexpr (!std::is_trivially_copyable_v<std::remove_reference_t<From>>) {
                 static_assert(!std::is_reference_v<From>,
@@ -74,16 +74,11 @@ namespace estd {
 
     template <typename... T>
     struct variadic_t {
-    private:
-        template <typename... U>
-        [[nodiscard]] variadic_t<T..., U...> static consteval append_variadic_ (variadic_t<U...> /*unused*/) { return {}; }
-    public:
-
-        template <typename Other>
-        using append_variadic = decltype(append_variadic_(Other{}));
-
         template <typename... U>
         using append = variadic_t<T..., U...>;
+
+        template <typename Other>
+        using append_variadic = Other::template apply<append>;
 
         template <template <typename> typename MappedType>
         using map = variadic_t<typename MappedType<T>::type...>;
@@ -102,7 +97,6 @@ namespace estd {
         }
     };
 
-
     template<typename... T>
     struct reverse_variadic_t;
 
@@ -119,6 +113,37 @@ namespace estd {
     template<typename... T>
     using reverse_variadic_t_t = reverse_variadic_t<T...>::type;
 
+    template <template <typename> typename Match>
+    struct variadic_t_where {
+    private:
+        template<typename Acc, typename...>
+        struct _apply;
+
+        template <bool, typename Acc, typename Current, typename... Rest>
+        struct conditionaly_append {
+            using type = _apply<Acc, Rest...>::type;
+        };
+
+        template <typename Current, typename Acc, typename... Rest>
+        struct conditionaly_append<true, Acc, Current, Rest...> {
+            using type = _apply<typename Acc::template append<Current>, Rest...>::type;
+        };
+
+        template<typename Acc>
+        struct _apply<Acc> {
+            using type = Acc;
+        };
+
+        template<typename Acc, typename First, typename... Rest>
+        struct _apply<Acc, First, Rest...> {
+            using type = conditionaly_append<Match<First>::value, Acc, First, Rest...>::type;
+        };
+        
+    public:
+    template<typename... T>
+        using apply = _apply<estd::variadic_t<>, T...>::type;
+    };
+
 
     template <auto... v>
     using transform_to_varidadic_t = variadic_t<constant<v>...>;
@@ -126,16 +151,11 @@ namespace estd {
 
     template <auto... v>
     struct variadic_v {
-    private:
-        template <auto... w>
-        [[nodiscard]] variadic_v<v..., w...> static consteval append_variadic_ (variadic_v<w...> /*unused*/) { return {}; }
-    public:
-
-        template <typename Other>
-        using append_variadic = decltype(append_variadic_(Other{}));
-
         template <auto... w>
         using append = variadic_v<v..., w...>;
+
+        template <typename Other>
+        using append_variadic = Other::template apply<append>;
 
         template <template <auto> typename MappedValue>
         using map = variadic_v<MappedValue<v>::value...>;
@@ -209,8 +229,6 @@ namespace estd {
         };
     };
 
-    constexpr bool awda = are_distinct_variadic_v<>::check<1, 1>::value;
-
     template <template <auto> typename Match>
     struct variadic_v_where {
     private:
@@ -236,29 +254,23 @@ namespace estd {
         struct _apply<Acc, first, rest...> {
             using type = conditionaly_append<Match<first>::value, Acc, first, rest...>::type;
         };
+
     public:
-    template<auto... v>
+        template<auto... v>
         using apply = _apply<estd::variadic_v<>, v...>::type;
     };
-
-    template<auto v>
-    struct IsA {
-        static constexpr bool value = v < 10;
-    };
-
-    using awdad = variadic_v_where<IsA>::apply<10, 3, 4, 9, 11>;
 
     template <typename... T>
     using transform_to_varidadic_v = variadic_v<T::value...>;
 
 
-    namespace {
+    namespace _detail {
         template<std::integral T, T N, T... seq>
         consteval variadic_v<N + seq ...> _make_integer_range (std::integer_sequence<T, seq...> /*unused*/) { return {}; }
-    }
+    } // namespace _detail
 
     template<typename T, T min, T max>
-    using make_integer_range = decltype(_make_integer_range<T, min>(std::make_integer_sequence<T, max - min>{}));
+    using make_integer_range = decltype(_detail::_make_integer_range<T, min>(std::make_integer_sequence<T, max - min>{}));
 
     template<size_t min, size_t max>
     using make_index_range = make_integer_range<size_t, min, max>;
@@ -269,32 +281,32 @@ namespace estd {
     template<size_t max>
     using make_index_sequence = make_integer_sequence<size_t, max>;
 
-    namespace {
-        template <size_t N, typename TargetT, typename FirstT, typename... RestT>
-        struct variadic_type_index_ : std::integral_constant<
-            size_t,
-            variadic_type_index_<N + 1, TargetT, RestT...>::value
-        > {};
 
-        template <size_t N, typename TargetT, typename FirstT, typename... RestT>
-        requires (std::is_same_v<TargetT, FirstT>)
-        struct variadic_type_index_<N, TargetT, FirstT, RestT...> : std::integral_constant<size_t, N> {};
-
-        template <size_t N, typename TargetT, typename FirstT>
-        struct variadic_type_index_<N, TargetT, FirstT> {
-            static_assert(false, "TargetT not found in variadic type pack");
+    template <typename Target>
+    struct variadic_t_index {
+    private:
+        template <size_t N, typename First, typename... Rest>
+        struct _apply {
+            static constexpr size_t value = _apply<N + 1, Rest...>::value;
         };
 
-        template <size_t N, typename TargetT, typename FirstT>
-        requires (std::is_same_v<TargetT, FirstT>)
-        struct variadic_type_index_<N, TargetT, FirstT> : std::integral_constant<size_t, N> {};
-    }
+        template <size_t N, typename... Rest>
+        struct _apply<N, Target, Rest...> {
+            static_assert((!std::is_same_v<Target, Rest> && ...), "Target found more than once");
 
-    template <typename TargetT, typename... PossibleT>
-    using variadic_type_index = variadic_type_index_<0, TargetT, PossibleT...>;
+            static constexpr size_t value = N;
+        };
 
-    template <typename TargetT, typename... PossibleT>
-    constexpr size_t variadic_type_index_v = variadic_type_index<TargetT, PossibleT...>::value;
+        template <size_t N, typename First>
+        struct _apply<N, First> {
+            static_assert(false, "Target not found in variadic type pack");
+        };
+        
+    public:
+        template<typename... Ts>
+        using apply = _apply<0, Ts...>; 
+    };
+
     
     struct discouraged_annotation {
     private:
