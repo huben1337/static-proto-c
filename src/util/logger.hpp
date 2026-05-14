@@ -78,12 +78,12 @@ public:
     static constexpr size_t buffer_alignment = std::max(buffer_size, 4096UL);
 
     template <StringLiteral name, StringLiteral style>
-    static constexpr auto log_level = string_literal::concat_v<style, "["_sl, name, "]"_sl, escape_sequences::mode::reset, " "_sl>;
+    static constexpr auto log_level = string_literal::concat_v<style, "["_sl, name, "]"_sl, escape_sequences::gr::reset, " "_sl>;
 
-    static constexpr auto debug_prefix = log_level<"DEBUG", escape_sequences::style<escape_sequences::colors::foreground::yellow ::bright>::value>;
-    static constexpr auto info_prefix  = log_level<"INFO" , escape_sequences::style<escape_sequences::colors::foreground::green  ::bright>::value>;
-    static constexpr auto error_prefix = log_level<"ERROR", escape_sequences::style<escape_sequences::colors::foreground::red    ::bright>::value>;
-    static constexpr auto warn_prefix  = log_level<"WARN" , escape_sequences::style<escape_sequences::colors::foreground::magenta::bright>::value>;
+    static constexpr auto debug_prefix = log_level<"DEBUG", escape_sequences::sgr<escape_sequences::colors::foreground::yellow ::bright>::value>;
+    static constexpr auto info_prefix  = log_level<"INFO" , escape_sequences::sgr<escape_sequences::colors::foreground::green  ::bright>::value>;
+    static constexpr auto error_prefix = log_level<"ERROR", escape_sequences::sgr<escape_sequences::colors::foreground::red    ::bright>::value>;
+    static constexpr auto warn_prefix  = log_level<"WARN" , escape_sequences::sgr<escape_sequences::colors::foreground::magenta::bright>::value>;
 
 private:
     alignas(64) char _buffer_a[buffer_size] {};
