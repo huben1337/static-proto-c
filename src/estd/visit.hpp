@@ -213,7 +213,7 @@ namespace estd {
         typename Mapper = IdentityMapper,
         typename... Variants,
         typename Visitor,
-        typename FallbackHandler,
+        typename FallbackHandler = UnreachableFallbackHandler,
         typename... Args
         >
     constexpr void visit (
