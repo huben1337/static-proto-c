@@ -152,6 +152,8 @@ template <std::unsigned_integral U, typename AllocatedT>
 struct Memory : MemoryBase<Memory<U, AllocatedT>, U> {
     using Base = MemoryBase<Memory<U, AllocatedT>, U>;
 
+    using backing_t = AllocatedT;
+
 protected:
     static constexpr U max_position = std::numeric_limits<U>::max();
     static constexpr uint8_t grow_factor = 2;
@@ -380,16 +382,8 @@ public:
 using Buffer = Memory<uint32_t, max_align_t>;
 using ReadOnlyBuffer = ReadOnlyMemory<uint32_t>;
 
-template <size_t SIZE>
-constexpr size_t MEMORY_INIT_STACK_MIN = SIZE < sizeof(max_align_t) ? sizeof(max_align_t) : SIZE;
-
-// NOLINTNEXTLINE(bugprone-macro-parentheses)
-#define MEMORY_INIT_STACK_ARGS(ALLOC_TYPE, SIZE) static_cast<ALLOC_TYPE*>(__builtin_alloca_with_align(SIZE, alignof(ALLOC_TYPE) * 8)), SIZE
-#define MEMORY_INIT_STACK(SIZE_TYPE, ALLOC_TYPE, SIZE) Memory<SIZE_TYPE, ALLOC_TYPE>::from_stack(MEMORY_INIT_STACK_ARGS(ALLOC_TYPE, SIZE))
-#define BUFFER_INIT_STACK(SIZE) Buffer::from_stack(MEMORY_INIT_STACK_ARGS(max_align_t, SIZE))
-
 template <typename ARRAY_TYPE, typename ELEMENT_TYPE, size_t LENGTH>
-constexpr size_t MEMORY_INIT_ARRAY_SIZE = ((LENGTH * sizeof(ELEMENT_TYPE))+ sizeof(ARRAY_TYPE) - 1) / sizeof(ARRAY_TYPE);
+constexpr size_t MEMORY_INIT_ARRAY_SIZE = ((LENGTH * sizeof(ELEMENT_TYPE)) + sizeof(ARRAY_TYPE) - 1) / sizeof(ARRAY_TYPE);
 
 template <typename ELEMENT_TYPE, size_t LENGTH>
-constexpr size_t BUFFER_INIT_ARRAY_SIZE = MEMORY_INIT_ARRAY_SIZE<max_align_t, ELEMENT_TYPE, LENGTH>;
+constexpr size_t BUFFER_INIT_ARRAY_SIZE = MEMORY_INIT_ARRAY_SIZE<Buffer::backing_t, ELEMENT_TYPE, LENGTH>;

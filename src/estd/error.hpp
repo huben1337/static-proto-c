@@ -14,7 +14,8 @@ namespace estd {
 
     using MsgBuf = Memory<size_t, char>;
     namespace _detail {
-        static MsgBuf error_buffer = MEMORY_INIT_STACK(size_t, char, 128);
+        static char initial_buffer [128];
+        static MsgBuf error_buffer = Memory<size_t, char>{initial_buffer};
     }
 
     template <bool use_exceptions, typename ...T>

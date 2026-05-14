@@ -6,7 +6,6 @@
 
 #pragma GCC diagnostic push
 #pragma GCC diagnostic ignored "-Wnrvo"
-#pragma GCC diagnostic ignored "-Wunsafe-buffer-usage"
 #include <nameof.hpp>
 #pragma GCC diagnostic pop
 
@@ -96,7 +95,9 @@ int main (const int argc, const char* const* const argv) {
     auto start_ts = std::chrono::high_resolution_clock::now();
 
     lexer::IdentifierMap identifier_map;
-    Buffer ast_buffer = BUFFER_INIT_STACK(4096);
+    
+    Buffer::backing_t initial_ast_buffer[BUFFER_INIT_ARRAY_SIZE<char, 4096>];
+    Buffer ast_buffer {initial_ast_buffer};
     const lexer::StructDefinition& target_struct = lexer::lex<false>(input_buffer, identifier_map, ast_buffer, {});
 
     decode_code::generate(target_struct, ReadOnlyBuffer{ast_buffer}, std::move(output_file));

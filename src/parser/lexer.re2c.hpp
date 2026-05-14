@@ -954,7 +954,9 @@ template <bool expect_fixed>
         auto created_variant_type = DynamicVariantType::create(buffer);
 
         using bufferd_type_meta_t = variant_type_meta_t<!expect_fixed>;
-        Buffer type_meta_buffer = BUFFER_INIT_STACK((BUFFER_INIT_ARRAY_SIZE<bufferd_type_meta_t, 8>));
+        
+        Buffer::backing_t initial_type_meta_buffer[BUFFER_INIT_ARRAY_SIZE<bufferd_type_meta_t, 8>];
+        Buffer type_meta_buffer {initial_type_meta_buffer};
 
         return lex_variant_types<false, expect_fixed, bufferd_type_meta_t>(
             YYCURSOR,

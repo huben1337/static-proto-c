@@ -371,7 +371,6 @@ template <StringLiteral element_name = string_literal::empty, typename F = estd:
 }
 
 
-template <typename T = estd::empty>
 [[nodiscard]] constexpr const std::string_view& get_name (const GenStructLeafArgs& additional_args) {
     return additional_args.name;
 }
@@ -380,12 +379,10 @@ template <typename T = estd::empty>
     return codegen::StringParts{"as_"_sl, additional_args.variant_id};
 }
 
-template <typename T = estd::empty>
 [[nodiscard]] constexpr auto get_name (const GenDynamicVariantLeafArgs& additional_args) {
     return get_variant_name(additional_args);
 }
 
-template <typename T = estd::empty>
 [[nodiscard]] constexpr auto get_name (const GenFixedVariantLeafArgs& additional_args) {
     return get_variant_name(additional_args);
 }
@@ -1253,7 +1250,8 @@ inline void generate (
     const fs::File output_file
 ) {
     const lexer::StructDefinitionData target_struct_data = target_struct.data;
-    Buffer code_buffer = BUFFER_INIT_STACK(1 << 14);
+    Buffer::backing_t initial_code_buffer[BUFFER_INIT_ARRAY_SIZE<char, 1 << 14>];
+    Buffer code_buffer {initial_code_buffer};
     const lexer::LeafCounts level_fixed_leafs = target_struct_data.level_fixed_leafs;
     const AlignCounts& var_leaf_counts = target_struct_data.var_leaf_counts.counts();
     const uint16_t level_fixed_variants = target_struct_data.level_fixed_variants;
@@ -1286,7 +1284,8 @@ inline void generate (
     ALLOCA_SAFE_SPAN(pack_infos, layout::ArrayPackInfo, target_struct_data.pack_count);
     // std::ranges::uninitialized_fill(pack_infos, ArrayPackInfo{0, static_cast<uint16_t>(-1)});
 
-    auto var_offset_buffer = BUFFER_INIT_STACK(sizeof(uint64_t) * 512);
+    Buffer::backing_t initial_var_offset_buffer[BUFFER_INIT_ARRAY_SIZE<uint64_t, 512>];
+    Buffer var_offset_buffer {initial_var_offset_buffer};
     uint64_t var_leafs_start = 0;
 
     const auto layout_start_ts = std::chrono::high_resolution_clock::now();
@@ -1328,7 +1327,7 @@ inline void generate (
     //     var_offsets,
     //     idx_map,
     //     pack_infos,
-    //     BUFFER_INIT_STACK(sizeof(uint64_t) * 512),
+    //     Buffer{initial_var_offset_buffer},
     //     level_fixed_leafs,
     //     var_leaf_counts,
     //     total_var_leafs,
