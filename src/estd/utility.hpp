@@ -60,12 +60,65 @@ namespace estd {
         static constexpr auto value = v;
     };
 
-    template <size_t N, typename... T>
-    using nth_t = std::_Nth_type<N, T...>::type;
+    #if defined(__has_builtin)
+    #  if __has_builtin(__type_pack_element)
+    #    define HAS_TYPE_PACK_ELEMENT 1
+    #  else
+    #    define HAS_TYPE_PACK_ELEMENT 0
+    #  endif
+    #else
+    #  define HAS_TYPE_PACK_ELEMENT 0
+    #endif
 
-    template <size_t N, auto... v>
-    constexpr auto nth_v = std::_Nth_type<N, constant<v>...>::type::value;
+    #if HAS_TYPE_PACK_ELEMENT
 
+    template <size_t N, typename... Ts>
+    using nth_t = __type_pack_element<N, Ts...>;
+
+    template <size_t N, auto... vs>
+    constexpr auto nth_v = __type_pack_element<N, constant<vs>...>::value;
+
+    #else
+
+    
+    namespace _detail::nth {
+        template<typename, size_t>
+        concept pre = true;
+
+        struct Placeholder {};
+
+        template <size_t>
+        using make_placeholder = Placeholder;
+
+        template<typename T>
+        struct TypeWrapper : Placeholder {
+            using type = T;
+        };
+
+        template<auto v>
+        struct ValueWrapper : Placeholder {
+            static constexpr auto value = v;
+        };
+
+        template<size_t... Indecies, typename Target>
+        Target get (
+            std::index_sequence<Indecies...> /*unused*/,
+            make_placeholder<Indecies>&&... /*unused*/,
+            Target&& /*unused*/,
+            auto&&... /*unused*/
+        ) {
+            static_assert(false);
+        }
+    }
+
+    template<size_t N, typename... Ts>
+    using nth_t = decltype(_detail::nth::get(std::make_index_sequence<N>{}, _detail::nth::TypeWrapper<Ts>{}...))::type;
+
+    template<size_t N, auto... vs>
+    constexpr auto nth_v = decltype(_detail::nth::get(std::make_index_sequence<N>{}, _detail::nth::ValueWrapper<vs>{}...))::value;
+
+    #endif
+    
     template <auto first, auto... rest>
     constexpr bool are_distinct_v = ((first != rest) && ...) && are_distinct_v<rest...>;
 
@@ -266,11 +319,13 @@ namespace estd {
 
     namespace _detail {
         template<std::integral T, T N, T... seq>
-        consteval variadic_v<N + seq ...> _make_integer_range (std::integer_sequence<T, seq...> /*unused*/) { return {}; }
+        consteval variadic_v<N + seq ...> make_integer_range(std::integer_sequence<T, seq...> /*unused*/) {
+            static_assert(false);
+        }
     } // namespace _detail
 
     template<typename T, T min, T max>
-    using make_integer_range = decltype(_detail::_make_integer_range<T, min>(std::make_integer_sequence<T, max - min>{}));
+    using make_integer_range = decltype(_detail::make_integer_range<T, min>(std::make_integer_sequence<T, max - min>{}));
 
     template<size_t min, size_t max>
     using make_index_range = make_integer_range<size_t, min, max>;

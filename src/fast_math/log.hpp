@@ -4,7 +4,6 @@
 #include <cstdint>
 #include <gsl/util>
 #include <limits>
-#include <type_traits>
 #include <concepts>
 
 #include "../helper/ce.hpp"
@@ -31,27 +30,13 @@ namespace fast_math {
 
             [[nodiscard]] constexpr T operator [] (const uint32_t i) const { return data[i]; }
         };
-
-        #define METHOD_log2(TYPE, CLZ, CLZ_ARG_TYPE)                                                            \
-        [[gnu::always_inline]] constexpr uint32_t _log2 (TYPE x) {                                              \
-            constexpr uint32_t max_bit = std::numeric_limits< std::make_unsigned_t<CLZ_ARG_TYPE> >::digits - 1; \
-            return max_bit - gsl::narrow_cast<uint32_t>(CLZ(x));                                                \
-        }
-
-
-        METHOD_log2(unsigned long long, __builtin_clzll, unsigned long long)
-        METHOD_log2(unsigned long,      __builtin_clzl , unsigned long     )
-        METHOD_log2(unsigned int,       __builtin_clz  , int               )
-        METHOD_log2(unsigned short,     __builtin_clz  , int               )
-        METHOD_log2(unsigned char,      __builtin_clz  , int               )
-
-        #undef METHOD_log2
     }
 
     template <size_t base, std::unsigned_integral T>
-    constexpr uint32_t log_unsafe (T value) {
-        static_assert(base <= std::numeric_limits<T>::max(), "max input smaller then base");
-        uint32_t log2 = _detail::_log2(value);
+    constexpr uint32_t log_unsafe (const T value) {
+        using limit_t = std::numeric_limits<T>;
+        static_assert(base <= limit_t::max(), "max input smaller then base");
+        const uint32_t log2 = limit_t::digits - 1 - gsl::narrow_cast<uint32_t>(std::countl_zero(value));
         if constexpr (base == 2) {
             return log2;
         } else if constexpr (ce::is_power_of_two<base>) {
@@ -66,7 +51,7 @@ namespace fast_math {
             constexpr size_t d = 1 << s;
             static_assert(d > std::numeric_limits<T>::digits - 1, "Error from compentsation ratio would be to big");
             constexpr uint32_t m = d / ce::log2f<ce::Double{base}>;
-            uint32_t estimate = (log2 * m) >> s;
+            const uint32_t estimate = (log2 * m) >> s;
             constexpr _detail::NextPowTable<T, base> next_pow_table;
             return estimate + (value >= next_pow_table[estimate]);
         }

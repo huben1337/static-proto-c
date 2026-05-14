@@ -1,11 +1,14 @@
 #pragma once
 
 #include <cassert>
+#include <concepts>
 #include <cstddef>
 #include <cstdint>
 #include <type_traits>
 #include <utility>
 #include "../../estd/utility.hpp"
+#include "../../estd/type_traits.hpp"
+#include "../../estd/concepts.hpp"
 #include "../../estd/empty.hpp"
 #include "./control_kind.hpp"
 
@@ -451,6 +454,27 @@ struct InvariantBasedFlowControlBase_ {
 template <typename From, typename... To>
 constexpr bool is_convertable_to_any_of_v = (std::is_convertible_v<From, To> || ...);
 
+
+template <typename, typename...>
+struct first_applicable_conversion_target;
+
+template <typename T, typename Target, typename... Rest>
+struct first_applicable_conversion_target<T, Target, Rest...> {
+    using type = first_applicable_conversion_target<T, Rest...>::type;
+};
+
+template <typename T>
+struct first_applicable_conversion_target<T> {
+    using type = void;
+};
+
+template <typename T, typename Target, typename... Rest>
+requires (estd::explicitly_convertible<T, Target>)
+struct first_applicable_conversion_target<T, Target, Rest...> {
+    using type = Target;
+};
+
+
 template <
     typename T,
     FlowControlFeatures features,
@@ -460,34 +484,53 @@ template <
 struct FlowControl;
 
 struct InvariantOnlyIdProivder_ {
-    template <typename, bool>
-    struct InvariantOnlyIdProivder {
-        static constexpr bool is_convertible_to_integral = false;
+    template <typename T>
+    struct make {
+        template<typename>
+        struct InvariantOnlyIdProivder;
+        
+        template <>
+        struct InvariantOnlyIdProivder<void> {
+            static constexpr bool has_id = false;
+        };
+
+        template<typename U>
+        requires (std::is_integral_v<std::remove_reference_t<U>>)
+        struct InvariantOnlyIdProivder<U> {
+            static constexpr bool has_id = true;
+
+            [[nodiscard]] constexpr U id (this const auto& self) {
+                return static_cast<U>(self._data);
+            }
+        };
+
+    
+        using type = InvariantOnlyIdProivder<
+            typename first_applicable_conversion_target<
+                T,
+                uint8_t,
+                int8_t,
+                uint16_t,
+                int16_t,
+                uint32_t,
+                int32_t,
+                uint64_t,
+                int64_t
+            >::type
+        >;
     };
 
-    template <typename T>
-    struct InvariantOnlyIdProivder<T, true> {
-        static constexpr bool is_convertible_to_integral = true;
+    template<std::integral T>
+    struct make<T> {
+        struct InvariantOnlyIdProivder {
+            static constexpr bool has_id = true;
 
-        [[nodiscard]] constexpr auto id (this const auto& self) {
-            if constexpr (std::is_integral_v<T>) {
-                return self._data;
-            } else {
-                if constexpr (std::is_convertible_v<T, int8_t> || std::is_convertible_v<T, uint8_t>) {
-                    return static_cast<uint8_t>(self._data);
-                } else if constexpr (std::is_convertible_v<T, int16_t> || std::is_convertible_v<T, uint16_t>) {
-                    return static_cast<uint16_t>(self._data);
-                } else if constexpr (std::is_convertible_v<T, int32_t> || std::is_convertible_v<T, uint32_t>) {
-                    return static_cast<uint32_t>(self._data);
-                } else if constexpr (std::is_convertible_v<T, int64_t> || std::is_convertible_v<T, uint64_t>) {
-                    return static_cast<uint64_t>(self._data);
-                } else if constexpr (std::is_convertible_v<T, __int128_t> || std::is_convertible_v<T, __uint128_t>) {
-                    return static_cast<__uint128_t>(self._data);
-                } else {
-                    static_assert(false);
-                }
+            [[nodiscard]] constexpr const T& id (this const auto& self) {
+                self._data;
             }
-        }
+        };
+
+        using type = InvariantOnlyIdProivder;
     };
 };
 
@@ -507,7 +550,7 @@ struct FlowControl<
     features,
     TAGGING_STRATEGY::INVARIANT_ONLY,
     invariants...
->, InvariantOnlyIdProivder_::InvariantOnlyIdProivder<T, is_convertable_to_any_of_v<T, uint8_t, int8_t, uint16_t, int16_t, uint32_t, int32_t, uint64_t, int64_t, __uint128_t, __int128_t>>  {
+>, InvariantOnlyIdProivder_::make<T>::type  {
     friend struct flow_control_constant_;
     friend struct InvariantBasedFlowControlBase_;
     friend struct ReturnFlowControlBase_;
@@ -532,28 +575,54 @@ public:
 };
 
 struct InvariantWithBoolIdProvider_ {
-    template <typename, bool>
-    struct InvariantWithBoolIdProvider {
-        static constexpr bool is_convertible_to_integral = false;
+    template <typename T>
+    struct make {
+        template<typename>
+        struct InvariantOnlyIdProivder;
+        
+        template <>
+        struct InvariantOnlyIdProivder<void> {
+            static constexpr bool has_id = false;
+        };
+
+        template<typename U>
+        requires (std::is_integral_v<std::remove_reference_t<U>>)
+        struct InvariantOnlyIdProivder<U> {
+        private:
+            using id_t = estd::fitting_uint_t<(size_t{1} << ((sizeof(U) * 8) + 1)) - 1>;
+        public:
+            static constexpr bool has_id = true;
+
+            [[nodiscard]] constexpr id_t id (this const auto& self) {
+                return (static_cast<id_t>(static_cast<U>(self._data)) << 1) | self.bool_tag;
+            }
+        };
+
+    
+        using type = InvariantOnlyIdProivder<
+            typename first_applicable_conversion_target<
+                T,
+                uint8_t,
+                int8_t,
+                uint16_t,
+                int16_t,
+                uint32_t,
+                int32_t
+            >::type
+        >;
     };
 
-    template <typename T>
-    struct InvariantWithBoolIdProvider<T, true> {
-        static constexpr bool is_convertible_to_integral = true;
+    template<std::integral T>
+    struct make<T> {
+        struct InvariantOnlyIdProivder {
+            static constexpr bool has_id = true;
 
-        [[nodiscard]] constexpr auto id (this const auto& self) {
-            if constexpr (std::is_convertible_v<T, int8_t> || std::is_convertible_v<T, uint8_t>) {
-                return (static_cast<uint16_t>(self._data)  << 1) | self.bool_tag;
-            } else if constexpr (std::is_convertible_v<T, int16_t> || std::is_convertible_v<T, uint16_t>) {
-                return (static_cast<uint32_t>(self._data)  << 1) | self.bool_tag;
-            } else if constexpr (std::is_convertible_v<T, int32_t> || std::is_convertible_v<T, uint32_t>) {
-                return (static_cast<uint64_t>(self._data)  << 1) | self.bool_tag;
-            } else if constexpr (std::is_convertible_v<T, int64_t> || std::is_convertible_v<T, uint64_t>) {
-                return (static_cast<__uint128_t>(self._data)  << 1) | self.bool_tag;
-            } else {
-                static_assert(false);
+            [[nodiscard]] constexpr const T& id (this const auto& self) {
+                self._data;
             }
-        }
+        };
+
+        using type = InvariantOnlyIdProivder;
     };
 };
 
@@ -573,7 +642,7 @@ struct FlowControl<
     features,
     TAGGING_STRATEGY::INVARIANT_WITH_BOOL,
     invariants...
->, InvariantWithBoolIdProvider_::InvariantWithBoolIdProvider<T, is_convertable_to_any_of_v<T, uint8_t, int8_t, uint16_t, int16_t, uint32_t, int32_t, uint64_t, int64_t>> {
+>, InvariantWithBoolIdProvider_::make<T>::type {
     friend struct flow_control_constant_;
     friend struct InvariantBasedFlowControlBase_;
     friend struct ReturnFlowControlBase_;
@@ -761,7 +830,7 @@ constexpr auto for_ (F&& lambda) {
             FlowControl::tagging_strategy == detail::TAGGING_STRATEGY::INVARIANT_ONLY
         || FlowControl::tagging_strategy == detail::TAGGING_STRATEGY::INVARIANT_WITH_BOOL
         ) {
-            if constexpr (FlowControl::is_convertible_to_integral) {
+            if constexpr (FlowControl::has_id) {
                 switch (flow_control.id()) {
                     case FlowControl::continue_().id():
                         if constexpr (prefer_folding) {
@@ -825,7 +894,7 @@ constexpr auto for_ (F&& lambda) {
             FlowControl::tagging_strategy == detail::TAGGING_STRATEGY::INVARIANT_ONLY
         || FlowControl::tagging_strategy == detail::TAGGING_STRATEGY::INVARIANT_WITH_BOOL
         ) {
-            if constexpr (FlowControl::is_convertible_to_integral) {
+            if constexpr (FlowControl::has_id) {
                 switch (flow_control.id()) {
                     case FlowControl::continue_().id():
                         if constexpr (prefer_folding) {
@@ -870,4 +939,22 @@ constexpr auto for_ (F&& lambda) {
     #undef FOLD_REST
 }
 
+struct A {
+    constexpr explicit operator int () const { return 0; }
+    int v () const { return 0; }
+};
+
+struct awdre : detail::InvariantOnlyIdProivder_::make<A>::type {
+    A _data;
+} ;
+constexpr awdre a {};
+
+
+constexpr auto c = estd::explicitly_convertible<A, const int&>;
+
+using awda = decltype(a.id());
+
+constexpr auto cawd = a.id();
+
+const int& wada = static_cast<const int&>(A{}.v());
 } // namespace flow_control

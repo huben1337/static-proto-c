@@ -451,7 +451,7 @@ template <StringLiteral auto_msg, typename... ArgsT>
     } else {
         console.error<false, auto_msg>();
     }
-    __builtin_trap();
+    std::abort();
 }
 
 #define BSSERT(EXPR, ...)                                                                                       \
@@ -483,7 +483,7 @@ template<StringLiteral auto_msg, StringLiteral op, typename T, typename U, typen
             console.log<true, false, rhs_type_name + "{?}`\n"_sl>();
         }
     }
-    __builtin_trap();
+    std::abort();
 }
 
 #define CSSERT(LHS, OP, RHS, ...)                                                                                                                                           \
