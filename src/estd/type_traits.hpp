@@ -3,6 +3,7 @@
 #include <cstddef>
 #include <cstdint>
 #include <type_traits>
+#include "concepts.hpp"
 
 
 namespace estd {
@@ -38,7 +39,14 @@ namespace estd {
     >;
 
     template <bool condition, typename T>
-    using conditional_const = std::conditional<condition, const T, T>;
+    struct conditional_const {
+        using type = T;
+    };
+
+    template <typename T>
+    struct conditional_const<true, T> {
+        using type = const T;
+    };
 
     template <bool condition, typename T>
     using conditional_const_t = conditional_const<condition, T>::type;
@@ -51,5 +59,13 @@ namespace estd {
 
     template <typename T>
     constexpr bool is_char_array_v = is_char_array<T>::value;
+
+    template <typename From, typename To>
+    struct is_explicitly_convertible {
+        static constexpr bool value = explicitly_convertible<From, To>;
+    };
+
+    template <typename From, typename To>
+    constexpr bool is_explicitly_convertible_v = explicitly_convertible<From, To>;
 }
 
