@@ -2,6 +2,7 @@
 
 #include <cstddef>
 #include <concepts>
+#include <cstdint>
 #include <type_traits>
 #include <utility>
 
@@ -21,38 +22,40 @@ namespace estd {
         return std::forward<U>(u);
     }
 
-    namespace _detail {
-        template <typename To, typename From>
-        consteval void check_casting_const_correctness () {
-            if constexpr (std::is_const_v<std::remove_reference_t<From>>) {
-                static_assert(std::is_const_v<std::remove_reference_t<To>>, "Can't cast away const");
-            }
-        }
-    }
-
     template <typename To, typename From>
     [[nodiscard, gnu::always_inline]] constexpr To* ptr_cast (From* from) {
         static_assert(alignof(From) >= alignof(To), "Can't cast pointer to type of lower alignment");
-        _detail::check_casting_const_correctness<To, From>();
+        static_assert(
+            !std::is_const_v<std::remove_reference_t<From>> ||
+            std::is_const_v<std::remove_reference_t<To>>
+            , "Can not cast away const.");
+
         return reinterpret_cast<To*>(from);
     }
 
-    template <typename To, typename From>
-    [[nodiscard, gnu::always_inline]] constexpr To sibling_cast (From&& from) {
-        static_assert(std::is_layout_compatible_v<std::remove_cvref_t<From>, std::remove_cvref_t<To>>,
-            "Siblings must be layout compatible");
-        if constexpr (std::is_lvalue_reference_v<To>) {
-            static_assert(std::is_lvalue_reference_v<From>, "Can not cast from rvalue to lvalue");
-            _detail::check_casting_const_correctness<To, From>();
+     template <typename From>
+    [[nodiscard, gnu::always_inline]] constexpr uintptr_t ptr_to_integral (From* from) {
+        return reinterpret_cast<uintptr_t>(from);
+    }
+
+    template <typename Base, typename To>
+    [[nodiscard, gnu::always_inline]] constexpr decltype(auto) down_cast (Base&& base) {
+        static_assert(std::is_base_of_v<std::remove_cvref_t<Base>, std::remove_cvref_t<To>>,
+            "Target type must extend base class to be eligable for down casting.");
+        static_assert(std::is_layout_compatible_v<std::remove_cvref_t<Base>, std::remove_cvref_t<To>>,
+            "Can not down cast to to type which has additional members.");
+
+        if constexpr (std::is_lvalue_reference_v<Base>) {
+            static_assert(!std::is_rvalue_reference_v<To>,
+                "Use std::move to cast from lvalue reference to rvalue reference");
+
+            return static_cast<std::remove_reference_t<To>&>(base);
         } else {
-            if constexpr (!std::is_trivially_copyable_v<std::remove_reference_t<From>>) {
-                static_assert(!std::is_reference_v<From>,
-                    "Do not use sibling_cast to cast from lvalue to rvalue use std::move instead");
-            }
-            static_assert(!std::is_const_v<From>, "Do not cast from const rvalues!");
-            static_assert(!std::is_const_v<To>, "Do not cast to const rvalues!");
+            static_assert(!std::is_lvalue_reference_v<To>,
+                "Can not return reference to local temporary.");
+
+            return static_cast<std::remove_reference_t<To>&&>(base);
         }
-        return reinterpret_cast<To>(from);
     }
 
     template <auto v>

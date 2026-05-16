@@ -26,7 +26,7 @@ namespace _detail {
 }
 template <typename T>
 [[nodiscard]] constexpr T& get_padded (auto* that) {
-    return _detail::get_padded<T>(reinterpret_cast<uintptr_t>(that));
+    return _detail::get_padded<T>(estd::ptr_to_integral<uintptr_t>(that));
 }
 
 template <typename T>
@@ -44,7 +44,7 @@ inline void create_padded (Buffer &buffer, T&& t) {
 template <typename T, typename Base>
 requires (alignof(Base) == 1)
 [[nodiscard]] constexpr T& get_extended (auto* that) {
-    return _detail::get_padded<T>(reinterpret_cast<uintptr_t>(that) + sizeof(Base));
+    return _detail::get_padded<T>(estd::ptr_to_integral<uintptr_t>(that) + sizeof(Base));
 }
 
 template <typename T, typename Base>

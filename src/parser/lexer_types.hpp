@@ -4,6 +4,7 @@
 #include <cstdint>
 #include <gsl/util>
 #include <limits>
+#include <memory>
 #include <span>
 #include <type_traits>
 #include <string_view>
@@ -408,7 +409,9 @@ struct VariantTypeBase {
     SIZE size_size;                         // Size of the size
 
     [[nodiscard]] const TypeMeta* type_metas () const {
-        return reinterpret_cast<const TypeMeta*>(estd::ptr_cast<const uint8_t>(this) + type_metas_offset);
+        return std::assume_aligned<alignof(TypeMeta)>(reinterpret_cast<const TypeMeta*>(
+            estd::ptr_cast<const uint8_t>(this) + type_metas_offset
+        ));
     }
 
     [[nodiscard]] const Type& first_variant() const {

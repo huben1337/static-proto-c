@@ -9,6 +9,7 @@
 #include <type_traits>
 #include <utility>
 #include <vector>
+#include <nameof.hpp>
 
 #include "../../core/AlignCounts.hpp"
 #include "../../parser/lexer_types.hpp"
@@ -23,7 +24,6 @@
 #include "./QueuedField.hpp"
 #include "./variant_layout/variant_layout.hpp"
 #include "./tvs.hpp"
-#include "nameof.hpp"
 
 
 namespace layout::generation {
@@ -40,19 +40,22 @@ namespace layout::generation {
     return create_positions(leaf_counts.counts(), offset);
 }
 
+template<typename State>
+struct TypeVisitorBase {
+    State state;
+};
+
 template <typename NextType, typename State, bool in_array, bool in_fixed_size>
-struct TypeVisitor {
+struct TypeVisitor : TypeVisitorBase<State> {
+    using Base = TypeVisitorBase<State>;
+    using Base::state;
     using next_type_t = NextType;
     using result_t = lexer::Type::VisitResult<next_type_t>;
     using state_t = State;
     
     constexpr explicit TypeVisitor (
         const State& state
-    ) :
-    state(state)
-    {}
-
-    State state;
+    ) : Base{state} {}
 
     [[nodiscard]] const ReadOnlyBuffer& get_ast_buffer () const { return state.const_state.shared().ast_buffer; }
 
@@ -307,7 +310,7 @@ struct TypeVisitor {
 
     template<typename NewNextType>
     [[nodiscard]] constexpr const TypeVisitor<NewNextType, State, in_array, in_fixed_size>& as_visitor_for(this const TypeVisitor& self) {
-        return estd::sibling_cast<const TypeVisitor<NewNextType, State, in_array, in_fixed_size>&>(self);
+        return estd::down_cast<const Base&, const TypeVisitor<NewNextType, State, in_array, in_fixed_size>&>(self);
     }
 };
 

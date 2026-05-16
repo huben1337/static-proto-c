@@ -82,17 +82,24 @@ struct CodeData {
     }
 
     template <typename T>
-    [[nodiscard, gnu::always_inline]] constexpr T& as () & {
+    [[nodiscard, gnu::always_inline]] constexpr const T& as (this const CodeData& self) {
         static_assert(std::is_base_of_v<CodeData, T>);
         static_assert(std::is_layout_compatible_v<CodeData, T>);
-        return reinterpret_cast<T&>(*this);
+        return static_cast<const T&>(self);
     }
 
     template <typename T>
-    [[nodiscard, gnu::always_inline]] constexpr T as () && {
+    [[nodiscard, gnu::always_inline]] constexpr T& as (this CodeData& self) {
         static_assert(std::is_base_of_v<CodeData, T>);
         static_assert(std::is_layout_compatible_v<CodeData, T>);
-        return std::move(reinterpret_cast<T&>(*this));
+        return static_cast<T&>(self);
+    }
+
+    template <typename T>
+    [[nodiscard, gnu::always_inline]] constexpr T&& as (this CodeData&& self) {
+        static_assert(std::is_base_of_v<CodeData, T>);
+        static_assert(std::is_layout_compatible_v<CodeData, T>);
+        return static_cast<T&&>(self);
     }
 };
 

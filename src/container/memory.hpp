@@ -103,6 +103,8 @@ struct MemoryBase : MemoryTypesBase<U> {
     using View = Base::template View<T>;
 
 private:
+    constexpr MemoryBase() = default;
+
     template <typename T>
     [[nodiscard]] constexpr T* _get_unaligned (this const Derived& self, const Index<T> index) {
         return reinterpret_cast<T*>(self.data() + index.value);
@@ -154,7 +156,7 @@ struct Memory : MemoryBase<Memory<U, AllocatedT>, U> {
 
     using backing_t = AllocatedT;
 
-protected:
+private:
     static constexpr U max_position = std::numeric_limits<U>::max();
     static constexpr uint8_t grow_factor = 2;
     static constexpr size_t alignment = std::max(alignof(max_align_t), alignof(AllocatedT));
@@ -372,7 +374,7 @@ private:
 public:
     constexpr explicit ReadOnlyMemory (uint8_t* data) : _data(data) {}
     template <typename AllocatedT>
-    constexpr explicit ReadOnlyMemory (const Memory<U, AllocatedT>& memory) : _data(reinterpret_cast<uint8_t*>(memory._data)) {}
+    constexpr explicit ReadOnlyMemory (const Memory<U, AllocatedT>& memory) : _data(estd::ptr_cast<uint8_t>(memory._data)) {}
 
     [[nodiscard]] constexpr uint8_t* const& data () const {
         return _data;
