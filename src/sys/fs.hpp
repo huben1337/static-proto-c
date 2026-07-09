@@ -12,7 +12,6 @@
 #include <string>
 #include <type_traits>
 #include <utility>
-#include <alloca.h>
 #include <sys/stat.h>
 #include <fcntl.h>
 #include <unistd.h>
@@ -493,8 +492,9 @@ inline char* realpath (const std::string& path, char* resolved_path) {
     return res;
 }
 
-inline std::string realpath (const std::string& path) {
-    return std::string{realpath(path, static_cast<char*>(alloca(PATH_MAX)))};
+static inline std::string realpath (const std::string& path) {
+    static char path_buffer[PATH_MAX];
+    return std::string{realpath(path, path_buffer)};
 }
 
 #ifdef O_NONBLOCK
