@@ -271,7 +271,14 @@ set_target_properties(spc
  CXX_VISIBILITY_PRESET hidden
 )
 
-target_link_libraries(spc PRIVATE nameof)
+target_include_directories(
+  spc
+  BEFORE
+  PRIVATE
+  ${CMAKE_SOURCE_DIR}/include/nameof/include
+)
+
+#target_link_libraries(spc PRIVATE nameof)
 
 ############ LOG INCLUDES ############
 get_target_property(LIB_INCLUDES spc INCLUDE_DIRECTORIES)

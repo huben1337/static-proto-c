@@ -4,11 +4,6 @@
 #include <string>
 #include <chrono>
 
-#pragma GCC diagnostic push
-#pragma GCC diagnostic ignored "-Wnrvo"
-#include <nameof.hpp>
-#pragma GCC diagnostic pop
-
 #include "estd/utility.hpp"
 #include "parser/lexer_types.hpp"
 

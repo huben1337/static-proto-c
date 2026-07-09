@@ -2,6 +2,7 @@
 
 #include <concepts>
 #include <type_traits>
+#include <nameof.hpp>
 
 #include "../estd/visit.hpp"
 #include "../util/string_literal.hpp"
