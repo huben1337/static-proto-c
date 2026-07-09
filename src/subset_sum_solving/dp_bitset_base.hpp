@@ -59,7 +59,7 @@ constexpr uint32_t WORD_LANE_COUNT = WORD_BYTES / LANE_BYTES;
 }
 
 [[nodiscard]] constexpr bool bit_at (word_t* words, num_t target) {
-    return (estd::ptr_cast<uint8_t>(words)[target / 8] & (uint8_t{1} << (target % 8))) != 0;
+    return (estd::trivial_ptr_cast<uint8_t>(words)[target / 8] & (uint8_t{1} << (target % 8))) != 0;
 }
 
 enum OnesStrategys : uint8_t {

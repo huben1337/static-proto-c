@@ -939,22 +939,4 @@ constexpr auto for_ (F&& lambda) {
     #undef FOLD_REST
 }
 
-struct A {
-    constexpr explicit operator int () const { return 0; }
-    int v () const { return 0; }
-};
-
-struct awdre : detail::InvariantOnlyIdProivder_::make<A>::type {
-    A _data;
-} ;
-constexpr awdre a {};
-
-
-constexpr auto c = estd::explicitly_convertible<A, const int&>;
-
-using awda = decltype(a.id());
-
-constexpr auto cawd = a.id();
-
-const int& wada = static_cast<const int&>(A{}.v());
 } // namespace flow_control

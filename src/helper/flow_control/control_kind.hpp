@@ -15,7 +15,6 @@ struct ControlKind_;
 #define CONTINUE() CONTINUE,
 #define BREAK() BREAK,
 #define RETURN() RETURN,
-#define GOTO() GOTO,
 
 template <bool has_none, bool has_continue, bool has_break, bool has_return>
 using fitting_underlying_t = std::conditional_t<
@@ -57,6 +56,5 @@ BOOST_PP_REPEAT(16, GENERATE_CONTROL_KIND, );
 #undef CONTINUE
 #undef BREAK
 #undef RETURN
-#undef GOTO
 
 }

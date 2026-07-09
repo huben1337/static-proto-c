@@ -1,8 +1,8 @@
 #pragma once
 
+#include <cassert>
 #include <concepts>
 #include <gsl/util>
-#include "../util/logger.hpp"
 
 namespace math {
 
@@ -15,7 +15,7 @@ namespace math {
  */
 template <std::unsigned_integral T, std::unsigned_integral U>
 [[nodiscard]] constexpr U mod1 (T a, U n) {
-    BSSERT(n != 0);
+    assert(n != 0);
     if (a == 0) return n;
     return gsl::narrow_cast<U>(((a - 1) % n) + 1);
 }

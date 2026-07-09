@@ -32,7 +32,7 @@ namespace fast_math {
     }
 
     template <size_t base, std::unsigned_integral ReturnT = uint64_t>
-    [[gnu::always_inline]] constexpr ReturnT pow (uint8_t n) {
+    [[nodiscard]] constexpr ReturnT pow (uint8_t n) {
         static_assert(base <= std::numeric_limits<ReturnT>::max(), "base exceedes return type capacity");
         constexpr _detail::PowTable<ReturnT, base> table;
         return table[n];
