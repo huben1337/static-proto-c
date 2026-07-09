@@ -12,29 +12,48 @@ namespace estd {
     /* conditional forward */
     template <bool condition, typename T, typename U>
     requires (condition)
-    [[gnu::always_inline]] constexpr T&& conditionally (T&& t, U&& /*unused*/) noexcept {
+    [[nodiscard, gnu::always_inline]] constexpr T&& conditionally (T&& t, U&& /*unused*/) noexcept {
         return std::forward<T>(t);
     }
 
     template <bool condition, typename T, typename U>
     requires (!condition)
-    [[gnu::always_inline]] constexpr U&& conditionally (T&& /*unused*/, U&& u) noexcept {
+    [[nodiscard, gnu::always_inline]] constexpr U&& conditionally (T&& /*unused*/, U&& u) noexcept {
         return std::forward<U>(u);
+    }
+
+    namespace _detail {
+        template <typename To, typename From>
+        consteval void assert_ptr_cast_criteria () {
+            static_assert(alignof(From) >= alignof(To), "Can't cast pointer to type of lower alignment");
+            static_assert(
+                !std::is_const_v<From> ||
+                std::is_const_v<To>,
+                "Can not cast away const.");
+        }
     }
 
     template <typename To, typename From>
     [[nodiscard, gnu::always_inline]] constexpr To* ptr_cast (From* from) {
-        static_assert(alignof(From) >= alignof(To), "Can't cast pointer to type of lower alignment");
-        static_assert(
-            !std::is_const_v<std::remove_reference_t<From>> ||
-            std::is_const_v<std::remove_reference_t<To>>
-            , "Can not cast away const.");
+        _detail::assert_ptr_cast_criteria<To, From>();
 
         return reinterpret_cast<To*>(from);
     }
 
-     template <typename From>
-    [[nodiscard, gnu::always_inline]] constexpr uintptr_t ptr_to_integral (From* from) {
+    template <typename To, typename From>
+    [[nodiscard, gnu::always_inline]] constexpr To* trivial_ptr_cast (From* from) {
+        _detail::assert_ptr_cast_criteria<To, From>();
+        
+        static_assert(
+            std::is_trivial_v<From> &&
+            std::is_trivial_v<To>, 
+            "trivial_ptr_cast may only cast between trivial types");
+
+        return reinterpret_cast<To*>(from);
+    }
+
+    template <typename From>
+    [[nodiscard, gnu::always_inline]] constexpr uintptr_t ptr_as_integral (From* from) {
         return reinterpret_cast<uintptr_t>(from);
     }
 
