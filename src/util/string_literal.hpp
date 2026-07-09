@@ -78,7 +78,7 @@ public:
 
     char data[N + 1];
 
-    [[nodiscard]] consteval size_t size () const { return N; }
+    [[nodiscard]] constexpr size_t size () const { return N; }
 
     template<std::unsigned_integral T>
     [[nodiscard]] consteval const char& operator [] (T index) const {

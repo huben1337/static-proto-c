@@ -1,18 +1,23 @@
 #pragma once
 
+#include <cassert>
 #include <cstddef>
 #include <cstdint>
 #include <cstring>
 #include <gsl/util>
+#include <limits>
+#include <string>
 #include <string_view>
 #include <tuple>
 #include <utility>
 #include <type_traits>
 #include <concepts>
 
+#include "../fast_math/log.hpp"
 #include "./string_literal.hpp"
-#include "../container/memory.hpp"
-#include "../estd/meta.hpp"
+#include "../estd/vector32.hpp"
+
+//TODO Add support for Generators which dont report size by allowing allocation as needed
 
 namespace stringify {
     template <StringLiteral seperator, typename ...T>
@@ -25,122 +30,25 @@ namespace stringify {
     template <StringLiteral seperator, typename... T>
     struct is_stringifyable_t<Stringifyable<seperator, T...>> : std::true_type {};
 
+    struct Dst;
+    struct Writer;
 
-    template <std::unsigned_integral SizeT>
-    struct GeneratorBase {
-        virtual SizeT get_size() const = 0;
-    };
-
-    template <typename GeneratorT>
-    concept GeneratorBaseType = requires (GeneratorT generator) {
-        { generator.get_size() } -> std::unsigned_integral;
-    };
-
-
-    template <std::unsigned_integral SizeT>
-    struct Generator : GeneratorBase<SizeT> {
-        virtual char* write(char*) const = 0;
-    };
-
-    template <typename GeneratorT>
-    concept GeneratorType = GeneratorBaseType<GeneratorT> && requires (GeneratorT generator, char* dst) {
-        { generator.write(dst) } -> std::same_as<char*>;
-    };
-
-    template <GeneratorType T>
-    constexpr char* write_string (char* dst, T&& generator) {
-        return generator.write(dst);
-    }
-    template <GeneratorType T>
-    constexpr char* _write_string (char* dst, T&& generator, const Buffer& /*unused*/) {
-        return write_string(dst, std::forward<T>(generator));
-    }
-
-    struct OverAllocatedGeneratorBase {
-        struct WriteResult {
-            char* dst;
-            Buffer::index_t over_allocation;
-        };
-    };
-
-    template <std::unsigned_integral SizeT>
-    struct OverAllocatedGenerator : GeneratorBase<SizeT>, OverAllocatedGeneratorBase {
-        virtual WriteResult write (char*) const = 0;
-    };
-
-    template <typename GeneratorT>
-    concept OverAllocatedGeneratorType = GeneratorBaseType<GeneratorT> && requires (GeneratorT generator, char* dst) {
-        { generator.write(dst) } -> std::same_as<OverAllocatedGeneratorBase::WriteResult>;
-    };
     template <typename T>
-    using is_over_allocatedd_generator = std::integral_constant<bool, OverAllocatedGeneratorType<T>>;
-
-    template <OverAllocatedGeneratorType T>
-    constexpr char* write_string (char* dst, T&& generator, Buffer& buffer) {
-        OverAllocatedGeneratorBase::WriteResult result = generator.write(dst);
-        buffer.go_back(result.over_allocation);
-        return result.dst;
-    }
-    template <OverAllocatedGeneratorType T>
-    constexpr char* _write_string (char* dst, T&& generator, Buffer& buffer) {
-        return write_string(dst, std::forward<T>(generator), buffer);
-    }
-
-
-    struct UnderAllocatedGeneratorBase {
-        struct Allocator {
-            private:
-            // NOLINTNEXTLINE(cppcoreguidelines-avoid-const-or-ref-data-members)
-            Buffer& buffer;
-
-            public:
-            explicit Allocator (Buffer& buffer) : buffer(buffer) {}
-
-            void allocate (Buffer::index_t size) const {
-                buffer.next_multi_byte<char>(size);
-            }
-        };
+    concept Generator = requires {
+        { std::declval<T>().get_size() } -> std::unsigned_integral;
+        { std::declval<T>().write(std::declval<Dst&&>()) } -> std::same_as<Dst&&>;
     };
 
-    template <std::unsigned_integral SizeT>
-    struct UnderAllocatedGenerator : GeneratorBase<SizeT> {
-        using Allocator = UnderAllocatedGeneratorBase::Allocator;
-        virtual char* write (char*, Allocator&&) const = 0;
+    template <typename T>
+    concept UnderAllocatedGenerator = requires {
+        { std::declval<T>().write(std::declval<Writer&&>()) } -> std::same_as<Writer&&>;
     };
 
-    template <typename GeneratorT>
-    concept UnderAllocatedGeneratorType = GeneratorBaseType<GeneratorT> && requires (GeneratorT generator, char* dst, UnderAllocatedGeneratorBase::Allocator&& allocator) {
-        { generator.write(dst, allocator) } -> std::same_as<char*>;
-    };
+    namespace detail {
 
-    template <UnderAllocatedGeneratorType T>
-    constexpr char* write_under_allocated_generator (char* dst, T&& generator, Buffer& buffer) {
-        return generator.write(dst, UnderAllocatedGeneratorBase::Allocator{buffer});
-    }
-    template <UnderAllocatedGeneratorType T>
-    constexpr char* _write_string (char* dst, T&& generator, Buffer& buffer) {
-        return write_under_allocated_generator(dst, std::forward<T>(generator), buffer);
-    }
-
-
-    template <GeneratorBaseType T>
+    template <Generator T>
     constexpr size_t get_str_size (T&& generator) {
-        return generator.get_size();
-    }
-
-
-    template <size_t N, size_t... Indices>
-    constexpr void _write_string_literal (char* dst, const char (&value)[N], std::index_sequence<Indices...> /*unused*/) {
-        ((dst[Indices] = value[Indices]), ...);
-    }
-    template <size_t N>
-    constexpr char* write_string (char* dst, const char (&value)[N]) {
-        _write_string_literal(dst, value, std::make_index_sequence<N>{});
-        return dst + N - 1;
-    }
-    template<size_t N>
-    constexpr char* _write_string (char* dst, const char (&value)[N], const Buffer& /*unused*/) {
-        return write_string(dst, value);
+        return std::forward<T>(generator).get_size();
     }
 
     template <size_t N>
@@ -148,39 +56,70 @@ namespace stringify {
         return N - 1;
     }
 
-
-    template <size_t N, size_t... Indices>
-    constexpr void _write_sl (char* dst, const StringLiteral<N>& value, std::index_sequence<Indices...> /*unused*/) {
-        ((dst[Indices] = value.data[Indices]), ...);
-    }
-    template <size_t N>
-    constexpr char* write_string (char* dst, const StringLiteral<N>& value) {
-        _write_sl(dst, value, std::make_index_sequence<N>{});
-        return dst + N;
-    }
-    template <size_t N>
-    constexpr char* _write_string (char* dst, const StringLiteral<N>& value, const Buffer& /*unused*/) {
-        return write_string(dst, value);
-    }
-
     template <size_t N>
     constexpr size_t get_str_size (const StringLiteral<N>& /*unused*/) {
         return N;
-    }
-
-
-    constexpr char* write_string (char* dst, const std::string_view& value) {
-        std::memcpy(dst, value.data(), value.size());
-        return dst + value.size();
-    }
-    constexpr char* _write_string (char* dst, const std::string_view& value, const Buffer& /*unused*/) {
-        return write_string(dst, value);
     }
 
     constexpr size_t get_str_size (const std::string_view& str) {
         return str.size();
     }
 
+    constexpr size_t get_str_size (const uint64_t value) {
+        if (value == 0) {
+            return 1;
+        } else {
+            return fast_math::log_unsafe<10>(value) + 1;
+        }
+    }
+
+    template <StringLiteral seperator, typename ...T, size_t... Indices>
+    requires (sizeof...(T) > 0)
+    constexpr size_t get_stringifyable_size (const Stringifyable<seperator, T...>& value, std::index_sequence<Indices...> /*unused*/) {
+        return (... + get_str_size(std::get<Indices>(value)));
+    };
+
+    template <StringLiteral seperator, typename ...T>
+    constexpr size_t get_str_size (const Stringifyable<seperator, T...>& value) {
+        if constexpr (sizeof...(T) == 0) {
+            return 0;
+        } else {
+            return get_stringifyable_size<seperator, T...>(value, std::make_index_sequence<sizeof...(T)>{}) + ((sizeof...(T) - 1) * seperator.size());
+        }
+    }
+
+    template <Generator T>
+    constexpr char* write_string (char* dst, T&& generator);
+
+    template <size_t N, size_t... Indices>
+    constexpr void write_char_array (char* dst, const char (&value)[N], std::index_sequence<Indices...> /*unused*/) {
+        ((dst[Indices] = value[Indices]), ...);
+    }
+
+    template <size_t N>
+    constexpr char* write_string (char* dst, const char (&value)[N]) {
+        // write_char_array(dst, value, std::make_index_sequence<N>{});
+        std::memcpy(dst, value, N - 1);
+        return dst + N - 1;
+    }
+
+    template <size_t N, size_t... Indices>
+    constexpr void write_string_literal (char* dst, const StringLiteral<N>& value, std::index_sequence<Indices...> /*unused*/) {
+        ((dst[Indices] = value.data[Indices]), ...);
+    }
+
+    template <size_t N>
+    constexpr char* write_string (char* dst, const StringLiteral<N>& value) {
+        // write_string_literal(dst, value, std::make_index_sequence<N>{});
+        std::memcpy(dst, value.data, N);
+        return dst + N;
+    }
+
+    constexpr char* write_string (char* dst, const std::string_view& value) {
+        // console.debug("Writing string_view{data=", estd::ptr_as_integral(value.data()), ", size=", value.size(), "}");
+        std::memcpy(dst, value.data(), value.size());
+        return dst + value.size();
+    }
 
     constexpr char* write_string (char* dst, uint64_t value) {
         if (value == 0) {
@@ -199,83 +138,158 @@ namespace stringify {
             return end;
         }
     }
-    constexpr char* _write_string (char* dst, uint64_t value, const Buffer& /*unused*/) {
-        return write_string(dst, value);
-    }
-
-    constexpr size_t get_str_size (uint64_t value) {
-        if (value == 0) {
-            return 1;
-        } else {
-            return fast_math::log_unsafe<10>(value) + 1;
-        }
-    }
 
     template <typename T>
-    struct _needs_buffer_arg : estd::is_any_of<is_over_allocatedd_generator>::type<T> {};
+    struct needs_allocator {
+        static constexpr bool value = false;
+    };
+
+    template <UnderAllocatedGenerator T>
+    struct needs_allocator<T> {
+        static constexpr bool value = true;
+    };
 
     template <typename... T, StringLiteral seperator>
-    struct _needs_buffer_arg<Stringifyable<seperator, T...>> : std::disjunction<_needs_buffer_arg<T>...> {};
+    struct needs_allocator<Stringifyable<seperator, T...>> {
+        static constexpr bool value = (needs_allocator<T>::value || ...);
+    };
+
+    template <typename T>
+    constexpr bool needs_allocator_v = needs_allocator<T>::value;
 
     template <typename... T>
-    struct needs_buffer_arg : std::disjunction<_needs_buffer_arg<T>...> {};
+    constexpr bool any_needs_allocator_v = (needs_allocator_v<T> || ...);
 
     template <StringLiteral seperator, typename ...T, size_t... Indices>
-    constexpr char* _write_stringifyable_with_seperator_with_buffer (char* dst, const Stringifyable<seperator, T...>& value, Buffer& buffer, std::index_sequence<Indices...> /*unused*/) {
-        ((dst = write_string(_write_string(dst, std::get<Indices>(value), buffer), seperator)), ...);
-        return dst;
-    };
-    template <StringLiteral seperator, typename ...T>
-    constexpr char* write_stringifyable_with_buffer (char* dst, const Stringifyable<seperator, T...>& value, Buffer& buffer) {
-        if constexpr (sizeof...(T) == 0) {
-            return dst;
-        } else {
-            dst = _write_stringifyable_with_seperator_with_buffer(dst, value, buffer, std::make_index_sequence<sizeof...(T) - 1>{});
-            return _write_string(dst, std::get<sizeof...(T) - 1>(value), buffer);
-        }
-    }
-    template <StringLiteral seperator, typename ...T>
-    requires (needs_buffer_arg<T...>::value) 
-    constexpr char* _write_string (char* dst, const Stringifyable<seperator, T...>& value, const Buffer& buffer) {
-        return write_stringifyable_with_buffer(dst, value, buffer);
-    }
-
-    template <StringLiteral seperator, typename ...T, size_t... Indices>
-    constexpr char* _write_stringifyable_with_seperator (char* dst, const Stringifyable<seperator, T...>& value, std::index_sequence<Indices...> /*unused*/) {
+    requires (sizeof...(T) > 1)
+    constexpr char* write_stringifyable_with_seperator (char* dst, const Stringifyable<seperator, T...>& value, std::index_sequence<Indices...> /*unused*/) {
         ((dst = write_string(write_string(dst, std::get<Indices>(value)), seperator)), ...);
         return dst;
     };
+
     template <StringLiteral seperator, typename ...T>
     constexpr char* write_stringifyable (char* dst, const Stringifyable<seperator, T...>& value) {
         if constexpr (sizeof...(T) == 0) {
             return dst;
         } else {
-            dst = _write_stringifyable_with_seperator(dst, value, std::make_index_sequence<sizeof...(T) - 1>{});
+            if constexpr (sizeof...(T) > 1) {
+                dst = write_stringifyable_with_seperator(dst, value, std::make_index_sequence<sizeof...(T) - 1>{});
+            }
+
             return write_string(dst, std::get<sizeof...(T) - 1>(value));
         }
     }
+
     template <StringLiteral seperator, typename ...T>
-    requires (!needs_buffer_arg<T...>::value)
+    requires (!any_needs_allocator_v<T...>)
     constexpr char* write_string (char* dst, const Stringifyable<seperator, T...>& value) {
         return write_stringifyable(dst, value);
     }
-    template <StringLiteral seperator, typename ...T>
-    requires (!needs_buffer_arg<T...>::value)
-    constexpr char* _write_string (char* dst, const Stringifyable<seperator, T...>& value, const Buffer& /*unused*/) {
-        return write_stringifyable(dst, value);
-    }
 
-    template <StringLiteral seperator, typename ...T, size_t... Indices>
-    constexpr size_t _get_stringifyable_size (const Stringifyable<seperator, T...>& value, std::index_sequence<Indices...> /*unused*/) {
-        if constexpr (sizeof...(T) == 0) {
-            return 0;
-        } else {
-            return (... + get_str_size(std::get<Indices>(value)));
+    } // namespace detail
+
+    struct Dst {
+
+    template <Generator T>
+    friend constexpr char* detail::write_string (char* dst, T&& generator);
+
+    private:
+        char* dst;
+
+    public:
+        constexpr explicit Dst(char* dst) : dst(dst) {}
+        
+        Dst(const Dst&) = delete;
+        Dst(Dst&&) = delete;
+
+        Dst& operator=(const Dst&) = delete;
+        Dst& operator=(Dst&&) = delete;
+
+        constexpr ~Dst() = default;
+
+        template<typename... Args>
+        constexpr void write(Args&&... args) {
+            ((dst = detail::write_string(dst, std::forward<Args>(args))), ...);
         }
+
+        constexpr void write_n(char c, size_t n) {
+            std::memset(dst, c, n);
+            dst += n;
+        }
+
+        /* template <Generator T>
+        constexpr void write (T&& generator) {
+            dst = generator.write(Dst{dst}).dst;
+        }
+
+        template <size_t N>
+        constexpr void write (const char (&value)[N]) {
+            std::memcpy(dst, value, N - 1);
+            dst = dst + N - 1;
+        }
+
+        template <size_t N>
+        constexpr void write (const StringLiteral<N>& value) {
+            std::memcpy(dst, value.data, N);
+            dst = dst + N;
+        }
+
+        constexpr void write (const std::string_view& value) {
+            std::memcpy(dst, value.data(), value.size());
+            dst = dst + value.size();
+        } */
     };
 
-    template <StringLiteral seperator, typename ...T>
-    constexpr size_t get_str_size (const Stringifyable<seperator, T...>& value) {
-        return _get_stringifyable_size(value, std::make_index_sequence<sizeof...(T)>{}) + ((sizeof...(T) - 1) * seperator.size());
+    template<typename... Args>
+    constexpr void write_into (estd::vector32<char>& buffer, Args&&... args) {
+        const size_t size = (... + detail::get_str_size(args));
+        constexpr size_t max_size = std::numeric_limits<uint32_t>::max();
+        if constexpr (max_size < std::numeric_limits<size_t>::max()) {
+            assert(size < max_size);
+        }
+
+        const uint32_t old_size = buffer.size();
+        buffer.resize(old_size + gsl::narrow_cast<uint32_t>(size));
+        
+        char* const begin = buffer.data() + old_size;
+        char* dst = begin;
+        ((dst = detail::write_string(dst, std::forward<Args>(args))), ...);
+        assert(dst >= begin);
+        if constexpr (detail::any_needs_allocator_v<std::remove_cvref_t<Args>...>) {
+            buffer.resize(gsl::narrow_cast<uint32_t>(dst - buffer.data()));
+        }
+    }
+
+    template<typename... Args>
+    constexpr void write_into (std::string& str, Args&&... args) {
+        const size_t size = (... + detail::get_str_size(args));
+        const size_t old_size = str.size();
+        str.resize(old_size + size);
+        char* const begin = str.data() + old_size;
+        char* dst = begin;
+        ((dst = detail::write_string(dst, std::forward<Args>(args))), ...);
+        assert(dst >= begin);
+        if constexpr (detail::any_needs_allocator_v<std::remove_cvref_t<Args>...>) {
+            str.resize(gsl::narrow_cast<size_t>(dst - str.data()));
+        }
+    }
+
+    template<typename... Args>
+    constexpr std::string write_to_string (Args&&... args) {
+        const size_t size = (... + detail::get_str_size(args));
+        std::string str (size, 0);
+        char* dst = str.data();
+        ((dst = detail::write_string(dst, std::forward<Args>(args))), ...);
+        assert(dst >= str.data());
+        assert(dst <= str.data() + str.size());
+        str.resize(gsl::narrow_cast<size_t>(dst - str.data()));
+        return str;
+    }
+
+    namespace detail {
+        template <Generator T>
+        constexpr char* write_string (char* dst, T&& generator) {
+            return generator.write(Dst{dst}).dst;
+        }
     }
 }
