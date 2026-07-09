@@ -48,7 +48,7 @@ ERROR_PATH_ATTRIBUTES void inline show_syntax_error (const std::string_view& msg
     }
     console.log<true, true>("\033[0m\n");
     console.flush();
-    exit(1);
+    std::exit(1);
 }
 
 ERROR_PATH_ATTRIBUTES void inline show_syntax_error (const std::string_view& msg, const char* const error, const char* const error_squiggle_end) {

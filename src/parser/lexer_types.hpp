@@ -1,6 +1,7 @@
 #pragma once
 
 #include <bit>
+#include <cstddef>
 #include <cstdint>
 #include <gsl/util>
 #include <limits>
@@ -146,44 +147,37 @@ struct EnumDefinition;
 struct IdentifiedDefinition {
     KEYWORDS keyword;
 
-    struct alignas(8) Data {
-        friend IdentifiedDefinition;
-        std::string_view name;
-
-    private:
-        [[nodiscard]] const StructDefinition& as_struct () const;
-        [[nodiscard]] const EnumDefinition& as_enum () const;
-    };
-
-    template <typename Derived, typename SpecificData, KEYWORDS keyword>
-    struct Base : Data {
+    template <typename Derived, KEYWORDS keyword>
+    struct Data {
         friend Derived;
+
+        std::string_view name;
         
-        SpecificData data;
     private:
-        constexpr Base() = default;
+        constexpr Data() = default;
 
     public:
-        [[nodiscard]] static CreateExtendedResult<Derived, IdentifiedDefinition> create(Buffer &buffer, const std::string_view name) {
-            const CreateExtendedResult<Derived, IdentifiedDefinition> created = create_extended<Derived, IdentifiedDefinition>(buffer);
-            buffer.get(created.base) = IdentifiedDefinition{keyword};
+        [[nodiscard]] static HeaderDataBufferIndexPair<IdentifiedDefinition, Derived> create(Buffer &buffer, const std::string_view name) {
+            const HeaderDataBufferIndexPair<IdentifiedDefinition, Derived> created = create_with_header<IdentifiedDefinition, Derived>(buffer);
+            buffer.get(created.header) = IdentifiedDefinition{keyword};
             buffer.get(created.extended).name = name;
             return created;
         }
     };
 
 private:
-    [[nodiscard]] const Data& data () const;
+    [[nodiscard]] const StructDefinition& as_struct () const;
+    [[nodiscard]] const EnumDefinition& as_enum () const;
 
 public:
     template <typename Visitor, typename... Args>
     [[nodiscard]] decltype(auto) visit (Visitor&& visitor, Args&&... args) const {
         if (keyword == KEYWORDS::STRUCT) {
-            const StructDefinition& struct_definition = data().as_struct();
+            const StructDefinition& struct_definition = as_struct();
             return std::forward<Visitor>(visitor).on_struct(struct_definition, std::forward<Args>(args)...);
         }
         if (keyword == KEYWORDS::ENUM) {
-            const EnumDefinition& enum_defintion = data().as_enum();
+            const EnumDefinition& enum_defintion = as_enum();
             return std::forward<Visitor>(visitor).on_enum(enum_defintion, std::forward<Args>(args)...);
         }
         std::unreachable();
@@ -223,23 +217,18 @@ private:
 
 public:
     template <typename NextTypeT, typename ValueT = void>
-    requires (!std::is_rvalue_reference_v<ValueT>)
     struct VisitResult {
-        static constexpr bool value_is_ref = std::is_lvalue_reference_v<ValueT>;
-
-        static_assert(
-            value_is_ref || !std::is_const_v<ValueT>,
-            "Non-reference members shouldn't be const"
-        );
+        static constexpr bool value_is_ref = std::is_reference_v<ValueT>;
 
         using cont_next_type_t = const NextTypeT;
         using value_t = ValueT;
 
-        constexpr VisitResult (cont_next_type_t& next_type, ValueT value) requires(value_is_ref)
-            : next_type(next_type), value(value) {
-            static_warn("Using reference type member");
-        }
+        constexpr VisitResult (cont_next_type_t& next_type, ValueT value) requires(std::is_lvalue_reference_v<ValueT>)
+            : next_type(next_type), value(value) {}
         
+        constexpr VisitResult (cont_next_type_t& next_type, ValueT value) requires(std::is_rvalue_reference_v<ValueT>)
+            : next_type(next_type), value(std::move(value)) {}
+
         constexpr VisitResult (cont_next_type_t& next_type, const ValueT& value) requires(!value_is_ref)
             : next_type(next_type), value(value) {}
 
@@ -263,25 +252,18 @@ public:
     template <typename VisitorT, typename... ArgsT>
     [[nodiscard]] std::remove_cvref_t<VisitorT>::result_t visit (VisitorT&& visitor, ArgsT&&... args) const;
 
-    template <typename Visitor, typename Buffer, typename... Args>
-    [[nodiscard]] decltype(auto) try_visit_identifier (Visitor&& visitor, Buffer&& buffer, Args&&... args) const;
+    template <typename Visitor, typename... Args>
+    [[nodiscard]] decltype(auto) try_visit_identifier (Visitor&& visitor, Args&&... args) const;
 
     template <typename T>
     [[nodiscard]] inline T& skip () const;
 };
 
-
-template <typename T>
-[[nodiscard, gnu::always_inline]] inline T& get_extended_type(auto* that) {
-    return get_extended<T, Type>(that);
-}
-
-
 struct FixedStringType {
     friend Type;
 
-    static void create (Buffer &buffer, uint32_t length) {
-        create_extended<Type, FixedStringType>(
+    [[nodiscard]] static Buffer::Index<Type> create (Buffer &buffer, uint32_t length) {
+        return create_with_header<Type, FixedStringType>(
             buffer,
             Type{FIELD_TYPE::STRING_FIXED},
             FixedStringType{
@@ -301,14 +283,14 @@ private:
     }
 };
 [[nodiscard]] inline const FixedStringType& Type::as_fixed_string () const {
-    return get_extended_type<const FixedStringType>(this);
+    return get_padded<const FixedStringType>(this + 1);
 }
 
 struct StringType {
     friend Type;
 
-    static void create (Buffer &buffer, uint32_t min_length, SIZE stored_size_size, SIZE size_size) {
-        create_extended<Type, StringType>(
+    [[nodiscard]] static Buffer::Index<Type> create (Buffer &buffer, uint32_t min_length, SIZE stored_size_size, SIZE size_size) {
+        return create_with_header<Type, StringType>(
             buffer,
             Type{STRING},
             StringType{
@@ -329,7 +311,7 @@ private:
     }
 };
 [[nodiscard]] inline const StringType& Type::as_string () const {
-    return get_extended_type<const StringType>(this);
+    return get_padded<const StringType>(this + 1);
 }
 
 
@@ -337,26 +319,24 @@ using IdentifedDefinitionIndex = Buffer::Index<const IdentifiedDefinition>;
 struct IdentifiedType {
     friend Type;
 
-    static void create (Buffer &buffer, IdentifedDefinitionIndex identifier_idx) {
-        create_extended<Type, IdentifiedType>(
-            buffer,
-            Type{IDENTIFIER},
-            IdentifiedType{identifier_idx}
-        );
+    [[nodiscard]] static Buffer::Index<Type> create (Buffer &buffer, IdentifedDefinitionIndex identifier_idx) {
+        auto created = create_with_header<Type, IdentifiedType>(buffer);
+        buffer.get(created.header) = Type{IDENTIFIER},
+        buffer.get(created.extended) = IdentifiedType{created.extended.value - identifier_idx.value};
+        return created.header;
     }
 
 private:
-    IdentifedDefinitionIndex identifier_idx;
+    Buffer::index_t identified_definition_offset; // Offset of the head of this to the head of the IdentifiedDefinition
 
-    constexpr explicit IdentifiedType(IdentifedDefinitionIndex idx) : identifier_idx(idx) {}
+    constexpr explicit IdentifiedType(Buffer::index_t identified_definition_offset)
+        : identified_definition_offset(identified_definition_offset) {}
 
 public:
-    [[nodiscard]] const IdentifiedDefinition& get(const ReadOnlyBuffer& buffer) const {
-        return buffer.get(identifier_idx);
-    }
-
-    [[nodiscard]] const IdentifiedDefinition& get(const Buffer& buffer) const {
-        return buffer.get(identifier_idx);
+    [[nodiscard]] const IdentifiedDefinition& get() const {
+        return *std::assume_aligned<alignof(IdentifiedDefinition)>(reinterpret_cast<const IdentifiedDefinition*>(
+            estd::ptr_cast<const std::byte>(this) - identified_definition_offset
+        ));
     }
 
 private:
@@ -366,13 +346,13 @@ private:
     }
 };
 [[nodiscard]] inline const IdentifiedType& Type::as_identifier () const {
-    return get_extended_type<const IdentifiedType>(this);
+    return get_padded<const IdentifiedType>(this + 1);
 }
 
 struct ArrayType {
 
-    [[nodiscard]] static auto create (Buffer &buffer) {
-        return create_extended<ArrayType, Type>(buffer);
+    [[nodiscard]] static HeaderDataBufferIndexPair<Type, ArrayType> create (Buffer &buffer) {
+        return create_with_header<Type, ArrayType>(buffer);
     }
 
     LeafCounts level_fixed_leafs;
@@ -387,7 +367,7 @@ struct ArrayType {
 
 };
 [[nodiscard]] inline ArrayType& Type::as_array () const {
-    return get_extended_type<ArrayType>(this);
+    return const_cast<ArrayType&>(get_padded<const ArrayType>(this + 1));
 }
 
 
@@ -396,12 +376,12 @@ template <typename TypeMeta>
 struct VariantTypeBase {
     friend Type;
     
-    [[nodiscard]] static auto create (Buffer &buffer) {
-        return create_extended<VariantTypeBase, Type, TypeMeta>(buffer);
+    [[nodiscard]] static HeaderDataBufferIndexPair<Type, VariantTypeBase> create (Buffer &buffer) {
+        return create_with_header<Type, VariantTypeBase>(buffer);
     }
 
     uint64_t min_byte_size;                 // Minimum byte size of the variant (used for size getter)
-    Buffer::index_t type_metas_offset;      // Offset from head of this to the head of type_metas
+    Buffer::index_t type_metas_offset;      // Offset from head of type_metas to the head of this
     uint16_t variant_count;                 // Count of variants
     uint16_t total_fixed_leafs;             // Count of nested and non-nested fixed sized leafs
     uint16_t total_var_leafs;               // Count of nested and non-nested variable sized leafs
@@ -410,7 +390,7 @@ struct VariantTypeBase {
 
     [[nodiscard]] const TypeMeta* type_metas () const {
         return std::assume_aligned<alignof(TypeMeta)>(reinterpret_cast<const TypeMeta*>(
-            estd::ptr_cast<const uint8_t>(this) + type_metas_offset
+            estd::ptr_cast<const std::byte>(this) + type_metas_offset
         ));
     }
 
@@ -442,35 +422,28 @@ struct DynamicVariantTypeMeta {
 };
 
 [[nodiscard]] inline FixedVariantType& Type::as_fixed_variant () const {
-    return get_extended_type<FixedVariantType>(this);
+    return const_cast<FixedVariantType&>(get_padded<const FixedVariantType>(this + 1));
 }
 
 [[nodiscard]] inline PackedVariantType& Type::as_packed_variant () const {
-    return get_extended_type<PackedVariantType>(this);
+    return const_cast<PackedVariantType&>(get_padded<const PackedVariantType>(this + 1));
 }
 
 [[nodiscard]] inline DynamicVariantType& Type::as_dynamic_variant () const {
-    return get_extended_type<DynamicVariantType>(this);
+    return const_cast<DynamicVariantType&>(get_padded<const DynamicVariantType>(this + 1));
 }
 
 
 struct StructField {
-    struct Data {
-        std::string_view name;
+    std::string_view name;
 
-        [[nodiscard]] const Type& type () const {
-            return *estd::ptr_cast<const Type>(this + 1);
-        }
-    };
-
-    static void create(Buffer &buffer, const Data data) {
-        // Since we can create a Data object any time the current buffer position might not be aligned, so we have to ensure alignment.
-        create_padded<const Data&>(buffer, data);
+    [[nodiscard]] const Type& type () const {
+        return *estd::ptr_cast<const Type>(this + 1);
     }
 
-    [[nodiscard]] const Data& data () const {
-        // The object of type Data can be found at its next natural alignment.
-        return get_padded<const Data>(this);
+    static void create(Buffer &buffer, const StructField& data) {
+        // Since we can create a StructField object any time the current buffer position might not be aligned, so we have to ensure alignment.
+        buffer.get_next<StructField>() = data;
     }
 };
 
@@ -533,25 +506,27 @@ struct StructDefinitionData {
     SIZE max_alignment;
 };
 
-struct StructDefinition : IdentifiedDefinition::Base<StructDefinition, StructDefinitionData, KEYWORDS::STRUCT> {
+struct StructDefinition : IdentifiedDefinition::Data<StructDefinition, KEYWORDS::STRUCT> {
+    StructDefinitionData data;
+
 private:
-    [[nodiscard]] const StructField* first_field() const {
-        return estd::ptr_cast<const StructField>(this + 1);
+    [[nodiscard]] const StructField& first_field() const {
+        return *estd::ptr_cast<const StructField>(this + 1);
     }
 public:
     template <typename VisitorT>
     void visit (VisitorT&& visitor) const {
-        const StructField* field = first_field();
-        for (uint16_t i = 0; i < data.field_count; i++) {
-            field = &visitor(field->data());
+        const std::byte* after_field = &visitor(first_field());
+        for (uint16_t i = 1; i < data.field_count; i++) {
+            after_field = &visitor(get_padded<const StructField>(after_field));
         }
     }
 
     template <typename VisitorT>
     void visit_uninitialized (VisitorT&& visitor, const uint16_t field_count) const {
-        const StructField* field = first_field();
-        for (uint16_t i = 0; i < field_count; i++) {
-            field = &visitor(field->data());
+        const std::byte* after_field = &visitor(first_field());
+        for (uint16_t i = 1; i < field_count; i++) {
+            after_field = &visitor(get_padded<const StructField>(after_field));
         }
     }
 };
@@ -561,10 +536,13 @@ struct EnumDefinitionData {
     SIZE type_size;
 };
 
-struct EnumDefinition : IdentifiedDefinition::Base<EnumDefinition, EnumDefinitionData, KEYWORDS::ENUM> {
+struct EnumDefinition : IdentifiedDefinition::Data<EnumDefinition, KEYWORDS::ENUM> {
+    EnumDefinitionData data;
+
     static void add_field (Buffer &buffer, const EnumField& field) {
         // We only create one EnumField after the other, so the alignment is always correct.
         static_assert(alignof(EnumDefinition) >= alignof(EnumField));
+        // TODO Evaluate if aligning done by Buffer.get_next should be skipped.
         buffer.get_next<EnumField>() = field;
     }
 
@@ -573,21 +551,12 @@ struct EnumDefinition : IdentifiedDefinition::Base<EnumDefinition, EnumDefinitio
     }
 };
 
-
-const IdentifiedDefinition::Data& IdentifiedDefinition::data () const {
-    // The object of type Data is created when classes, which are derived from Data, are created.
-    return get_extended<const Data, IdentifiedDefinition>(this);
+[[nodiscard]] inline const StructDefinition& IdentifiedDefinition::as_struct () const {
+    return get_padded<const StructDefinition>(this + 1);
 }
 
-[[nodiscard]] inline const StructDefinition& IdentifiedDefinition::Data::as_struct () const {
-    static_assert(alignof(IdentifiedDefinition::Data) >= alignof(StructDefinition));
-    static_assert(std::is_base_of_v<IdentifiedDefinition::Data, StructDefinition>);
-    return *static_cast<const StructDefinition*>(this);
-}
-[[nodiscard]] inline const EnumDefinition& IdentifiedDefinition::Data::as_enum () const {
-    static_assert(alignof(IdentifiedDefinition::Data) >= alignof(EnumDefinition));
-    static_assert(std::is_base_of_v<IdentifiedDefinition::Data, EnumDefinition>);
-    return *static_cast<const EnumDefinition*>(this);
+[[nodiscard]] inline const EnumDefinition& IdentifiedDefinition::as_enum () const {
+    return get_padded<const EnumDefinition>(this + 1);
 }
 
 using IdentifierMap = boost::unordered::unordered_flat_map<std::string_view, IdentifedDefinitionIndex>;
@@ -785,7 +754,7 @@ template <typename VisitorT, typename... ArgsT>
         }
         case FIELD_TYPE::IDENTIFIER: {
             const IdentifiedType& identifier_type = as_identifier();
-            const IdentifiedDefinition& identified = identifier_type.get(visitor.get_ast_buffer());
+            const IdentifiedDefinition& identified = identifier_type.get();
             if constexpr (no_value) {
                 identified.visit(std::forward<VisitorT>(visitor), std::forward<ArgsT>(args)...);
                 return result_t{identifier_type.after<const_next_type_t>()};
@@ -800,14 +769,14 @@ template <typename VisitorT, typename... ArgsT>
     }
 }
 
-template <typename Visitor, typename Buffer, typename... Args>
-[[nodiscard]] decltype(auto) Type::try_visit_identifier (Visitor&& visitor, Buffer&& buffer, Args&&... args) const {
+template <typename Visitor, typename... Args>
+[[nodiscard]] decltype(auto) Type::try_visit_identifier (Visitor&& visitor, Args&&... args) const {
         if (type == FIELD_TYPE::IDENTIFIER) {
             const IdentifiedType& identifier_type = as_identifier();
-            const IdentifiedDefinition& identified = identifier_type.get(buffer);
-            return identified.visit(std::forward<Visitor>(visitor), std::forward<Buffer>(buffer), std::forward<Args>(args)...);
+            const IdentifiedDefinition& identified = identifier_type.get();
+            return identified.visit(std::forward<Visitor>(visitor), std::forward<Args>(args)...);
         }
-        return std::forward<Visitor>(visitor).on_fail(std::forward<Buffer>(buffer), std::forward<Args>(args)...);
+        return std::forward<Visitor>(visitor).on_fail(std::forward<Args>(args)...);
     }
 
 }

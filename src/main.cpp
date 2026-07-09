@@ -100,7 +100,7 @@ int main (const int argc, const char* const* const argv) {
     Buffer ast_buffer {initial_ast_buffer};
     const lexer::StructDefinition& target_struct = lexer::lex<false>(input_buffer, identifier_map, ast_buffer, {});
 
-    decode_code::generate(target_struct, ReadOnlyBuffer{ast_buffer}, std::move(output_file));
+    decode_code::generate(target_struct, std::move(output_file));
 
     auto end_ts = std::chrono::high_resolution_clock::now();
     auto duration = std::chrono::duration_cast<std::chrono::milliseconds>(end_ts - start_ts);

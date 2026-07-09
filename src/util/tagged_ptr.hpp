@@ -40,7 +40,7 @@ struct bool_ptr_tag {
     static constexpr size_t bits = 1;
 };
 
-namespace {
+namespace tagged_ptr_detail {
 
 template <typename T>
 concept ExposesBits = requires {
@@ -52,7 +52,7 @@ concept ExposesBits = requires {
 template <typename T, typename TagT, template <typename> typename PointerWrapper = std::type_identity_t>
 struct tagged_ptr {
 
-    static_assert(ExposesBits<TagT>, "TagT must extend ptr_tag and expose bits");
+    static_assert(tagged_ptr_detail::ExposesBits<TagT>, "TagT must extend ptr_tag and expose bits");
     static_assert(std::is_base_of_v<bool_ptr_tag, TagT> || std::is_base_of_v<ptr_tag<TagT::bits>, TagT>, "TagT must extend ptr_tag<TagT::bits> or bool_ptr_tag");
     static_assert(
         std::is_standard_layout_v<TagT>
@@ -94,8 +94,9 @@ struct tagged_ptr {
     }
 
     [[nodiscard]] constexpr TagT tag () const {
-        return TagT{gsl::narrow_cast<TagT::value_t>(raw & TAG_MASK)};
+        return TagT{gsl::narrow_cast<typename TagT::value_t>(raw & TAG_MASK)};
     }
+
     constexpr void set_tag (TagT tag) {
         raw = (raw & PTR_MASK) | tag;
     }

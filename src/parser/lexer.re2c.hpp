@@ -1,5 +1,6 @@
 #pragma once
 
+#include <cassert>
 #include <concepts>
 #include <cstddef>
 #include <cstdint>
@@ -10,6 +11,7 @@
 #include <boost/unordered/unordered_flat_map.hpp>
 #include <boost/unordered/unordered_flat_set.hpp>
 #include <utility>
+#include <vector>
 
 #include "../helper/internal_error.hpp"
 #include "./lexer_types.hpp"
@@ -100,7 +102,7 @@ template <
             std::unreachable();
         } else {
             return on_range(YYCURSOR, min, max, std::forward<ArgsT>(args)...);
-        }  
+        }
     } else {
         UNEXPECTED_INPUT("expected '..' to mark range");
     }
@@ -159,8 +161,8 @@ struct VariantAttributes {
                 if (has_max_wasted_bytes) {
                     show_syntax_error("conflicting attributes", YYCURSOR - 1);
                 }
-                has_max_wasted_bytes = true;
                 auto parsed = lex_attribute_value<uint32_t>(YYCURSOR);
+                has_max_wasted_bytes = true;
                 attributes.max_wasted_bytes = parsed.value;
                 YYCURSOR = parsed.cursor;
                 goto attribute_end;
@@ -232,12 +234,33 @@ struct VariantAttributes {
     return { YYCURSOR, {start, YYCURSOR} };
 }
 
-inline void add_identifier (IdentifierMap &identifier_map, std::string_view name, IdentifedDefinitionIndex definition_idx) {
-    bool did_emplace = identifier_map.emplace(std::pair{name, definition_idx}).second;
+inline void add_identifier (IdentifierMap &identifier_map, std::string_view name, IdentifedDefinitionIndex definition_header_idx) {
+    bool did_emplace = identifier_map.emplace(std::pair{name, definition_header_idx}).second;
     if (!did_emplace) {
         show_syntax_error("identifier already defined", name.begin(), name.end());
     }
 }
+
+template <typename T, bool active>
+struct OptionalField;
+
+template <typename T>
+struct OptionalField<T, false> {
+    constexpr OptionalField() = default;
+
+    template<typename U>
+    requires (!std::is_same_v<OptionalField, std::remove_cvref_t<U>>)
+    constexpr OptionalField(U&&) {}
+};
+
+template <typename T>
+struct OptionalField<T, true> {
+    T value;
+
+    template<typename U>
+    requires (!std::is_same_v<OptionalField, std::remove_cvref_t<U>>)
+    constexpr OptionalField(U&& value) : value(std::forward<U>(value)) {}
+};
 
 struct LexTypeResult {
     const char* cursor;
@@ -253,6 +276,7 @@ struct LexTypeResult {
     uint16_t total_variant_var_leafs;
     uint16_t level_size_leafs;
     SIZE alignment;
+    Buffer::Index<Type> type_header_idx;
 };
 
 struct LexFixedTypeResult {
@@ -265,12 +289,13 @@ struct LexFixedTypeResult {
     uint16_t sublevel_fixed_leafs;
     uint16_t pack_count;
     SIZE alignment;
+    Buffer::Index<Type> type_header_idx;
 };
 
 template <bool is_dynamic>
 using variant_type_meta_t = std::conditional_t<is_dynamic, DynamicVariantTypeMeta, FixedVariantTypeMeta>;
 
-template <bool expect_fixed>
+template <bool expect_fixed, bool get_allocated_type>
 std::conditional_t<expect_fixed, LexFixedTypeResult, LexTypeResult> lex_type (const char* YYCURSOR, Buffer &buffer, IdentifierMap &identifier_map);
 
 template <bool is_dynamic, bool expect_fixed, typename BufferedTypeMeta>
@@ -279,28 +304,25 @@ template <bool is_dynamic, bool expect_fixed, typename BufferedTypeMeta>
     uint64_t inner_min_byte_size,
     uint64_t inner_max_byte_size,
     Buffer& buffer,
-	Buffer&& type_meta_buffer,
-    const CreateExtendedResult<DynamicVariantType, Type> created_variant_type,
+    std::vector<BufferedTypeMeta>&& type_meta_buffer,
+    const HeaderDataBufferIndexPair<Type, DynamicVariantType> created_variant_type,
     const uint16_t variant_count,
     const uint16_t sublevel_fixed_leafs,
     const uint16_t pack_count,
     const uint16_t total_variant_var_leafs,
     const SIZE max_alignment
 ) {
-    auto attribute_lex_result = lex_variant_attributes(YYCURSOR);
+    const LexResult<VariantAttributes> attribute_lex_result = lex_variant_attributes(YYCURSOR);
     YYCURSOR = attribute_lex_result.cursor;
-    auto [max_wasted_bytes, shared_id] = attribute_lex_result.value;
+    const auto [max_wasted_bytes, shared_id] = attribute_lex_result.value;
 
     using out_type_meta_t = variant_type_meta_t<is_dynamic>;
 
-    const auto meta_padding = get_padding<out_type_meta_t>(buffer.position_idx<uint8_t>().value);
+    const Buffer::View<out_type_meta_t> metas_dst_view = buffer.next<out_type_meta_t>(variant_count);
     
-    const Buffer::Index<out_type_meta_t> meta_dst_idx {buffer.next_multi_byte<uint8_t>(
-        meta_padding + (variant_count * sizeof(out_type_meta_t))
-    ).add(meta_padding).value};
-    
-    out_type_meta_t* meta_dst = &buffer.get(meta_dst_idx);
-    BufferedTypeMeta* meta_src = &type_meta_buffer.get(Buffer::Index<BufferedTypeMeta>{0});
+    out_type_meta_t* meta_dst = buffer.get(metas_dst_view).data();
+    BufferedTypeMeta* meta_src = type_meta_buffer.data();
+    assert(type_meta_buffer.size() == variant_count);
     for (size_t i = 0; i < variant_count; i++) {
         if constexpr (expect_fixed) {
             static_assert(!is_dynamic);
@@ -320,19 +342,18 @@ template <bool is_dynamic, bool expect_fixed, typename BufferedTypeMeta>
 
     if constexpr (is_dynamic) {
         console.debug("Lexer found DYNAMIC_VARIANT");
-        buffer.get(created_variant_type.base) = Type{DYNAMIC_VARIANT};
+        buffer.get(created_variant_type.header) = Type{DYNAMIC_VARIANT};
     } else {
         if ((inner_max_byte_size - inner_min_byte_size) > max_wasted_bytes) {
             console.debug("Packing variant to satisfy size requirements");
-            buffer.get(created_variant_type.base) = Type{PACKED_VARIANT};
+            buffer.get(created_variant_type.header) = Type{PACKED_VARIANT};
         } else {
-            buffer.get(created_variant_type.base) = Type{FIXED_VARIANT};
+            buffer.get(created_variant_type.header) = Type{FIXED_VARIANT};
         }
     }
 
-    auto& variant_type = buffer.get(created_variant_type.extended);
-    BSSERT(meta_dst_idx.value > created_variant_type.extended.value);
-    const Buffer::index_t type_metas_offset = meta_dst_idx.value - created_variant_type.extended.value;
+    assert(metas_dst_view.start_idx > created_variant_type.extended.value);
+    const Buffer::index_t type_metas_offset = metas_dst_view.start_idx - created_variant_type.extended.value;
 
     // inner_max_byte_size = next_multiple(inner_max_byte_size, max_alignment);
     uint64_t max_byte_size = inner_max_byte_size;
@@ -400,7 +421,7 @@ template <bool is_dynamic, bool expect_fixed, typename BufferedTypeMeta>
 
         #undef ADD_SIZE_LEAF_PRE
 
-        variant_type = {
+        buffer.get(created_variant_type.extended) = {
             inner_min_byte_size,
             type_metas_offset,
             variant_count,
@@ -410,7 +431,7 @@ template <bool is_dynamic, bool expect_fixed, typename BufferedTypeMeta>
             size_size
         };
     } else {
-        variant_type = {
+        buffer.get(created_variant_type.extended) = {
             static_cast<uint64_t>(-1),
             type_metas_offset,
             variant_count,
@@ -433,7 +454,8 @@ template <bool is_dynamic, bool expect_fixed, typename BufferedTypeMeta>
             1,
             sublevel_fixed_leafs,
             gsl::narrow_cast<uint16_t>(pack_count + 4),
-            max_alignment
+            max_alignment,
+            created_variant_type.header
         };
     } else {
         if constexpr (is_dynamic) {
@@ -450,7 +472,8 @@ template <bool is_dynamic, bool expect_fixed, typename BufferedTypeMeta>
                 gsl::narrow_cast<uint16_t>(pack_count + 4),
                 total_variant_var_leafs,
                 1,
-                max_alignment
+                max_alignment,
+                created_variant_type.header
             };
         } else {
             return LexTypeResult{
@@ -466,7 +489,8 @@ template <bool is_dynamic, bool expect_fixed, typename BufferedTypeMeta>
                 gsl::narrow_cast<uint16_t>(pack_count + 4),
                 total_variant_var_leafs,
                 0,
-                max_alignment
+                max_alignment,
+                created_variant_type.header
             };
         }
     }
@@ -478,9 +502,9 @@ template <bool is_dynamic, bool expect_fixed, typename BufferedTypeMetaT>
     uint64_t min_byte_size,
     uint64_t max_byte_size,
     Buffer& buffer,
-	Buffer&& type_meta_buffer,
+    std::vector<BufferedTypeMetaT>&& type_meta_buffer,
     IdentifierMap& identifier_map,
-    CreateExtendedResult<DynamicVariantType, Type> created_variant_type,
+    HeaderDataBufferIndexPair<Type, DynamicVariantType> created_variant_type,
     uint16_t variant_count,
     uint16_t sublevel_fixed_leafs,
     uint16_t pack_count,
@@ -489,23 +513,23 @@ template <bool is_dynamic, bool expect_fixed, typename BufferedTypeMetaT>
 ) {
     while (true) {
         variant_count++;
-        auto result = lex_type<expect_fixed>(YYCURSOR, buffer, identifier_map);
+        const auto result = lex_type<expect_fixed, false>(YYCURSOR, buffer, identifier_map);
         YYCURSOR = result.cursor;
 
         if constexpr (expect_fixed) {
-            type_meta_buffer.get_next<FixedVariantTypeMeta>() = {
+            type_meta_buffer.emplace_back(FixedVariantTypeMeta{
                 result.level_fixed_leafs,
                 result.level_fixed_variants,
                 result.level_fixed_arrays
-            };
+            });
         } else {
-            type_meta_buffer.get_next<DynamicVariantTypeMeta>() = {
+            type_meta_buffer.emplace_back(DynamicVariantTypeMeta{
                 result.level_fixed_leafs,
                 result.var_leaf_counts,
                 result.level_fixed_variants,
                 result.level_fixed_arrays,
                 result.level_size_leafs
-            };
+            });
             total_variant_var_leafs += result.var_leaf_counts.total() + result.total_variant_var_leafs;
         }
         sublevel_fixed_leafs += result.level_fixed_leafs.total() + result.sublevel_fixed_leafs;
@@ -584,7 +608,7 @@ template <bool is_dynamic, bool expect_fixed, typename BufferedTypeMetaT>
     }
 }
 
-template <bool expect_fixed, FIELD_TYPE field_type>
+template <bool expect_fixed, FIELD_TYPE field_type, bool get_allocated_type>
 [[nodiscard]] inline std::conditional_t<expect_fixed, LexFixedTypeResult, LexTypeResult> add_simple_type (const char* YYCURSOR, Buffer &buffer) {
     static_assert(
            field_type == FIELD_TYPE::BOOL
@@ -600,7 +624,8 @@ template <bool expect_fixed, FIELD_TYPE field_type>
         || field_type == FIELD_TYPE::FLOAT64,
         "unsupported type for simple_type"
     );
-    buffer.get_next<Type>() = Type{field_type};
+    const Buffer::Index<Type> type_idx = buffer.next<Type>();
+    buffer.get(type_idx) = Type{field_type};
     constexpr SIZE alignment = type_alignment<field_type>;
     if constexpr (expect_fixed) {
         return LexFixedTypeResult{
@@ -612,7 +637,8 @@ template <bool expect_fixed, FIELD_TYPE field_type>
             0,
             0,
             0,
-            alignment
+            alignment,
+            type_idx
         };
     } else {
         constexpr uint64_t byte_size = alignment.byte_size();
@@ -629,18 +655,20 @@ template <bool expect_fixed, FIELD_TYPE field_type>
             0,
             0,
             0,
-            alignment
+            alignment,
+            type_idx
         };
     }
 }
 
-template <bool expect_fixed>
-[[nodiscard]] std::conditional_t<expect_fixed, LexFixedTypeResult, LexTypeResult> lex_type (const char* YYCURSOR, Buffer &buffer, IdentifierMap &identifier_map) {
+template <bool expect_fixed, bool get_allocated_type>
+[[nodiscard]] std::conditional_t<expect_fixed, LexFixedTypeResult, LexTypeResult> 
+lex_type (const char* YYCURSOR, Buffer &buffer, IdentifierMap &identifier_map) {
 
     const char* typename_start; // Only initialized for non-simple types
 
     #define ADD_SIMPLE_TYPE(TYPE) \
-    return add_simple_type<expect_fixed, FIELD_TYPE::TYPE>(YYCURSOR, buffer);
+    return add_simple_type<expect_fixed, FIELD_TYPE::TYPE, get_allocated_type>(YYCURSOR, buffer);
 
 
     /*!stags:re2c format = 'const char *@@;\n'; */
@@ -674,7 +702,7 @@ template <bool expect_fixed>
             return lex_range_argument<LexTypeResult>(
                 YYCURSOR,
                 [](const char* cursor, uint32_t length, Buffer& buffer)->LexTypeResult {
-                    FixedStringType::create(buffer, length);
+                    const Buffer::Index<Type> type_header_idx = FixedStringType::create(buffer, length);
 
                     return LexTypeResult{
                         lex_argument_list_end(cursor),
@@ -689,7 +717,8 @@ template <bool expect_fixed>
                         0,
                         0,
                         0,
-                        SIZE::SIZE_1
+                        SIZE::SIZE_1,
+                        type_header_idx
                     };
                 },
                 [](const char* cursor, uint32_t min_length, uint32_t max_length, Buffer& buffer)->LexTypeResult {
@@ -732,7 +761,7 @@ template <bool expect_fixed>
 
                     min_byte_size += min_length;
                     max_byte_size += max_length;
-                    StringType::create(buffer, min_length, stored_size_size, size_size);
+                    const Buffer::Index<Type> type_header_idx = StringType::create(buffer, min_length, stored_size_size, size_size);
 
                     return LexTypeResult{
                         lex_argument_list_end(cursor),
@@ -747,7 +776,8 @@ template <bool expect_fixed>
                         0,
                         0,
                         1,
-                        stored_size_size
+                        stored_size_size,
+                        type_header_idx
                     };
                 },
                 buffer
@@ -757,7 +787,7 @@ template <bool expect_fixed>
             return lex_range_argument<LexFixedTypeResult, false, true>(
                 YYCURSOR,
                 [](const char* cursor, uint32_t length, Buffer& buffer)->LexFixedTypeResult {
-                    FixedStringType::create(buffer, length);
+                    const Buffer::Index<Type> type_header_idx = FixedStringType::create(buffer, length);
 
                     return LexFixedTypeResult{
                         lex_argument_list_end(cursor),
@@ -768,7 +798,8 @@ template <bool expect_fixed>
                         0,
                         0,
                         0,
-                        SIZE::SIZE_1
+                        SIZE::SIZE_1,
+                        type_header_idx
                     };
                 },
                 [typename_start] [[noreturn]] (const char* cursor)->LexFixedTypeResult {
@@ -781,11 +812,11 @@ template <bool expect_fixed>
     }
 
     array: {
-        auto [extended_idx, base_idx] = ArrayType::create(buffer);
+        const auto [type_header_idx, extended_idx] = ArrayType::create(buffer);
 
         YYCURSOR = lex_argument_list_start(YYCURSOR);
 
-        auto result = lex_type<true>(YYCURSOR, buffer, identifier_map);
+        const LexFixedTypeResult result = lex_type<true, false>(YYCURSOR, buffer, identifier_map);
         YYCURSOR = result.cursor;
 
         YYCURSOR = lex_symbol<',', "expected length argument">(YYCURSOR);
@@ -796,12 +827,13 @@ template <bool expect_fixed>
                 [](
                     const char* cursor,
                     uint32_t length,
-                    LexFixedTypeResult&& result,
-                    Type& base,
-                    ArrayType& extended
+                    const LexFixedTypeResult& result,
+                    Buffer& buffer,
+                    Buffer::Index<Type> type_header_idx,
+                    Buffer::Index<ArrayType> extended_idx
                 )->LexTypeResult {
-                    base = Type{ARRAY_FIXED};
-                    extended = {
+                    buffer.get(type_header_idx) = Type{ARRAY_FIXED};
+                    buffer.get(extended_idx) = {
                         result.level_fixed_leafs,
                         length,
                         static_cast<uint16_t>(-1),
@@ -824,18 +856,20 @@ template <bool expect_fixed>
                         gsl::narrow_cast<uint16_t>(result.pack_count + 4),
                         0,
                         0,
-                        result.alignment
+                        result.alignment,
+                        type_header_idx
                     };
                 },
                 [](
                     const char* cursor,
                     uint32_t min_length,
                     uint32_t max_length,
-                    LexFixedTypeResult&& result,
-                    Type& base,
-                    ArrayType& extended
+                    const LexFixedTypeResult& result,
+                    Buffer& buffer,
+                    Buffer::Index<Type> type_header_idx,
+                    Buffer::Index<ArrayType> extended_idx
                 )->LexTypeResult {
-                    base = Type{ARRAY};
+                    buffer.get(type_header_idx) = Type{ARRAY};
                     uint32_t delta = max_length - min_length;
 
                     LeafCounts level_fixed_leafs;
@@ -872,14 +906,14 @@ template <bool expect_fixed>
                     } else /* if (delta <= UINT32_MAX) */ {
                         ADD_SIZE_LEAF_PRE(SIZE::SIZE_4)
                         alignment = std::max(result.alignment, SIZE::SIZE_4);
-                        size_size = SIZE::SIZE_4; 
+                        size_size = SIZE::SIZE_4;
                     }
                     #undef ADD_SIZE_LEAF_PRE
 
                     min_byte_size += result.byte_size * min_length;
                     max_byte_size += result.byte_size * max_length;
 
-                    extended = {
+                    buffer.get(extended_idx) = {
                         result.level_fixed_leafs,
                         min_length,
                         static_cast<uint16_t>(-1),
@@ -900,25 +934,28 @@ template <bool expect_fixed>
                         gsl::narrow_cast<uint16_t>(result.pack_count + 4),
                         0,
                         1,
-                        alignment
+                        alignment,
+                        type_header_idx
                     };
                 },
-                std::move(result),
-                buffer.get(base_idx),
-                buffer.get(extended_idx)
+                result,
+                buffer,
+                type_header_idx,
+                extended_idx
             );
         } else {
             return lex_range_argument<LexFixedTypeResult, false, true>(
-                YYCURSOR, 
+                YYCURSOR,
                 [](
                     const char* cursor,
                     uint32_t length,
-                    LexFixedTypeResult&& result,
-                    Type& base,
-                    ArrayType& extended
+                    const LexFixedTypeResult& result,
+                    Buffer& buffer,
+                    Buffer::Index<Type> type_header_idx,
+                    Buffer::Index<ArrayType> extended_idx
                 )->LexFixedTypeResult {
-                    base = Type{ARRAY_FIXED};
-                    extended = ArrayType{
+                    buffer.get(type_header_idx) = Type{ARRAY_FIXED};
+                    buffer.get(extended_idx) = ArrayType{
                         result.level_fixed_leafs,
                         length,
                         static_cast<uint16_t>(-1),
@@ -935,15 +972,17 @@ template <bool expect_fixed>
                         result.level_variant_fields,
                         gsl::narrow_cast<uint16_t>(result.level_fixed_leafs.total() + result.sublevel_fixed_leafs),
                         gsl::narrow_cast<uint16_t>(result.pack_count + 4),
-                        result.alignment
+                        result.alignment,
+                        type_header_idx
                     };
                 },
                 [typename_start] [[noreturn]] (const char* cursor)->LexFixedTypeResult {
                     show_syntax_error("expected fixed size array", typename_start, cursor - 1);
                 },
-                std::move(result),
-                buffer.get(base_idx),
-                buffer.get(extended_idx)
+                result,
+                buffer,
+                type_header_idx,
+                extended_idx
             );
         }
     }
@@ -951,19 +990,16 @@ template <bool expect_fixed>
     variant: {
         YYCURSOR = lex_argument_list_start(YYCURSOR);
 
-        auto created_variant_type = DynamicVariantType::create(buffer);
+        HeaderDataBufferIndexPair<Type, DynamicVariantType> created_variant_type = DynamicVariantType::create(buffer);
 
         using bufferd_type_meta_t = variant_type_meta_t<!expect_fixed>;
         
-        Buffer::backing_t initial_type_meta_buffer[BUFFER_INIT_ARRAY_SIZE<bufferd_type_meta_t, 8>];
-        Buffer type_meta_buffer {initial_type_meta_buffer};
-
         return lex_variant_types<false, expect_fixed, bufferd_type_meta_t>(
             YYCURSOR,
             UINT64_MAX,
             0,
             buffer,
-            std::move(type_meta_buffer),
+            std::vector<bufferd_type_meta_t>{},
             identifier_map,
             created_variant_type,
             0,
@@ -977,15 +1013,22 @@ template <bool expect_fixed>
     identifier: {
         const std::string_view type_name {typename_start, YYCURSOR};
 
-        auto identifier_idx_iter = identifier_map.find(type_name);
-        if (identifier_idx_iter == identifier_map.end()) {
+        auto identifier_lookup_result = identifier_map.find(type_name);
+        
+        if (identifier_lookup_result == identifier_map.end()) {
             show_syntax_error("identifier not defined", type_name);
         }
-        auto identifier_index = identifier_idx_iter->second;
-        IdentifiedType::create(buffer, identifier_index);
+
+        const IdentifedDefinitionIndex identifier_idx = identifier_lookup_result->second;
+        const Buffer::Index<Type> type_header_idx = IdentifiedType::create(buffer, identifier_idx);
 
         struct IdentifiedVisitor {
-            [[nodiscard]] auto on_struct (const StructDefinition& struct_definition, const char* YYCURSOR, const std::string_view type_name) const {
+            [[nodiscard]] auto on_struct (
+                const StructDefinition& struct_definition,
+                const char* YYCURSOR,
+                const std::string_view type_name,
+                Buffer::Index<Type> type_header_idx
+            ) const {
                 const StructDefinitionData& definition_data = struct_definition.data;
                 if constexpr (!expect_fixed) {
                     return LexTypeResult{
@@ -1001,7 +1044,8 @@ template <bool expect_fixed>
                         definition_data.pack_count,
                         definition_data.total_variant_var_leafs,
                         definition_data.level_size_leafs,
-                        definition_data.max_alignment
+                        definition_data.max_alignment,
+                        type_header_idx
                     };
                 } else {
                     if (!definition_data.var_leaf_counts.empty()) {
@@ -1016,12 +1060,17 @@ template <bool expect_fixed>
                         definition_data.level_variant_fields,
                         definition_data.sublevel_fixed_leafs,
                         definition_data.pack_count,
-                        definition_data.max_alignment
+                        definition_data.max_alignment,
+                        type_header_idx
                     };
                 }
 
             }
-            [[nodiscard]] auto on_enum (const EnumDefinition& enum_definitiona, const char* YYCURSOR, const std::string_view /*unused*/) const {
+            [[nodiscard]] auto on_enum (
+                const EnumDefinition& enum_definitiona,
+                const char* YYCURSOR,
+                const std::string_view /*unused*/,
+                Buffer::Index<Type> type_header_idx) const {
                 const EnumDefinitionData& definition_data = enum_definitiona.data;
                 SIZE type_size = definition_data.type_size;
                 LeafCounts level_fixed_leafs {type_size};
@@ -1040,7 +1089,8 @@ template <bool expect_fixed>
                         0,
                         0,
                         0,
-                        type_size
+                        type_size,
+                        type_header_idx
                     };
                 } else {
                     return LexFixedTypeResult{
@@ -1052,14 +1102,15 @@ template <bool expect_fixed>
                         0,
                         0,
                         0,
-                        type_size
+                        type_size,
+                        type_header_idx
                     };
                 }
             }
         };
 
-        const IdentifiedDefinition& identifier = buffer.get(identifier_index);
-        return identifier.visit(IdentifiedVisitor{}, YYCURSOR, type_name);
+        const IdentifiedDefinition& identifier = buffer.get(identifier_idx);
+        return identifier.visit(IdentifiedVisitor{}, YYCURSOR, type_name, type_header_idx);
     }
 }
 
@@ -1122,11 +1173,11 @@ template <bool is_first_field>
     name_end:
     const std::string_view field_name {field_name_start, gsl::narrow_cast<size_t>(YYCURSOR - field_name_start)};
     if constexpr (!is_first_field) {
-        buffer.get(definition_data_idx).visit_uninitialized([&](const StructField::Data& field_data) -> const StructField& {
+        buffer.get(definition_data_idx).visit_uninitialized([&](const StructField& field_data) -> const std::byte& {
             if (field_data.name == field_name) {
                 show_syntax_error("field already defined", field_name);
             }
-            return field_data.type().skip<const StructField>();
+            return field_data.type().skip<const std::byte>();
         }, field_count);
     }
     /*!local:re2c
@@ -1137,7 +1188,7 @@ template <bool is_first_field>
     struct_field: {
         StructField::create(buffer, {field_name});
 
-        auto result = lex_type<false>(YYCURSOR, buffer, identifier_map);
+        const LexTypeResult result = lex_type<false, false>(YYCURSOR, buffer, identifier_map);
         YYCURSOR = result.cursor;
 
         YYCURSOR = lex_symbol<';'>(YYCURSOR);
@@ -1239,7 +1290,7 @@ template <bool is_signed>
         */
         name_end:
         std::string_view name{start, YYCURSOR};
-        {   
+        {
             bool did_emplace = member_names.emplace(name).second;
             if (!did_emplace) {
                 show_syntax_error("field already defined", name.data(), name.size());
@@ -1373,22 +1424,22 @@ template <bool target_defined>
     }
 
     struct_keyword: {
-        auto name_result = lex_identifier_name(YYCURSOR);
+        const LexResult<std::string_view> name_result = lex_identifier_name(YYCURSOR);
         YYCURSOR = name_result.cursor;
-        auto [definition_data_idx, definition_idx] = StructDefinition::create(buffer, name_result.value);
+        const auto [definition_header_idx, definition_data_idx] = StructDefinition::create(buffer, name_result.value);
         YYCURSOR = lex_struct(YYCURSOR, definition_data_idx, identifier_map, buffer);
-        add_identifier(identifier_map, name_result.value, definition_idx);
+        add_identifier(identifier_map, name_result.value, definition_header_idx);
         if constexpr (target_defined) {
             console.warn("no possible path from target to struct ", name_result.value, " can be created.");
         }
         goto loop;
     }
     enum_keyword: {
-        auto name_result = lex_identifier_name(YYCURSOR);
+        const LexResult<std::string_view> name_result = lex_identifier_name(YYCURSOR);
         YYCURSOR = name_result.cursor;
-        auto [definition_data_idx, definition_idx] = EnumDefinition::create(buffer, name_result.value);
+        const auto [definition_header_idx, definition_data_idx] = EnumDefinition::create(buffer, name_result.value);
         YYCURSOR = lex_enum(YYCURSOR, definition_data_idx, identifier_map, buffer);
-        add_identifier(identifier_map, name_result.value, definition_idx);
+        add_identifier(identifier_map, name_result.value, definition_header_idx);
         if constexpr (target_defined) {
             console.warn("no possible path from target to enum ", name_result.value, " can be created.");
         }
@@ -1398,10 +1449,10 @@ template <bool target_defined>
         if constexpr (target_defined) {
             show_syntax_error("target already defined", YYCURSOR);
         } else {
-            auto type_idx = Buffer::Index<Type>{buffer.current_position()};
-            YYCURSOR = lex_type<false>(YYCURSOR, buffer, identifier_map).cursor;
+            const LexTypeResult lex_result = lex_type<false, true>(YYCURSOR, buffer, identifier_map);
+            YYCURSOR = lex_result.cursor;
             YYCURSOR = lex_symbol<';'>(YYCURSOR);
-            Type& type = buffer.get(type_idx);
+            Type& type = buffer.get(lex_result.type_header_idx);
             
             struct TargetTypeVisitor {
                 [[nodiscard]] const StructDefinition& on_struct (

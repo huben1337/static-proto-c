@@ -13,7 +13,6 @@
 
 #include "../../core/AlignCounts.hpp"
 #include "../../parser/lexer_types.hpp"
-#include "../../container/memory.hpp"
 #include "../../util/logger.hpp"
 #include "../../helper/internal_error.hpp"
 #include "../../helper/alloca.hpp"
@@ -56,8 +55,6 @@ struct TypeVisitor : TypeVisitorBase<State> {
     constexpr explicit TypeVisitor (
         const State& state
     ) : Base{state} {}
-
-    [[nodiscard]] const ReadOnlyBuffer& get_ast_buffer () const { return state.const_state.shared().ast_buffer; }
 
     template <lexer::FIELD_TYPE field_type>
     void on_simple () const {
@@ -299,8 +296,8 @@ struct TypeVisitor : TypeVisitorBase<State> {
     }
 
     void on_struct (const lexer::StructDefinition& struct_definition) const {
-        struct_definition.visit([&](const lexer::StructField::Data& field_data) -> const lexer::StructField& {
-            return field_data.type().visit(as_visitor_for<lexer::StructField>()).next_type;
+        struct_definition.visit([&](const lexer::StructField& field_data) -> const std::byte& {
+            return field_data.type().visit(with_next<std::byte>()).next_type;
         });
     }
 
@@ -309,24 +306,23 @@ struct TypeVisitor : TypeVisitorBase<State> {
     }
 
     template<typename NewNextType>
-    [[nodiscard]] constexpr const TypeVisitor<NewNextType, State, in_array, in_fixed_size>& as_visitor_for(this const TypeVisitor& self) {
+    [[nodiscard]] constexpr const TypeVisitor<NewNextType, State, in_array, in_fixed_size>& with_next(this const TypeVisitor& self) {
         return estd::down_cast<const Base&, const TypeVisitor<NewNextType, State, in_array, in_fixed_size>&>(self);
     }
 };
 
 struct GenerateResult {
-    Buffer var_offset_buffer;
+    std::vector<uint64_t> var_offset_buffer;
     uint64_t var_leafs_start;
 };
 
 [[nodiscard]] inline GenerateResult generate (
     const lexer::StructDefinition& target_struct,
-    const ReadOnlyBuffer& ast_buffer,
     const std::span<FixedOffset> fixed_offsets,
-    const std::span<Buffer::View<uint64_t>> var_offsets,
+    const std::span<estd::integral_range<uint64_t>> var_offset_idx_ranges,
     const std::span<uint16_t> idx_map,
     const std::span<ArrayPackInfo> pack_infos,
-    Buffer&& var_offset_buffer,
+    std::vector<uint64_t>&& var_offset_buffer,
     const lexer::LeafCounts& level_fixed_leafs,
     const AlignCounts& var_leaf_counts,
     const uint16_t& total_var_leafs,
@@ -358,14 +354,13 @@ struct GenerateResult {
     ALLOCA_UNSAFE_SPAN(tmp_fixed_offsets, FixedOffset, fixed_offsets.size());
     std::ranges::uninitialized_fill(tmp_fixed_offsets, FixedOffset::empty());
 
-    TypeVisitor<lexer::StructField, TopLevel::State, false, true> top_level_visitor {
+    TypeVisitor<std::byte, TopLevel::State, false, true> top_level_visitor {
         TopLevel::State{
             TopLevel::ConstState{
                 TopLevel::ConstState::Shared{
-                    ast_buffer,
                     fixed_offsets,
                     tmp_fixed_offsets,
-                    var_offsets,
+                    var_offset_idx_ranges,
                     idx_map,
                     pack_infos
                 },
@@ -382,7 +377,7 @@ struct GenerateResult {
 
     console.debug("TopLevel:: ... left_fields: ", top_level_visitor.state.mutable_state.level().left_fields);
 
-    target_struct.visit([&top_level_visitor](const lexer::StructField::Data& field_data) -> const lexer::StructField& {
+    target_struct.visit([&top_level_visitor](const lexer::StructField& field_data) -> const std::byte& {
         return field_data.type().visit(top_level_visitor).next_type;
     });
 

@@ -10,15 +10,14 @@
 #include <utility>
 #include <variant>
 #include <vector>
+#include <nameof.hpp>
 
-#include "nameof.hpp"
 #include "../FixedOffsets.hpp"
 #include "../ArrayPackInfo.hpp"
 #include "./QueuedField.hpp"
 #include "./PendingVariantFieldPacks.hpp"
 #include "./field_queuing.hpp"
 #include "../../core/AlignSizes.hpp"
-#include "../../container/memory.hpp"
 #include "../../estd/class_constraints.hpp"
 #include "../../estd/ranges.hpp"
 #include "../../math/mod1.hpp"
@@ -50,37 +49,35 @@ struct Queued {
 struct ConstStateBase {
     struct Shared {
         constexpr Shared (
-            ReadOnlyBuffer                    ast_buffer,
-            std::span<FixedOffset>            fixed_offsets,
-            std::span<FixedOffset>            tmp_fixed_offsets,
-            std::span<Buffer::View<uint64_t>> var_offsets,
-            std::span<uint16_t>               idx_map,
-            std::span<ArrayPackInfo>          pack_infos
-        ) : ast_buffer        (ast_buffer),
-            fixed_offsets     (fixed_offsets),
+            std::span<FixedOffset>                      fixed_offsets,
+            std::span<FixedOffset>                      tmp_fixed_offsets,
+            std::span<estd::integral_range<uint64_t>>   var_offsets,
+            std::span<uint16_t>                         idx_map,
+            std::span<ArrayPackInfo>                    pack_infos
+        ) : fixed_offsets     (fixed_offsets),
             tmp_fixed_offsets (tmp_fixed_offsets),
-            var_offsets       (var_offsets),
+            var_offset_idx_ranges       (var_offsets),
             idx_map           (idx_map),
             pack_infos        (pack_infos) {}
 
-        ReadOnlyBuffer                    ast_buffer;    // Buffer containing the AST
-        std::span<FixedOffset>            fixed_offsets; // Represets the offset of each fixed size leaf.
-        std::span<FixedOffset>            tmp_fixed_offsets;
-        std::span<Buffer::View<uint64_t>> var_offsets;   // Represents the size of the variable size leaf. Used for genrating the offset calc strings
-        std::span<uint16_t>               idx_map;       // Maps occurence in the AST to a stored leaf
-        std::span<ArrayPackInfo>          pack_infos;
+        std::span<FixedOffset>                      fixed_offsets;          // Represets the offset of each fixed size leaf.
+        std::span<FixedOffset>                      tmp_fixed_offsets;
+        std::span<estd::integral_range<uint64_t>>   var_offset_idx_ranges;  // Idx ranges into the var_offset_buffer to access segements of number[] for every variable sized leaf.
+                                                                            // Each segement holds the elment sizes for all variable sized leafes which come before in the layout.
+        std::span<uint16_t>                         idx_map;                // Maps occurence in the AST to a stored leaf
+        std::span<ArrayPackInfo>                    pack_infos;
     };
 };
 
 struct MutableStateBase {
     struct Shared : estd::no_copy {
-        Buffer   var_offset_buffer;             // Stores the size chains for variable size leaf offsets
+        std::vector<uint64_t> var_offset_buffer;             // Stores the size chains for variable size leaf offsets
         // uint16_t fixed_offset_idx_base = 0;  // The current base index for fixed sized leafs (maybe can be moved into LevelConstState if we know the total fixed leaf count including nested levels)
         uint16_t current_map_idx = 0;           // The current index into ConstState::idx_map
         uint16_t current_pack_info_idx = 0;
 
         constexpr explicit Shared (
-            Buffer&& var_offset_buffer
+            std::vector<uint64_t>&& var_offset_buffer
         ) : var_offset_buffer(std::move(var_offset_buffer)) {}
     };
 
@@ -445,7 +442,7 @@ public:
             chain_idx -= modulated_field_size;
         } while (chain_idx > 0);
 
-        console.debug("enqueueing for level: ", NAMEOF_ENUM(state_type), ", target align: ", target_align);
+        console.debug("enqueueing for level: ", nameof::nameof_enum(state_type), ", target align: ", target_align);
         // BSSERT(fields.template get<target_align>().idxs.size() == 0);
         // for (const uint16_t idx : fields.template get<target_align>().idxs) {
         //     
