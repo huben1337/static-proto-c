@@ -2,7 +2,9 @@
 
 #include <utility>
 #include <type_traits>
+#include <nameof.hpp>
 
+#include "../helper/pp.hpp"
 #include "../estd/utility.hpp"
 #include "./SIZE.hpp"
 
@@ -63,8 +65,6 @@ public:
     constexpr explicit AlignMembersBase (U&& align)
         : align{std::forward<U>(align)} {}
 
-    #define IDENTITY(...) __VA_ARGS__
-
     #define ALIGN_MEMBER_GET_CT_ARG(CONST_ATTR)                                     \
     template <SIZE alignment>                                                       \
     [[nodiscard]] constexpr CONST_ATTR IDENTITY(T&) get () IDENTITY(CONST_ATTR) {   \
@@ -86,7 +86,6 @@ public:
 
     #undef ALIGN_MEMBER_GET_CT_ARG
     #undef ALIGN_MEMBER_GET_RT_ARG
-    #undef IDENDITY
 
 private:
     template <typename writer_params, SIZE first, SIZE... rest>

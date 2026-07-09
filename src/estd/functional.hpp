@@ -2,9 +2,9 @@
 
 #include <utility>
 
-namespace estd {
+#include "../helper/pp.hpp"
 
-#define IDENTITY(...) __VA_ARGS__
+namespace estd {
 
 #define BINARY_OP_IMPL(STATIC_ATTR, NAME, OP)                               \
 template<typename T, typename U>                                            \
@@ -25,7 +25,6 @@ BINARY_OP_PROVIDER(divide, /);
 
 #undef BINARY_OP_PROVIDER
 #undef BINARY_OP_IMPL
-#undef IDENTITY
 
 template <typename Operator, typename T, typename U>
 constexpr T& compound_asign (T& lhs, U&& rhs) {
