@@ -61,4 +61,8 @@ Diagnostics:
       readability-implicit-bool-conversion.UseUpperCaseLiteralSuffix: true
       cppcoreguidelines-avoid-non-const-global-variables.AllowInternalLinkage: true
       bugprone-narrowing-conversions.IgnoreConversionFromTypes: ""
-      Bugprone-narrowing-conversions.PedanticMode: true
+      bugprone-narrowing-conversions.PedanticMode: true
+      cppcoreguidelines-no-malloc.Allocations: "wcsdup;strdup;strndup;malloc;calloc;valloc;pvalloc;memalign;aligned_alloc;canonicalize_file_name;tempnam;_mm_malloc"
+      cppcoreguidelines-no-malloc.Reallocations: "realloc;reallocarray"
+      cppcoreguidelines-no-malloc.Deallocations: "free;free_sized;free_aligned_sized;_mm_free"
+
