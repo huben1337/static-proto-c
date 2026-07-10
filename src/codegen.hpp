@@ -533,7 +533,7 @@ namespace detail {
 
         template <typename T, typename U>
         constexpr EmptyCtor<DerivedSimple>&& ctor (this StructWithNameBase&& self, T&& args, U&& initializers) {
-            const std::string_view name {self.name_idx_range.access_subspan(self.data().buffer)};
+            const std::string name {std::string_view{self.name_idx_range.access_subspan(self.data().buffer)}};
             self.data()._line(name, " (", std::forward<T>(args), ") : ", std::forward<U>(initializers), " {}");
             return std::move(self).data().template as<EmptyCtor<DerivedSimple>>();
         }
