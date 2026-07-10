@@ -101,7 +101,7 @@ private:
         // NOLINTNEXTLINE(cppcoreguidelines-pro-type-vararg)
         int fd = ::open(output_path, O_WRONLY | O_NONBLOCK);
         if (fd == -1) {
-            std::perror("[logger::open_output_file] error when trying to intialize fd.");
+            std::perror("[logger::open_output_file] failed to open output file.");
             std::exit(1);
         }
         return fd;
@@ -117,6 +117,12 @@ public:
 
     explicit logger (const char* const output_path)
         : logger{open_output_file(output_path)} {}
+
+    ~logger() {
+        if (output_pollfd.fd < 0) return;
+        ::close(output_pollfd.fd);
+        output_pollfd.fd = 0;
+    }
 
 private:
     void _handled_write_stdout (const char* src, size_t left) {
@@ -381,7 +387,7 @@ public:
     }
     template <bool no_newline = false, bool buffered = false, typename... T>
     void log (T&&... values) {
-        write_values<"", buffered, no_newline>(std::forward<T>(values)...);
+        write_values<string_literal::empty, buffered, no_newline>(std::forward<T>(values)...);
     }
 
     template <bool buffered = false, StringLiteral first_value, typename... T>
