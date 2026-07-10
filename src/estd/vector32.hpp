@@ -4,6 +4,7 @@
 #include <cassert>
 #include <cstddef>
 #include <cstdint>
+#include <cstdlib>
 #include <cstring>
 #include <memory>
 #include <gsl/pointers>
@@ -30,7 +31,11 @@ struct vector32 {
         using const_iterator = const T*;
 
     private:
-        T* _data = nullptr;
+        static constexpr bool use_c_style_allocation = std::is_trivially_move_constructible_v<T>
+            && std::is_trivially_destructible_v<T>
+            && alignof(T) <= alignof(max_align_t);
+
+        gsl::owner<T*> _data = nullptr;
         uint32_t _capacity = 0;
         uint32_t _position = 0;
 
@@ -41,9 +46,7 @@ struct vector32 {
 
         constexpr void reallocate(uint32_t new_capacity)
         {
-            if constexpr (std::is_trivially_move_constructible_v<T> &&
-                          std::is_trivially_destructible_v<T> &&
-                          alignof(T) <= alignof(max_align_t)) {
+            if constexpr (use_c_style_allocation) {
                 _data = static_cast<gsl::owner<T*>>(std::realloc(_data, sizeof(T) * new_capacity));
                 
                 assert(_data != nullptr);
@@ -83,7 +86,11 @@ struct vector32 {
                 std::destroy_n(_data, _position);
             }
         
-            ::operator delete(_data);
+            if (use_c_style_allocation) {
+                std::free(_data);
+            } else {
+                ::operator delete(_data);
+            }
         }
 
         constexpr void reset() {
