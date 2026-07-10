@@ -38,6 +38,9 @@ namespace estd {
         >
     >;
 
+    template<std::integral T>
+    using promoted_t = decltype(+std::declval<T>());
+
     template <bool condition, typename T>
     struct conditional_const {
         using type = T;
