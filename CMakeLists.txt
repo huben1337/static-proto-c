@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 4.0)
-project(spc VERSION 0.1.0 LANGUAGES C CXX)
+project(spc VERSION 0.1.0 LANGUAGES CXX)
 
 ############ TOOLS ############
 set(RE2C_EXE re2c)
@@ -199,42 +199,41 @@ set(SANITIZER_FLAG -fsanitize=address,undefined,leak,alignment)
 add_link_options(${SANITIZER_FLAG})
 ############ COMMON COMPILER FLAGS ############
 add_compile_options(
-  ############ C/C++ FLAGS ############
-  $<$<COMPILE_LANGUAGE:C,CXX>:${SANITIZER_FLAG}>
-  $<$<COMPILE_LANGUAGE:C,CXX>:-march=native>
-  $<$<COMPILE_LANGUAGE:C,CXX>:-O${OPTIMIZATION_LEVEL}>
-  $<$<COMPILE_LANGUAGE:C,CXX>:-Werror>
-  $<$<COMPILE_LANGUAGE:C,CXX>:-Wall>
-  $<$<COMPILE_LANGUAGE:C,CXX>:-Wextra>
-  $<$<COMPILE_LANGUAGE:C,CXX>:-Wpedantic>
-  $<$<COMPILE_LANGUAGE:C,CXX>:-Weverything>
-  $<$<COMPILE_LANGUAGE:C,CXX>:-Wno-c++-compat>
-  $<$<COMPILE_LANGUAGE:C,CXX>:-Wno-c++98-compat>
-  $<$<COMPILE_LANGUAGE:C,CXX>:-Wno-c++98-compat-pedantic>
-  $<$<COMPILE_LANGUAGE:C,CXX>:-Wno-pre-c++14-compat>
-  $<$<COMPILE_LANGUAGE:C,CXX>:-Wno-pre-c++17-compat>
-  $<$<COMPILE_LANGUAGE:C,CXX>:-Wno-pre-c++20-compat>
-  $<$<COMPILE_LANGUAGE:C,CXX>:-Wno-newline-eof>
-  $<$<COMPILE_LANGUAGE:C,CXX>:-Wno-extra-semi-stmt>
-  $<$<COMPILE_LANGUAGE:C,CXX>:-Wno-comma>
-  $<$<COMPILE_LANGUAGE:C,CXX>:-Wno-shadow>
-  $<$<COMPILE_LANGUAGE:C,CXX>:-Wno-shadow-field>
-  $<$<COMPILE_LANGUAGE:C,CXX>:-Wno-shadow-field-in-constructor>
-  $<$<COMPILE_LANGUAGE:C,CXX>:-Wno-covered-switch-default>
-  $<$<COMPILE_LANGUAGE:C,CXX>:-Wno-padded>
-  $<$<COMPILE_LANGUAGE:C,CXX>:-Wno-global-constructors>
-  $<$<COMPILE_LANGUAGE:C,CXX>:-Wno-exit-time-destructors>
-  # $<$<COMPILE_LANGUAGE:C,CXX>:-Wno-ctad-maybe-unsupported>
-  $<$<COMPILE_LANGUAGE:C,CXX>:-Wno-missing-variable-declarations>
-  $<$<COMPILE_LANGUAGE:C,CXX>:-Wno-unsafe-buffer-usage>
-  $<$<COMPILE_LANGUAGE:C,CXX>:-Wno-alloca>
-  # $<$<COMPILE_LANGUAGE:C,CXX>:-Wno-gnu-case-range>
-  # $<$<COMPILE_LANGUAGE:C,CXX>:-Wno-variadic-macros>
-  # $<$<COMPILE_LANGUAGE:C,CXX>:-Wno-gnu-zero-variadic-macro-arguments>
-  ############ C++ ############
-  $<$<COMPILE_LANGUAGE:C,CXX>:-D_GLIBCXX_DEBUG>
-  $<$<COMPILE_LANGUAGE:C,CXX>:-fno-exceptions>
-  $<$<COMPILE_LANGUAGE:C,CXX>:-Wno-vla-cxx-extension>
+  $<$<COMPILE_LANGUAGE:CXX>:${STL_FLAG}>
+  $<$<COMPILE_LANGUAGE:CXX>:${SANITIZER_FLAG}>
+  $<$<COMPILE_LANGUAGE:CXX>:-march=native>
+  $<$<COMPILE_LANGUAGE:CXX>:-O${OPTIMIZATION_LEVEL}>
+  $<$<COMPILE_LANGUAGE:CXX>:-Werror>
+  $<$<COMPILE_LANGUAGE:CXX>:-Wall>
+  $<$<COMPILE_LANGUAGE:CXX>:-Wextra>
+  $<$<COMPILE_LANGUAGE:CXX>:-Wpedantic>
+  $<$<COMPILE_LANGUAGE:CXX>:-Weverything>
+  $<$<COMPILE_LANGUAGE:CXX>:-Wno-c++-compat>
+  $<$<COMPILE_LANGUAGE:CXX>:-Wno-c++98-compat>
+  $<$<COMPILE_LANGUAGE:CXX>:-Wno-c++98-compat-pedantic>
+  $<$<COMPILE_LANGUAGE:CXX>:-Wno-pre-c++14-compat>
+  $<$<COMPILE_LANGUAGE:CXX>:-Wno-pre-c++17-compat>
+  $<$<COMPILE_LANGUAGE:CXX>:-Wno-pre-c++20-compat>
+  $<$<COMPILE_LANGUAGE:CXX>:-Wno-newline-eof>
+  $<$<COMPILE_LANGUAGE:CXX>:-Wno-extra-semi-stmt>
+  $<$<COMPILE_LANGUAGE:CXX>:-Wno-comma>
+  $<$<COMPILE_LANGUAGE:CXX>:-Wno-shadow>
+  $<$<COMPILE_LANGUAGE:CXX>:-Wno-shadow-field>
+  $<$<COMPILE_LANGUAGE:CXX>:-Wno-shadow-field-in-constructor>
+  $<$<COMPILE_LANGUAGE:CXX>:-Wno-covered-switch-default>
+  $<$<COMPILE_LANGUAGE:CXX>:-Wno-padded>
+  $<$<COMPILE_LANGUAGE:CXX>:-Wno-global-constructors>
+  $<$<COMPILE_LANGUAGE:CXX>:-Wno-exit-time-destructors>
+  # $<$<COMPILE_LANGUAGE:CXX>:-Wno-ctad-maybe-unsupported>
+  $<$<COMPILE_LANGUAGE:CXX>:-Wno-missing-variable-declarations>
+  $<$<COMPILE_LANGUAGE:CXX>:-Wno-unsafe-buffer-usage>
+  $<$<COMPILE_LANGUAGE:CXX>:-Wno-alloca>
+  # $<$<COMPILE_LANGUAGE:CXX>:-Wno-gnu-case-range>
+  # $<$<COMPILE_LANGUAGE:CXX>:-Wno-variadic-macros>
+  # $<$<COMPILE_LANGUAGE:CXX>:-Wno-gnu-zero-variadic-macro-arguments>
+  $<$<COMPILE_LANGUAGE:CXX>:-D_GLIBCXX_DEBUG>
+  $<$<COMPILE_LANGUAGE:CXX>:-fno-exceptions>
+  $<$<COMPILE_LANGUAGE:CXX>:-Wno-vla-cxx-extension>
   $<$<COMPILE_LANGUAGE:CXX>:-fconstexpr-depth=${CONSTEXPR_DEPTH}>
 )
 
