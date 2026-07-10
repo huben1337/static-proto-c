@@ -8,7 +8,7 @@
 
 namespace estd {
 
-    template <uint64_t N>
+    template <uintmax_t N>
     using fitting_uint_t = std::conditional_t<
         (N > UINT32_MAX),
         uint64_t,
@@ -23,7 +23,7 @@ namespace estd {
         >
     >;
 
-    template <int64_t N>
+    template <intmax_t N>
     using fitting_int_t = std::conditional_t<
         (N < INT32_MIN || N > INT32_MAX),
         int64_t,
