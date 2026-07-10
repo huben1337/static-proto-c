@@ -14,7 +14,7 @@
 #include "../../core/AlignCounts.hpp"
 #include "../../parser/lexer_types.hpp"
 #include "../../util/logger.hpp"
-#include "../../helper/internal_error.hpp"
+#include "../../helper/error_exit.hpp"
 #include "../../helper/alloca.hpp"
 #include "../../estd/utility.hpp"
 #include "../../math/multiples.hpp"
@@ -82,9 +82,9 @@ struct TypeVisitor : TypeVisitorBase<State> {
 
     void on_string (const lexer::StringType& string_type) const {
         if constexpr (in_array) {
-            INTERNAL_ERROR("Variable length strings in arrays not supported");
+            error_exit("Variable length strings in arrays not supported");
         } else if constexpr (std::is_same_v<State, FixedVariantLevel::State>) {
-            INTERNAL_ERROR("Variable length strings in fixed variant are nonsensical");
+            error_exit("Variable length strings in fixed variant are nonsensical");
         } else {
             const SIZE stored_size_size = string_type.stored_size_size;
             state.template next_simple_var<SIZE::SIZE_1>();
@@ -170,12 +170,12 @@ struct TypeVisitor : TypeVisitorBase<State> {
 
 
     [[nodiscard]] result_t on_array (const lexer::ArrayType& /**/) const {
-        INTERNAL_ERROR("Dynamic array not supported yet");
+        error_exit("Dynamic array not supported yet");
     }
 
     void on_fixed_variant (lexer::FixedVariantType& fixed_variant_type) const {
         if constexpr (in_array && !in_fixed_size) {
-            INTERNAL_ERROR("Fixed variants in variabl sized arrays not supported yet");
+            error_exit("Fixed variants in variabl sized arrays not supported yet");
         } else {
 
         const uint16_t variant_count = fixed_variant_type.variant_count;
@@ -288,11 +288,11 @@ struct TypeVisitor : TypeVisitorBase<State> {
     }
 
     void on_packed_variant (const lexer::PackedVariantType&  /*unused*/) const {
-        INTERNAL_ERROR("Packed variant not supported yet");
+        error_exit("Packed variant not supported yet");
     }
 
     void on_dynamic_variant (const lexer::DynamicVariantType& /*unused*/) const {
-        INTERNAL_ERROR("Dynamic variant not supported yet");
+        error_exit("Dynamic variant not supported yet");
     }
 
     void on_struct (const lexer::StructDefinition& struct_definition) const {
@@ -302,7 +302,7 @@ struct TypeVisitor : TypeVisitorBase<State> {
     }
 
     void on_enum (const lexer::EnumDefinition& /*unused*/) const {
-        INTERNAL_ERROR("not implemented");
+        error_exit("not implemented");
     }
 
     template<typename NewNextType>

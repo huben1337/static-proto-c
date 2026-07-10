@@ -13,7 +13,7 @@
 #include <utility>
 #include <vector>
 
-#include "../helper/internal_error.hpp"
+#include "../helper/error_exit.hpp"
 #include "./lexer_types.hpp"
 #include "./lex_error.hpp"
 #include "./lex_helpers.re2c.hpp"
@@ -1470,7 +1470,7 @@ template <bool target_defined>
                     const char* /*unused*/,
                     IdentifierMap& /*unused*/
                 ) const {
-                    INTERNAL_ERROR("target must be a struct");
+                    error_exit("target must be a struct");
                 }
 
                 [[nodiscard]] const StructDefinition& on_fail (
@@ -1478,7 +1478,7 @@ template <bool target_defined>
                     const char* /*unused*/,
                     IdentifierMap& /*unused*/
                 ) const {
-                    INTERNAL_ERROR("target must be an identifier");
+                    error_exit("target must be an identifier");
                 }
             };
 
@@ -1490,7 +1490,7 @@ template <bool target_defined>
         if constexpr (target_defined) {
             return target;
         } else {
-            INTERNAL_ERROR("target not defined");
+            error_exit("target not defined");
         }
     }
 }

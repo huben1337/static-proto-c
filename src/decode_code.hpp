@@ -23,7 +23,7 @@
 #include "./parser/lexer_types.hpp"
 #include "./util/string_literal.hpp"
 #include "./util/logger.hpp"
-#include "./helper/internal_error.hpp"
+#include "./helper/error_exit.hpp"
 #include "./helper/alloca.hpp"
 #include "./estd/meta.hpp"
 #include "./fast_math/sum_of_digits.hpp"
@@ -830,7 +830,7 @@ struct TypeVisitor {
 
     [[nodiscard]] codegen::UnknownStructBase on_string (const lexer::StringType& string_type, codegen::UnknownStructBase&& code) const {
         if constexpr (in_array) {
-            INTERNAL_ERROR("Variable length strings in arrays are not supported");
+            error_exit("Variable length strings in arrays are not supported");
         } else {
             const SIZE size_size = string_type.size_size;
             const SIZE stored_size_size = string_type.stored_size_size;
@@ -970,7 +970,7 @@ struct TypeVisitor {
 
     [[nodiscard]] result_t on_array (const lexer::ArrayType& array_type, codegen::UnknownStructBase&& code) const {
         if constexpr (in_array) {
-            INTERNAL_ERROR("Dynamic array cant be nested");
+            error_exit("Dynamic array cant be nested");
         } else {
             const SIZE size_size = array_type.size_size;
             const SIZE stored_size_size = array_type.stored_size_size;
@@ -1113,12 +1113,12 @@ struct TypeVisitor {
     }
 
     [[nodiscard]] codegen::UnknownStructBase&& on_packed_variant (const lexer::PackedVariantType& /*unused*/, codegen::UnknownStructBase&& /*unused*/) const {
-        INTERNAL_ERROR("Packed variant not supported");
+        error_exit("Packed variant not supported");
     }
 
     [[nodiscard]] codegen::UnknownStructBase&& on_dynamic_variant (const lexer::DynamicVariantType& dynamic_variant_type, codegen::UnknownStructBase&& code) const {
         if constexpr (in_array) {
-            INTERNAL_ERROR("Dynamic array cant be nested");
+            error_exit("Dynamic array cant be nested");
         } else {
             const uint16_t variant_count = dynamic_variant_type.variant_count;
 
@@ -1293,7 +1293,7 @@ struct TypeVisitor {
     }
 
     [[nodiscard]] codegen::UnknownStructBase&& on_enum (const lexer::EnumDefinition&, codegen::UnknownStructBase&&) const {
-        INTERNAL_ERROR("not implemented");
+        error_exit("not implemented");
     }
 };
 
