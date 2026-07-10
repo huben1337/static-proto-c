@@ -526,7 +526,7 @@ struct InvariantOnlyIdProivder_ {
             static constexpr bool has_id = true;
 
             [[nodiscard]] constexpr const T& id (this const auto& self) {
-                self._data;
+                return self._data;
             }
         };
 
@@ -575,30 +575,29 @@ public:
 };
 
 struct InvariantWithBoolIdProvider_ {
+    template<typename>
+    struct InvariantOnlyIdProivder;
+    
+    template <>
+    struct InvariantOnlyIdProivder<void> {
+        static constexpr bool has_id = false;
+    };
+
+    template<typename U>
+    requires (std::is_integral_v<std::remove_reference_t<U>>)
+    struct InvariantOnlyIdProivder<U> {
+    private:
+        using id_t = estd::fitting_uint_t<(size_t{1} << ((sizeof(U) * 8) + 1)) - 1>;
+    public:
+        static constexpr bool has_id = true;
+
+        [[nodiscard]] constexpr id_t id (this const auto& self) {
+            return (static_cast<id_t>(static_cast<U>(self._data)) << 1) | self.bool_tag;
+        }
+    };
+
     template <typename T>
     struct make {
-        template<typename>
-        struct InvariantOnlyIdProivder;
-        
-        template <>
-        struct InvariantOnlyIdProivder<void> {
-            static constexpr bool has_id = false;
-        };
-
-        template<typename U>
-        requires (std::is_integral_v<std::remove_reference_t<U>>)
-        struct InvariantOnlyIdProivder<U> {
-        private:
-            using id_t = estd::fitting_uint_t<(size_t{1} << ((sizeof(U) * 8) + 1)) - 1>;
-        public:
-            static constexpr bool has_id = true;
-
-            [[nodiscard]] constexpr id_t id (this const auto& self) {
-                return (static_cast<id_t>(static_cast<U>(self._data)) << 1) | self.bool_tag;
-            }
-        };
-
-    
         using type = InvariantOnlyIdProivder<
             typename first_applicable_conversion_target<
                 T,
@@ -614,15 +613,7 @@ struct InvariantWithBoolIdProvider_ {
 
     template<std::integral T>
     struct make<T> {
-        struct InvariantOnlyIdProivder {
-            static constexpr bool has_id = true;
-
-            [[nodiscard]] constexpr const T& id (this const auto& self) {
-                self._data;
-            }
-        };
-
-        using type = InvariantOnlyIdProivder;
+        using type = InvariantOnlyIdProivder<T>;
     };
 };
 
@@ -866,6 +857,7 @@ constexpr auto for_ (F&& lambda) {
                     }
                 case FlowControl::kind_t::BREAK:
                     FLOW_BREAK();
+                case FlowControl::kind_t::RETURN:
                 default:
                     FLOW_RETURN();
             }
