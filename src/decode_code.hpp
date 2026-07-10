@@ -1409,7 +1409,7 @@ inline void generate (
     for (size_t i = 0; ; i++) {
         auto code = codegen::create_code(std::move(code_buffer))
         .line("#include \"lib/lib.hpp\"")
-        .line("");
+        .line();
 
         auto&& struct_code = std::move(code)
         ._struct(struct_name)
@@ -1451,15 +1451,13 @@ inline void generate (
 
         if (is_last) {
             console.info(AlignMembersBase<int, SIZE::SIZE_8, SIZE::SIZE_2>{1, 2, 3});
-            #define DO_WRITE_OUTPUT 1
-            #if DO_WRITE_OUTPUT
-            const auto write_result = output_file.write(code_done.data(), code_done.size());
-            if (write_result.has_error()) {
-                std::perror("write failed");
-                std::exit(1);
-            }
-            #endif
-            #undef DO_WRITE_OUTPUT
+            std::ignore = output_file.write(
+                code_done.data(),
+                code_done.size(),
+                [](const auto e) {
+                    error_exit("Failed to write output file: ", std::strerror(e));
+                }
+            );
         }
 
         code_buffer = std::move(code_done).steal_buffer();

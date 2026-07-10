@@ -6,7 +6,7 @@
 namespace sys {
 
 enum class ERRNO : uint8_t {
-    NONE = 0,
+    NONE = 255,
     NOTEMPTY = ENOTEMPTY,
     LOOP = ELOOP,
     WOULDBLOCK = EWOULDBLOCK,
@@ -105,7 +105,7 @@ enum class ERRNO : uint8_t {
 };
 
 enum class CLOSE_ERROR : uint8_t {
-    NONE = 0,
+    NONE = 255,
     BADF = EBADF,
     INT = EINTR,
     IO = EIO,
@@ -114,7 +114,7 @@ enum class CLOSE_ERROR : uint8_t {
 };
 
 enum class OPEN_ERROR : uint8_t {
-    NONE = 0,
+    NONE = 255,
     ACCES = EACCES,
     BADF = EBADF,
     BUSY = EBUSY,
@@ -144,7 +144,7 @@ enum class OPEN_ERROR : uint8_t {
 };
 
 enum class READ_ERROR : uint8_t {
-    NONE = 0,
+    NONE = 255,
     AGAIN = EAGAIN,
     WOULDBLOCK = EWOULDBLOCK,
     BADF = EBADF,
@@ -161,7 +161,7 @@ enum class READ_ERROR : uint8_t {
 };
 
 enum class WRITE_ERROR : uint8_t {
-    NONE = 0,
+    NONE = 255,
     AGAIN = EAGAIN,
     WOULDBLOCK = EWOULDBLOCK,
     BADF = EBADF,
@@ -178,7 +178,7 @@ enum class WRITE_ERROR : uint8_t {
 };
 
 enum class STAT_ERROR : uint8_t {
-    NONE = 0,
+    NONE = 255,
     BADF = EBADF,
     IO = EIO,
     OVERFLOW = EOVERFLOW,

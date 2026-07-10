@@ -18,8 +18,7 @@
 int main (const int argc, const char* const* const argv) {
     console.debug("spc");
     if (argc <= 2) {
-        console.error("no output and/or input supplied");
-        return 1;
+        error_exit("no output and/or input supplied");
     }
 
     const std::string input_path {argv[1]};
@@ -31,15 +30,18 @@ int main (const int argc, const char* const* const argv) {
             fs::OPEN_FLAGS::RDONLY
         >{},
         {},
-        [](const sys::OPEN_ERROR, const std::string& path) {
-            console.error("Failed to open input file: ", path);
+        [&input_path](const sys::OPEN_ERROR) {
+            error_exit("Failed to open input file: ", input_path);
         }
     );
 
-    auto input_file_stat = input_file.stat([](const sys::STAT_ERROR) {
-        std::perror("Failed to get file stats for input file.");
+    const auto input_file_stat = input_file.stat([](const sys::STAT_ERROR) {
+        error_exit("Failed to get file stats for input file.");
     });
-    fs::assert_regular(input_path, input_file_stat);
+
+    if (!fs::is_regular(input_file_stat)) {
+        error_exit("Expected regular file for input.");
+    }
 
     global::input::file_path = fs::realpath(input_path);
     
@@ -54,31 +56,38 @@ int main (const int argc, const char* const* const argv) {
             fs::PERMISSION_MODE::IRUSR,
             fs::PERMISSION_MODE::IWUSR
         >{},
-        [](const sys::OPEN_ERROR, const std::string& path) {
-            console.error("Failed to open output file: ", path);
+        [&output_path](const sys::OPEN_ERROR) {
+            error_exit("Failed to open output file: ", output_path);
         }
     );
     
-    fs::assert_regular(output_path, output_file.stat([](const sys::STAT_ERROR) {
-        std::perror("Failed to get file stats for output file.");
-    }));
+    if (!fs::is_regular(output_file.stat([](const sys::STAT_ERROR) {
+        error_exit("Failed to get file stats for output file.");
+    }))) {
+        error_exit("Expected regular file for outupt.");
+    }
 
     if (input_file_stat.st_size <= 0) {
-        console.error("Input file had invalid size of: ", input_file_stat.st_size);
-        return 1;
+        error_exit("Input file had invalid size of: ", input_file_stat.st_size);
     }
     const size_t input_file_size = gsl::narrow_cast<size_t>(input_file_stat.st_size);
 
-    char input_buffer[input_file_size + 1];
-    const auto read_result = input_file.read(input_buffer, input_file_size);
-    if (read_result.has_error()) {
-        std::perror("Failed to read input file.");
-    }
+    char input_buffer[input_file_size + 1];    
 
-    const size_t read_input_length = read_result.uvalue();
+    const size_t read_input_length = input_file
+        .read(
+            input_buffer,
+            input_file_size,
+            [](const auto e) {
+                error_exit("Failed to read input file: ", std::strerror(e));
+            },
+            [](const auto& result) {
+                return gsl::narrow_cast<size_t>(result);
+            }
+        );
+
     if (read_input_length != input_file_size) {
-        console.error("read size mismatch");
-        return 1;
+        error_exit("read size mismatch");
     }
 
     input_buffer[input_file_size] = 0; // Null termineate input for lexer
