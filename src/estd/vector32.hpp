@@ -67,7 +67,7 @@ struct vector32 {
                     T* const end = _data + _position;
                     T* write = new_data;
                     for (T* read = _data; read != end; ++read, ++write) {
-                        ::new (write) T(std::move(*read)); //TODO Evaluate if this even hurts performance for types which are trivially copy-able
+                        std::construct_at(write, std::move(*read));
                         if (!std::is_trivially_destructible_v<T>) {
                             std::destroy_at(read);
                         }
@@ -267,6 +267,8 @@ struct vector32 {
             }
         }
 
+    private:
+        template<bool do_value_initialization>
         void resize(uint32_t n)
         {
             if (n <= _position) {
@@ -283,12 +285,28 @@ struct vector32 {
                 reallocate(std::max(n, 8U));
             }
 
-            if constexpr (!std::is_trivially_default_constructible_v<T> ||
-                          !std::is_trivially_copyable_v<T>) {
-                std::uninitialized_default_construct(_data + _position, _data + n);
+
+            if constexpr (do_value_initialization) {
+                std::uninitialized_value_construct(_data + _position, _data + n);
+            } else {
+                if constexpr (!std::is_trivially_default_constructible_v<T>
+                    || !std::is_trivially_copyable_v<T>) {
+                    std::uninitialized_default_construct(_data + _position, _data + n);
+                }
             }
 
             _position = n;
+        }
+
+    public:
+        void resize(uint32_t n)
+        {
+            resize<true>(n);
+        }
+
+        void uninitialized_resize(uint32_t n)
+        {
+            resize<false>(n);
         }
     };
 }

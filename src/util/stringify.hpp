@@ -249,14 +249,14 @@ namespace stringify {
         }
 
         const uint32_t old_size = buffer.size();
-        buffer.resize(old_size + gsl::narrow_cast<uint32_t>(size));
+        buffer.uninitialized_resize(old_size + gsl::narrow_cast<uint32_t>(size));
         
         char* const begin = buffer.data() + old_size;
         char* dst = begin;
         ((dst = detail::write_string(dst, std::forward<Args>(args))), ...);
         assert(dst >= begin);
         if constexpr (detail::any_needs_allocator_v<std::remove_cvref_t<Args>...>) {
-            buffer.resize(gsl::narrow_cast<uint32_t>(dst - buffer.data()));
+            buffer.uninitialized_resize(gsl::narrow_cast<uint32_t>(dst - buffer.data()));
         }
     }
 
