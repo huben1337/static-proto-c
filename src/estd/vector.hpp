@@ -6,15 +6,15 @@
 
 namespace estd {
    
-namespace {
+namespace detail {
 
 template <typename T>
-constexpr void move_append_ (std::vector<T>& dest, const T& src) {
+constexpr void move_append (std::vector<T>& dest, const T& src) {
     dest.push_back(src);
 }
 
 template <typename T>
-constexpr void move_append_ (std::vector<T>& dest, T&& src) {
+constexpr void move_append (std::vector<T>& dest, T&& src) {
     dest.push_back(std::forward<T>(src));
 }
 
@@ -27,12 +27,12 @@ constexpr void move_append_vector (std::vector<T>& dest, const std::vector<T>& s
 }
 
 template <typename T>
-constexpr void move_append_ (std::vector<T>& dest, std::vector<T>&& src) {
-    move_append_vector(dest, src);
+constexpr void move_append (std::vector<T>& dest, std::vector<T>&& src) {
+    move_append_vector(dest, std::move(src));
 }
 
 template <typename T>
-constexpr void move_append_ (std::vector<T>& dest, std::vector<T>& src) {
+constexpr void move_append (std::vector<T>& dest, std::vector<T>& src) {
     move_append_vector(dest, src);
     src.clear();
 }
@@ -47,12 +47,12 @@ template <typename T>
     return src.size();
 }
 
-} // namespace
+} // namespace detail
 
 template <typename T, typename... SrcTs>
 constexpr void move_append (std::vector<T>& dest, size_t additionaly_reserved, SrcTs&&... srcs) {
-    dest.reserve(dest.size() + (element_count(srcs) + ...) + additionaly_reserved);
-    (move_append_(dest, std::forward<SrcTs>(srcs)), ...);
+    dest.reserve(dest.size() + (detail::element_count(srcs) + ...) + additionaly_reserved);
+    (detail::move_append(dest, std::forward<SrcTs>(srcs)), ...);
 }
 
 } // namespace estd
