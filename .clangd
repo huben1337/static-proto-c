@@ -4,36 +4,25 @@ CompileFlags:
   Add: [
     -Wno-unused-label,
     -Wno-uninitialized,
-    # -std=gnu++23,
-    # -march=native,
     -fconstexpr-depth=128,
     -fconstexpr-steps=10000000,
-    # -I/home/huben/Projects/static-proto-c/extern/nameof/include,
-    # -I/home/huben/Projects/static-proto-c/include/quickcpplib/include,
-    # -I/home/huben/Projects/static-proto-c/include/outcome/include,
-    # -I/home/huben/Projects/static-proto-c/include/llfio/include,
     ]
 Diagnostics:
   ClangTidy:
     Add: [
-      # clang-analyzer-core*,
-      # clang-analyzer-cplusplus*,
-      # clang-analyzer-deadcode*,
-      # clang-analyzer-nullability*,
-      # clang-analyzer-optin*,
-      # clang-analyzer-security*,
-      # clang-analyzer-unix*,
+      boost*,
       bugprone*,
       modernize*,
       performance*,
       readability*,
       cppcoreguidelines*,
-      # fuchsia-statically-constructed-objects,
-      # fuchsia-trailing-return,
+      misc*,
+      linuxkernel*,
       google-default-arguments,
       google-explicit-constructor,
       google-global-names-in-headers,
-      google-runtime-int
+      google-runtime-int,
+      google-runtime-operator,
     ]
     Remove: [
       bugprone-easily-swappable-parameters,
@@ -44,17 +33,15 @@ Diagnostics:
       readability-identifier-length,
       readability-magic-numbers,
       readability-function-cognitive-complexity,
-      # readability-else-after-return,
       cppcoreguidelines-avoid-c-arrays,
       cppcoreguidelines-avoid-magic-numbers,
       cppcoreguidelines-avoid-do-while,
       cppcoreguidelines-avoid-goto,
       cppcoreguidelines-init-variables,
-      cppcoreguidelines-init-variables,
       cppcoreguidelines-macro-usage,
-      # cppcoreguidelines-no-malloc,
       cppcoreguidelines-pro-bounds*,
-      # cppcoreguidelines-pro-type-reinterpret-cast
+      misc-static-assert,
+      misc-non-private-member-variables-in-classes
     ]
     CheckOptions:
       readability-braces-around-statements.ShortStatementLines: 1
@@ -65,4 +52,3 @@ Diagnostics:
       cppcoreguidelines-no-malloc.Allocations: "wcsdup;strdup;strndup;malloc;calloc;valloc;pvalloc;memalign;aligned_alloc;canonicalize_file_name;tempnam;_mm_malloc"
       cppcoreguidelines-no-malloc.Reallocations: "realloc;reallocarray"
       cppcoreguidelines-no-malloc.Deallocations: "free;free_sized;free_aligned_sized;_mm_free"
-

@@ -1,0 +1,20 @@
+---
+Checks:          'clang-diagnostic-*,boost-*,bugprone-*,modernize-*,performance-*,readability-*,cppcoreguidelines-*,misc-*,linuxkernel-*,google-default-arguments,google-global-names-in-headers,google-runtime-int,google-runtime-operator,-bugprone-easily-swappable-parameters,-modernize-use-auto,-modernize-use-trailing-return-type,-modernize-use-designated-initializers,-modernize-avoid-c-arrays,-readability-identifier-length,-readability-magic-numbers,-readability-function-cognitive-complexity,-cppcoreguidelines-avoid-c-arrays,-cppcoreguidelines-avoid-magic-numbers,-cppcoreguidelines-avoid-do-while,-cppcoreguidelines-avoid-goto,-cppcoreguidelines-macro-usage,-cppcoreguidelines-pro-bounds*,-misc-static-assert,-misc-non-private-member-variables-in-classes'
+WarningsAsErrors: ''
+HeaderFileExtensions:
+  - ''
+  - h
+  - hh
+  - hpp
+  - hxx
+ImplementationFileExtensions:
+  - c
+  - cc
+  - cpp
+  - cxx
+HeaderFilterRegex: '.*'
+ExcludeHeaderFilterRegex: 'nameof\.hpp'
+FormatStyle:     none
+User:            huben
+CheckOptions:    {}
+SystemHeaders:   false
