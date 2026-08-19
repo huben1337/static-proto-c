@@ -31,17 +31,17 @@ namespace ce {
         (lambda.template operator()<Values>(), ...);
     }
 
-    namespace {
+    namespace detail {
 
         template <size_t base, size_t value>
         consteval size_t _log ();
 
         template <size_t base, size_t exponent>
         consteval size_t _pow ();
-    }
+    } // namespace detail
 
     template <size_t base, size_t value>
-    constexpr size_t log = _log<base, value>();
+    constexpr size_t log = detail::_log<base, value>();
 
     template <size_t value>
     constexpr size_t log10 = log<10, value>;
@@ -55,7 +55,7 @@ namespace ce {
     template <size_t base>
     constexpr size_t pow<base, 0> = 1;
 
-    namespace {
+    namespace detail {
 
         template <size_t base, size_t value>
         consteval size_t _log () {
@@ -111,10 +111,10 @@ namespace ce {
 
             return exp + log2_mantissa;
         }
-    }
+    } // namespace detail
 
     template <Double value>
-    constexpr double log2f = _log2f<value>();
+    constexpr double log2f = detail::_log2f<value>();
 
     template <size_t value, size_t base>
     constexpr bool is_power_of = pow<base, log<base, value>> == value;
@@ -124,4 +124,7 @@ namespace ce {
 
     template <size_t N>
     constexpr bool is_power_of_two = (N != 0) && ((N & (N - 1)) == 0);
+
+    template <size_t value>
+    constexpr bool is_power_of<value, 2> = is_power_of_two<value>;
 }
