@@ -32,12 +32,15 @@ private:
     template <>
     constexpr StringLiteral outside_name_v<void> = "AlignMembersBase<>";
 
-protected:
+public:
     using outside_t = outside<Outside>::type;
+
+    friend outside_t;
+
+private:
     static constexpr StringLiteral outside_name = outside_name_v<Outside>;
     static constexpr size_t alignments_count = alignments::size;
 
-private:
     T align[alignments_count];
 
     template <SIZE... alignments>
@@ -45,7 +48,7 @@ private:
         : align{(static_cast<void>(alignments), T{})...} {}
     
 public:
-    constexpr explicit AlignMembersBase () requires (std::is_default_constructible_v<T>)
+    constexpr AlignMembersBase () requires (std::is_default_constructible_v<T>)
         : AlignMembersBase{alignments{}} {}
 
     constexpr explicit AlignMembersBase (const T (&align)[alignments_count])
@@ -55,15 +58,9 @@ public:
      * @param aligns Values for alignments in ascending order.
      */
     template <typename... U>
-    requires (alignments_count > 1 && sizeof...(U) == alignments_count)
-    // NOLINTNEXTLINE(google-explicit-constructor)
-    constexpr AlignMembersBase (U&&... aligns)
+    requires (alignments_count > 0 && sizeof...(U) == alignments_count)
+    constexpr explicit(sizeof...(U) == 1) AlignMembersBase (U&&... aligns)
         : align{std::forward<U>(aligns) ...} {}
-
-    template <typename U>
-    requires (alignments_count == 1)
-    constexpr explicit AlignMembersBase (U&& align)
-        : align{std::forward<U>(align)} {}
 
     #define ALIGN_MEMBER_GET_CT_ARG(CONST_ATTR)                                     \
     template <SIZE alignment>                                                       \
