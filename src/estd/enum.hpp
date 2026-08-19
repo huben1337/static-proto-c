@@ -12,12 +12,14 @@ namespace estd {
 
 template <std::integral T, typename Derived>
 struct enum_ {
+    friend Derived;
+
     using value_t = T;
     static constexpr StringLiteral type_name {nameof::nameof_type<Derived>()};
 
     [[deprecated("Internal field.")]] value_t _value;
 
-protected:
+private:
     constexpr explicit enum_ (const value_t value) : _value(value) {
         static_assert(std::is_base_of_v<enum_, Derived>, "Derived must inherit from enum_<T, Derived>");
     }
