@@ -24,11 +24,11 @@ namespace ce {
 
     template <typename T, T... Values, typename F>
     constexpr void for_ (F&& lambda) {
-        (std::forward<F>(lambda).template operator()<Values>(), ...);
+        (lambda.template operator()<Values>(), ...);
     }
     template <typename T, T... Values, typename F>
     constexpr void for_ (F&& lambda, std::integer_sequence<T, Values...> /*unused*/) {
-        (std::forward<F>(lambda).template operator()<Values>(), ...);
+        (lambda.template operator()<Values>(), ...);
     }
 
     namespace {
