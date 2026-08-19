@@ -1,3 +1,6 @@
 [submodule "extern/nameof"]
 	path = extern/nameof
 	url = https://github.com/Neargye/nameof
+[submodule "extern/ut"]
+	path = extern/ut
+	url = https://github.com/boost-ext/ut.git
