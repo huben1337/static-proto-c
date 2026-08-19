@@ -4,12 +4,37 @@ struct B1 { a: array<uint64, 100..200>; b: variant<A1, string<20..50>>   ; c: st
 struct A2 { a: uint32; b: uint32; c: uint16; d: uint8; e: uint32; f: uint8; g: uint8; }
 struct B2 { a: uint64; b: uint64; c: uint8; }
 struct A3 { a: variant<uint64, uint64>; b: uint64; }
-struct C2 { a: array<variant<A3, B2>, 1000>; b: array<A2, 1000..1001>; }
+struct C2 { a: array<variant<A3, B2>, 1000>; b: array<A2, 1000>; }
 
 struct D2 { a: int32; b: variant<int8>; }
 
-struct E2 { a: array<variant<int64, int32>, 1000>; }
+struct F2 { a: uint64; }
+struct G2 { a: array<uint64, 1000>; }
 
-target C2;
+struct E2 { c: variant<F2, F2>;  a: array<variant<A3, B2>, 1000>; b: array<variant<A3, B2>, 1000>; }
+
+struct F3 { a: variant<C2, F2> [[max_wasted=10000000]]; }
+
+
 
 struct B3 { a: uint64; b: uint32; }
+
+struct F { f: uint8; }
+
+struct E { e: variant<uint64, uint64>; }
+
+struct D { d: variant<E, E>; }
+
+struct C { c: variant<D, D>; }
+
+struct B { b: variant<C, uint32>; }
+
+struct A { a: variant<B, uint32>; }
+
+struct T1 { a1: uint64; b1: uint32; c1: array<uint8, 69>; }
+
+struct T2 { a2: array<uint32, 4>; b2: uint32; c2: array<uint16, 4>; }
+
+struct TEST { test: variant<T1, T2>; }
+
+target F3;
