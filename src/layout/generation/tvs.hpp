@@ -1,6 +1,8 @@
 #pragma once
 
 #include <algorithm>
+#include <cassert>
+#include <cstddef>
 #include <cstdint>
 #include <gsl/pointers>
 #include <gsl/util>
@@ -20,11 +22,11 @@
 #include "../../core/AlignSizes.hpp"
 #include "../../estd/class_constraints.hpp"
 #include "../../estd/ranges.hpp"
+#include "../../estd/array.hpp"
 #include "../../math/mod1.hpp"
 #include "../../math/multiples.hpp"
 #include "../../subset_sum_solving/dp_bitset_base.hpp"
 #include "../../util/logger.hpp"
-#include "../../helper/alloca.hpp"
 
 namespace layout::generation {
 
@@ -34,11 +36,16 @@ enum class STATE_TYPE : uint8_t {
     FIXED_VARIANT_LEVEL
 };
 
-
 struct Queued {
     std::vector<QueuedField> fields;
     uint64_t field_size_sum = 0;
     uint64_t modulated_field_size_sum = 0;
+    estd::array<dp_bitset_base::word_t> cached_bitset_words;
+    size_t cached_bitset_field_count = 0;
+
+    constexpr void invalidate_cached_bitset () {
+        cached_bitset_field_count = 0;
+    }
 
     void increment_sum (const uint64_t size) {
         field_size_sum += size;
@@ -98,12 +105,12 @@ struct MutableStateBase {
 
 
 // O(n * t) | 0 < t < MAX_SUM
-inline void generate_sum_subset_chains (const uint64_t target, const std::vector<QueuedField>& queued_fields, const std::span<uint16_t> sum_chains) {
+inline estd::array<uint16_t> generate_sum_subset_chains (const uint64_t target, const std::vector<QueuedField>& queued_fields) {
     constexpr uint16_t empty_chain_link = static_cast<uint16_t>(-1);
     
     BSSERT(target != 0, "[subset_sum_perfect::solve] invalid target: ", target);
 
-    // const std::unique_ptr<uint16_t[]> sum_chains = std::make_unique_for_overwrite<uint16_t[]>(target + 1);
+    estd::array<uint16_t> sum_chains {target + 1};
     sum_chains[0] = uint16_t{0};
     std::uninitialized_fill_n(sum_chains.data() + 1, target, empty_chain_link);
     
@@ -127,7 +134,7 @@ inline void generate_sum_subset_chains (const uint64_t target, const std::vector
             i--;
         }
     
-        if (sum_chains[target] != empty_chain_link) return;
+        if (sum_chains[target] != empty_chain_link) return sum_chains;
     }
 
     BSSERT(false, "[subset_sum_perfect::solve] reached unreachable. target: ", target);
@@ -321,20 +328,74 @@ public:
 
     template<SIZE target_align>
     [[nodiscard]] constexpr uint64_t find_target () const {
+        Queued& queued = mutable_state.level().queued;
         constexpr uint8_t target_align_byte_size = target_align.byte_size();
-        const uint64_t queued_sum = mutable_state.level().queued.field_size_sum;
+        const uint64_t queued_sum = queued.field_size_sum;
         if (queued_sum < target_align_byte_size) return 0;
-        const uint64_t modulated_queued_sum = mutable_state.level().queued.modulated_field_size_sum;
+        const uint64_t modulated_queued_sum = queued.modulated_field_size_sum;
         const dp_bitset_base::num_t bitset_words_count = dp_bitset_base::bitset_word_count(modulated_queued_sum);
-        ALLOCA_UNSAFE_SPAN(bitset_words, dp_bitset_base::word_t, bitset_words_count)
-        dp_bitset_base::init_bits(bitset_words.data(), bitset_words_count);
-        for (const auto& e : mutable_state.level().queued.fields) {
+
+        gsl::not_null<dp_bitset_base::word_t*> bitset_words = [&]()->gsl::not_null<dp_bitset_base::word_t*> {
+            const auto old_cached_bitset_words_count = queued.cached_bitset_words.size();
+            if (old_cached_bitset_words_count == 0) {
+                queued.cached_bitset_words = estd::array<dp_bitset_base::word_t>{bitset_words_count};
+                
+                assert(queued.cached_bitset_field_count == 0);
+                dp_bitset_base::init_bits(
+                    queued.cached_bitset_words.data(),
+                    bitset_words_count
+                );
+
+                console.debug("find_target allocated buffer");
+                return queued.cached_bitset_words.data();
+            }
+
+            if (old_cached_bitset_words_count < bitset_words_count) {
+                estd::array<dp_bitset_base::word_t> new_bitset_words {bitset_words_count};
+
+                if (queued.cached_bitset_field_count == 0)  {
+                    dp_bitset_base::init_bits(
+                        new_bitset_words.data(),
+                        bitset_words_count
+                    );
+                } else {
+                    std::ranges::copy(queued.cached_bitset_words, new_bitset_words.begin());
+                    std::uninitialized_fill(
+                        new_bitset_words.begin() + old_cached_bitset_words_count,
+                        new_bitset_words.end(),
+                        dp_bitset_base::word_t{}
+                    );
+                }
+
+                queued.cached_bitset_words = std::move(new_bitset_words);
+
+                console.debug("find_target partial buffer reuse");
+                return queued.cached_bitset_words.data();
+            }
+
+            assert(old_cached_bitset_words_count == bitset_words_count);
+
+            if (queued.cached_bitset_field_count == 0)  {
+                dp_bitset_base::init_bits(
+                    queued.cached_bitset_words.data(),
+                    bitset_words_count
+                );
+            }
+
+            console.debug("find_target full buffer reuse");
+            return queued.cached_bitset_words.data();
+        }();
+
+        for (const auto& e : queued.fields | std::views::drop(queued.cached_bitset_field_count)) {
             BSSERT(e.size != 0);
-            dp_bitset_base::apply_num_unsafe(math::mod1(e.size, SIZE::MAX.byte_size()), bitset_words.data(), bitset_words_count);
+            dp_bitset_base::apply_num_unsafe(math::mod1(e.size, SIZE::MAX.byte_size()), bitset_words, bitset_words_count);
         }
+        queued.cached_bitset_field_count = queued.fields.size();
+
+        
         uint64_t target = math::last_multiple(modulated_queued_sum, target_align);
         for (;;) {
-            if (dp_bitset_base::bit_at(bitset_words.data(), target)) {
+            if (dp_bitset_base::bit_at(bitset_words, target)) {
                 return target;
             }
             if (target <= target_align_byte_size) return 0;
@@ -424,10 +485,8 @@ public:
         if (target == 0) return;
         console.debug("next_leaf enquing batch of size: ", target);
 
-        ALLOCA_UNSAFE_SPAN(sum_chains, uint16_t, target + 1);
-        generate_sum_subset_chains(target, level_mutable_state.queued.fields, sum_chains);
-
         Fields<target_align> fields;
+        auto sum_chains = generate_sum_subset_chains(target, level_mutable_state.queued.fields);
 
         uint64_t chain_idx = target;
         do {
@@ -449,6 +508,7 @@ public:
         // }
 
         std::erase_if(level_mutable_state.queued.fields, [](const QueuedField& e) { return e.size == 0; });
+        level_mutable_state.queued.invalidate_cached_bitset();
 
         // We should have inserted all possible field from queue
         BSSERT(find_target<target_align>() == 0);

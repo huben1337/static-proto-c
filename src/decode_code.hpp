@@ -1,6 +1,7 @@
 #pragma once
 
 #include <algorithm>
+#include <cassert>
 #include <chrono>
 #include <cstddef>
 #include <cstdint>
@@ -8,7 +9,6 @@
 #include <cstdio>
 #include <gsl/pointers>
 #include <gsl/util>
-#include <memory>
 #include <span>
 #include <string_view>
 #include <type_traits>
@@ -24,7 +24,6 @@
 #include "./util/string_literal.hpp"
 #include "./util/logger.hpp"
 #include "./helper/error_exit.hpp"
-#include "./helper/alloca.hpp"
 #include "./estd/meta.hpp"
 #include "./fast_math/sum_of_digits.hpp"
 #include "./fast_math/log.hpp"
@@ -32,7 +31,9 @@
 #include "./layout/generation/generate.hpp"
 #include "./estd/empty.hpp"
 #include "./sys/fs.hpp"
+#include "estd/array.hpp"
 #include "estd/ranges.hpp"
+#include "util/multi_alloc.hpp"
 #include "util/stringify.hpp"
 
 namespace decode_code {
@@ -1167,7 +1168,8 @@ struct TypeVisitor {
                     max_level_size_leafs
                 );
             }
-            ALLOCA_SAFE(sublevel_size_leafs_buffer, SizeLeaf, max_level_size_leafs);
+
+            estd::array<SizeLeaf> sublevel_size_leafs_buffer {max_level_size_leafs};
             
             for (uint16_t i = 0; i < variant_count; i++) {
                 const auto& type_meta = dynamic_variant_type.type_metas()[i];
@@ -1184,8 +1186,8 @@ struct TypeVisitor {
                     estd::conditionally<is_dynamic_variant_element<Args>>(unique_name, base_name),
                     offsets_accessor,
                     std::span<SizeLeaf>{
-                        sublevel_size_leafs_buffer,
-                        sublevel_size_leafs_buffer + level_size_leafs_count
+                        sublevel_size_leafs_buffer.begin(),
+                        level_size_leafs_count
                     },
                     &current_size_leaf_idx,
                     GenDynamicVariantLeafArgs{
@@ -1325,16 +1327,24 @@ inline void generate (
     const uint16_t total_var_leafs = total_top_level_var_leafs + total_variant_var_leafs;
 
     const std::string_view struct_name = target_struct.name;
-    // Any struct and therfore target requires at least one member has
-    ALLOCA_UNSAFE_SPAN(fixed_offsets, layout::FixedOffset, level_fixed_leafs_total + sublevel_fixed_leafs);
-    // std::ranges::uninitialized_fill(fixed_offsets, layout::FixedOffset::empty());
-    ALLOCA_SAFE_SPAN(var_offset_idx_ranges, estd::integral_range<uint64_t>, total_var_leafs);
-    // total_leafs has the fixed leaf count in its sum which is garunteed to be at least 1
-    ALLOCA_UNSAFE_SPAN(idx_map, uint16_t, total_leafs);
-    // std::ranges::uninitialized_fill(idx_map, static_cast<uint16_t>(-1));
 
-    ALLOCA_SAFE_SPAN(pack_infos, layout::ArrayPackInfo, target_struct_data.pack_count);
-    // std::ranges::uninitialized_fill(pack_infos, ArrayPackInfo{0, static_cast<uint16_t>(-1)});
+    multi_alloc pre_allocations {
+        alloc<layout::FixedOffset>(level_fixed_leafs_total + sublevel_fixed_leafs, layout::FixedOffset::empty()),
+        alloc<estd::integral_range<uint64_t>>(total_var_leafs),
+        alloc<uint16_t>(total_leafs),
+        alloc<layout::ArrayPackInfo>(target_struct_data.pack_count),
+        alloc<std::span<const uint64_t>>(total_var_leafs),
+        alloc<SizeLeaf>(level_size_leafs_count)
+    };
+
+    auto [
+        fixed_offsets,
+        var_offset_idx_ranges,
+        idx_map,
+        pack_infos,
+        var_offsets,
+        level_size_leafs
+    ] = pre_allocations.allocated();
 
     std::vector<uint64_t> var_offset_buffer;
     uint64_t var_leafs_start = 0;
@@ -1343,10 +1353,10 @@ inline void generate (
     constexpr size_t layout_bench_iterations = 1;
 
     for (size_t i = 0; i < layout_bench_iterations; i++) {
-        std::ranges::uninitialized_fill(fixed_offsets, layout::FixedOffset::empty());
-        std::ranges::uninitialized_default_construct(var_offset_idx_ranges);
-        std::ranges::uninitialized_fill(idx_map, static_cast<uint16_t>(-1));
-        std::ranges::uninitialized_fill(pack_infos, layout::ArrayPackInfo{0, static_cast<uint16_t>(-1)});
+        std::ranges::fill(fixed_offsets, layout::FixedOffset::empty());
+        std::ranges::fill(var_offset_idx_ranges, estd::integral_range<uint64_t>{});
+        std::ranges::fill(idx_map, static_cast<uint16_t>(-1));
+        std::ranges::fill(pack_infos, layout::ArrayPackInfo{0, static_cast<uint16_t>(-1)});
         var_offset_buffer.clear();
         auto generate_offsets_result = layout::generation::generate(
             target_struct,
@@ -1385,7 +1395,6 @@ inline void generate (
     //     level_size_leafs_count
     // );
 
-    ALLOCA_SAFE_SPAN(var_offsets, std::span<const uint64_t>, total_var_leafs);
     for (uint16_t i = 0; i < total_var_leafs; i++) {
         var_offsets[i] = var_offset_idx_ranges[i].access_subspan(var_offset_buffer);
     }
@@ -1400,7 +1409,6 @@ inline void generate (
         &current_map_idx
     };
 
-    ALLOCA_SAFE_SPAN(level_size_leafs, SizeLeaf, level_size_leafs_count);
     uint16_t current_size_leaf_idx = 0;
 
     const auto codegen_start_ts = std::chrono::high_resolution_clock::now();
@@ -1408,7 +1416,8 @@ inline void generate (
 
     for (size_t i = 0; ; i++) {
         auto code = codegen::create_code(std::move(code_buffer))
-        .line("#include \"lib/lib.hpp\"")
+        .line("#include <cstddef>")
+        .line("#include <cstdint>")
         .line();
 
         auto&& struct_code = std::move(code)

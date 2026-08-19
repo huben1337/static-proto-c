@@ -1,10 +1,10 @@
 #pragma once
 
 #include <algorithm>
+#include <cstddef>
 #include <cstdint>
 #include <gsl/pointers>
 #include <gsl/util>
-#include <memory>
 #include <span>
 #include <type_traits>
 #include <utility>
@@ -14,8 +14,8 @@
 #include "../../core/AlignCounts.hpp"
 #include "../../parser/lexer_types.hpp"
 #include "../../util/logger.hpp"
+#include "../../util/multi_alloc.hpp"
 #include "../../helper/error_exit.hpp"
-#include "../../helper/alloca.hpp"
 #include "../../estd/utility.hpp"
 #include "../../math/multiples.hpp"
 #include "../FixedOffsets.hpp"
@@ -201,9 +201,17 @@ struct TypeVisitor : TypeVisitorBase<State> {
         // console.debug("level fixed_idx range: ", level_fixed_idx_start, " - ", level_fixed_idx_end);
 
         uint64_t max_used_space = 0;
-        // variant_count > 0 is asserted during lexing
-        ALLOCA_UNSAFE_SPAN(variant_leaf_metas, VariantLeafMeta, variant_count);
-        ALLOCA_SAFE_SPAN(queued_fields_buffer, QueuedField, total_fixed_leafs + fixed_field_packs_total);
+
+        multi_alloc pre_allocations {
+            alloc<VariantLeafMeta>(variant_count),
+            alloc<QueuedField>(total_fixed_leafs + fixed_field_packs_total)
+        };
+
+        auto [
+            variant_leaf_metas,
+            queued_fields_buffer
+        ] = pre_allocations.allocated();
+
         uint16_t queued_fields_base = 0;
 
         uint16_t tmp_fixed_offset_idx_base = state.mutable_state.level().tmp_fixed_offset_idx;
@@ -332,10 +340,18 @@ struct GenerateResult {
 ) {    
     // uint64_t var_leaf_sizes[total_var_leafs];
     console.debug("total var leafs: ", total_var_leafs);
-    ALLOCA_SAFE_SPAN(var_leaf_sizes, uint64_t, total_var_leafs);
-    std::ranges::uninitialized_fill(var_leaf_sizes, static_cast<uint64_t>(-1));
-    ALLOCA_SAFE_SPAN(size_leafe_idxs, uint16_t, total_var_leafs);
-    std::ranges::uninitialized_fill(size_leafe_idxs, static_cast<uint16_t>(-1));
+
+    multi_alloc pre_allocations {
+        alloc<uint64_t>(total_var_leafs, static_cast<uint64_t>(-1)),
+        alloc<uint16_t>(total_var_leafs, static_cast<uint16_t>(-1)),
+        alloc<FixedOffset>(fixed_offsets.size(), FixedOffset::empty())
+    };
+
+    auto [
+        var_leaf_sizes,
+        size_leafe_idxs,
+        tmp_fixed_offsets
+    ] = pre_allocations.allocated();
 
     console.debug("level_fixed_leafs: ", level_fixed_leafs.counts());
     console.debug("level_fixed_variants: ", level_fixed_variants);
@@ -350,9 +366,6 @@ struct GenerateResult {
             create_positions(var_leaf_counts)
         }
     };
-
-    ALLOCA_UNSAFE_SPAN(tmp_fixed_offsets, FixedOffset, fixed_offsets.size());
-    std::ranges::uninitialized_fill(tmp_fixed_offsets, FixedOffset::empty());
 
     TypeVisitor<std::byte, TopLevel::State, false, true> top_level_visitor {
         TopLevel::State{
