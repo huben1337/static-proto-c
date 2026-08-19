@@ -4,11 +4,13 @@
 #include <concepts>
 #include <cstddef>
 #include <array>
+#include <cstdint>
 #include <cstdio>
 #include <ranges>
 #include <span>
 #include <string_view>
 #include <utility>
+#include <nameof.hpp>
 #include <type_traits>
 #include "../helper/ce.hpp"
 #include "../estd/utility.hpp"
@@ -50,8 +52,12 @@ private:
     )
         : data{str1[Indecies1]..., str2[Indecies2]..., '\0'} {}
 
-    template<size_t M, size_t ...Indecies>
-    consteval StringLiteral(const char (&str)[M], estd::variadic_v<Indecies...> /*unused*/)
+    // template<size_t M, size_t ...Indecies>
+    // consteval StringLiteral(const char (&str)[M], estd::variadic_v<Indecies...> /*unused*/)
+    //     : data{str[Indecies]..., '\0'} {}
+
+    template<size_t ...Indecies>
+    consteval StringLiteral(const char* str, estd::variadic_v<Indecies...> /*unused*/)
         : data{str[Indecies]..., '\0'} {}
 
     template<size_t ...Indecies>
@@ -69,6 +75,15 @@ public:
             expected_null_terminated_char_array();
         }
     }
+
+    consteval explicit StringLiteral(const nameof::cstring<N>& str)
+        : StringLiteral{str.begin(), estd::make_index_sequence<N>{}}
+    {}
+
+    consteval explicit StringLiteral(const std::string_view& sv)
+        : StringLiteral{sv.begin(), estd::make_index_sequence<N>{}}
+    {}
+
 
     consteval explicit StringLiteral(const char c) requires(N == 1)
         : data{c, '\0'} {}
@@ -179,6 +194,9 @@ private:
 
 template <size_t N, size_t M = N - 1>
 StringLiteral(const char (&str)[N]) -> StringLiteral<M>;
+
+template <uint16_t N>
+StringLiteral(const nameof::cstring<N>&) -> StringLiteral<N>;
 
 StringLiteral(char) -> StringLiteral<1>;
 
@@ -291,14 +309,19 @@ namespace string_literal {
     requires (std::is_invocable_r_v<std::string_view, T>)
     consteval auto from_ (T provider) {
         constexpr std::string_view sv = provider();
-        constexpr const char* begin = sv.begin();
-        constexpr size_t length = sv.length();
-        constexpr size_t N = length + (begin[length - 1] == 0 ? 0 : 1);
-        char data[N];
-        for (size_t i = 0; i < length; i++) {
-            data[i] = begin[i];
-        }
-        data[N - 1] = 0;
-        return StringLiteral<N - 1>{data};
+        return StringLiteral<sv.size()>{sv};
     }
+
+    template<typename T>
+    struct is_nameof_cstring : std::false_type {};
+
+    template<uint16_t N>
+    struct is_nameof_cstring<nameof::cstring<N>> : std::true_type {};
+
+    // template <typename T>
+    // requires (estd::invocable_r<T, is_nameof_cstring>)
+    // consteval auto from_ (T provider) {
+    //     constexpr auto str = provider();
+    //     return StringLiteral<str.size()>{str};
+    // }
 }

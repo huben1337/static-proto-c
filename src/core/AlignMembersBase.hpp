@@ -27,7 +27,7 @@ private:
     };
 
     template <typename Outside_>
-    static constexpr StringLiteral outside_name_v = string_literal::from_([](){ return nameof::nameof_type<Outside>(); });
+    static constexpr StringLiteral outside_name_v {nameof::nameof_type<Outside>()};
 
     template <>
     constexpr StringLiteral outside_name_v<void> = "AlignMembersBase<>";

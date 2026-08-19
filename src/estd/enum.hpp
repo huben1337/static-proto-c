@@ -13,7 +13,7 @@ namespace estd {
 template <std::integral T, typename Derived>
 struct enum_ {
     using value_t = T;
-    static constexpr StringLiteral type_name = string_literal::from_([](){ return nameof::nameof_type<Derived>(); });
+    static constexpr StringLiteral type_name {nameof::nameof_type<Derived>()};
 
     [[deprecated("Internal field.")]] value_t _value;
 
