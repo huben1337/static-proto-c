@@ -1451,13 +1451,15 @@ inline void generate (
 
         if (is_last) {
             console.info(AlignMembersBase<int, SIZE::SIZE_8, SIZE::SIZE_2>{1, 2, 3});
-            std::ignore = output_file.write(
-                code_done.data(),
-                code_done.size(),
-                [](const auto e) {
-                    error_exit("Failed to write output file: ", std::strerror(e));
-                }
-            );
+            for (size_t written = 0; written < code_done.size();) {
+                written = output_file.write(
+                    code_done.data() + written,
+                    code_done.size() - written,
+                    [](const auto e) {
+                        error_exit("Failed to write output file: ", std::strerror(e));
+                    }
+                );
+            }
         }
 
         code_buffer = std::move(code_done).steal_buffer();

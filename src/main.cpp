@@ -74,20 +74,14 @@ int main (const int argc, const char* const* const argv) {
 
     char input_buffer[input_file_size + 1];    
 
-    const size_t read_input_length = input_file
-        .read(
-            input_buffer,
-            input_file_size,
+    for (size_t read = 0; read < input_file_size;) {
+        read = input_file.read(
+            input_buffer + read,
+            input_file_size - read,
             [](const auto e) {
                 error_exit("Failed to read input file: ", std::strerror(e));
-            },
-            [](const auto& result) {
-                return gsl::narrow_cast<size_t>(result);
             }
         );
-
-    if (read_input_length != input_file_size) {
-        error_exit("read size mismatch");
     }
 
     input_buffer[input_file_size] = 0; // Null termineate input for lexer
@@ -102,7 +96,7 @@ int main (const int argc, const char* const* const argv) {
     
     Buffer::backing_t initial_ast_buffer[BUFFER_INIT_ARRAY_SIZE<char, 4096>];
     Buffer ast_buffer {initial_ast_buffer};
-    const lexer::StructDefinition& target_struct = lexer::lex<false>(input_buffer, identifier_map, ast_buffer, {});
+    const lexer::StructDefinition& target_struct = lexer::lex<false>(global::input::start, identifier_map, ast_buffer, {});
 
     decode_code::generate(target_struct, std::move(output_file));
 
