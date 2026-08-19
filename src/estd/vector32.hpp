@@ -39,43 +39,70 @@ struct vector32 {
         uint32_t _capacity = 0;
         uint32_t _position = 0;
 
+        [[nodiscard]] static constexpr gsl::owner<T*> allocate_with_new_operator (const uint32_t capacity) {
+            static_assert(!use_c_style_allocation);
+            if constexpr (alignof(T) <= __STDCPP_DEFAULT_NEW_ALIGNMENT__) {
+                return static_cast<gsl::owner<T*>>(::operator new(sizeof(T) * capacity));
+            } else {
+                return static_cast<gsl::owner<T*>>(::operator new(sizeof(T) * capacity, std::align_val_t{alignof(T)}));
+            }
+        }
+
+        static constexpr void free_with_delete_operator(const gsl::owner<T*> data) {
+            static_assert(!use_c_style_allocation);
+            if constexpr (alignof(T) <= __STDCPP_DEFAULT_NEW_ALIGNMENT__) {
+                ::operator delete(data);
+            } else {
+                ::operator delete(data, std::align_val_t{alignof(T)});
+            }
+        }
+
+        constexpr void free_data() {
+            if constexpr (use_c_style_allocation) {
+                std::free(_data);
+            } else {
+                free_with_delete_operator(_data);
+            }
+        }
+
         [[nodiscard]] static constexpr uint32_t growth(uint32_t n)
         {
             return n < 8 ? 8 : n + (n / 2);
         }
 
-        constexpr void reallocate(uint32_t new_capacity)
+        constexpr void reallocate(const uint32_t new_capacity)
         {
-            if constexpr (use_c_style_allocation) {
-                _data = static_cast<gsl::owner<T*>>(std::realloc(_data, sizeof(T) * new_capacity));
-                
-                assert(_data != nullptr);
-            } else {
-                gsl::owner<T*> new_data;
-                
-                if constexpr (alignof(T) <= __STDCPP_DEFAULT_NEW_ALIGNMENT__) {
-                    new_data = static_cast<gsl::owner<T*>>(::operator new(sizeof(T) * new_capacity, std::nothrow));
+            if (new_capacity > 0) {
+                if constexpr (use_c_style_allocation) {
+                    _data = static_cast<gsl::owner<T*>>(std::realloc(_data, sizeof(T) * new_capacity));
+                    assert(_data != nullptr);
                 } else {
-                    new_data = static_cast<gsl::owner<T*>>(::operator new(sizeof(T) * new_capacity, std::align_val_t{alignof(T)}, std::nothrow));
-                }
+                    gsl::owner<T*> new_data = allocate_with_new_operator(new_capacity);
 
-                assert(new_data != nullptr);
-
-                if constexpr (std::is_trivially_move_constructible_v<T> && std::is_trivially_destructible_v<T>) {
-                    std::memcpy(new_data, _data, sizeof(T) * _position); //TODO Evalute performance with different copy approaches
-                } else {
-                    T* const end = _data + _position;
-                    T* write = new_data;
-                    for (T* read = _data; read != end; ++read, ++write) {
-                        std::construct_at(write, std::move(*read));
-                        if (!std::is_trivially_destructible_v<T>) {
-                            std::destroy_at(read);
+                    if (_data != nullptr) {
+                        if constexpr (std::is_trivially_move_constructible_v<T> && std::is_trivially_destructible_v<T>) {
+                            std::memcpy(new_data, _data, sizeof(T) * _position); //TODO Evalute performance with different copy approaches
+                        } else {
+                            T* const end = _data + _position;
+                            T* write = new_data;
+                            for (T* read = _data; read != end; ++read, ++write) {
+                                std::construct_at(write, std::move(*read));
+                                if (!std::is_trivially_destructible_v<T>) {
+                                    std::destroy_at(read);
+                                }
+                            }
                         }
-                    }
-                }
 
-                ::operator delete(_data);
-                _data = new_data;
+                        free_with_delete_operator(_data);
+                    }
+                    
+                    _data = new_data;
+                }
+            } else {
+                if (_data != nullptr) {
+                    free_data();
+                    _data = nullptr;
+                }
             }
 
             _capacity = new_capacity;
@@ -86,11 +113,7 @@ struct vector32 {
                 std::destroy_n(_data, _position);
             }
         
-            if (use_c_style_allocation) {
-                std::free(_data);
-            } else {
-                ::operator delete(_data);
-            }
+            free_data();
         }
 
         constexpr void reset() {
@@ -108,6 +131,8 @@ struct vector32 {
             resize(n);
         }
 
+        vector32(const vector32& other) = delete;
+
         constexpr vector32(vector32&& other)
             : _data(other._data),
             _capacity(other._capacity),
@@ -116,7 +141,7 @@ struct vector32 {
             other.reset();
         }
 
-        ~vector32()
+        constexpr ~vector32()
         {
             if (_data != nullptr) {
                 destroy();
@@ -124,7 +149,9 @@ struct vector32 {
             }
         }
 
-        vector32& operator=(vector32&& other)
+        vector32& operator=(const vector32& other) = delete;
+
+        constexpr vector32& operator=(vector32&& other)
         {
             if (this == &other) {
                 return *this;
