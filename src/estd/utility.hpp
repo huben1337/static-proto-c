@@ -82,7 +82,7 @@ namespace estd {
         static constexpr auto value = v;
     };
 
-    #if defined(__has_builtin)
+    #ifdef __has_builtin
     #  if __has_builtin(__type_pack_element)
     #    define HAS_TYPE_PACK_ELEMENT 1
     #  else
@@ -140,6 +140,8 @@ namespace estd {
     constexpr auto nth_v = decltype(_detail::nth::get(std::make_index_sequence<N>{}, _detail::nth::ValueWrapper<vs>{}...))::value;
 
     #endif
+
+    #undef HAS_TYPE_PACK_ELEMENT
     
     template <auto first, auto... rest>
     constexpr bool are_distinct_v = ((first != rest) && ...) && are_distinct_v<rest...>;

@@ -250,7 +250,7 @@ struct OptionalField<T, false> {
 
     template<typename U>
     requires (!std::is_same_v<OptionalField, std::remove_cvref_t<U>>)
-    constexpr OptionalField(U&&) {}
+    constexpr explicit OptionalField(U&& /*unused*/) {}
 };
 
 template <typename T>
@@ -259,7 +259,7 @@ struct OptionalField<T, true> {
 
     template<typename U>
     requires (!std::is_same_v<OptionalField, std::remove_cvref_t<U>>)
-    constexpr OptionalField(U&& value) : value(std::forward<U>(value)) {}
+    constexpr explicit OptionalField(U&& value) : value(std::forward<U>(value)) {}
 };
 
 struct LexTypeResult {
@@ -665,7 +665,7 @@ template <bool expect_fixed, bool get_allocated_type>
 [[nodiscard]] std::conditional_t<expect_fixed, LexFixedTypeResult, LexTypeResult> 
 lex_type (const char* YYCURSOR, Buffer &buffer, IdentifierMap &identifier_map) {
 
-    const char* typename_start; // Only initialized for non-simple types
+    [[maybe_unused]] const char* typename_start; // Only initialized for non-simple types
 
     #define ADD_SIMPLE_TYPE(TYPE) \
     return add_simple_type<expect_fixed, FIELD_TYPE::TYPE, get_allocated_type>(YYCURSOR, buffer);
@@ -1407,7 +1407,11 @@ template <bool is_signed>
 
 
 template <bool target_defined>
-[[nodiscard]] inline const StructDefinition& lex (const char* YYCURSOR, IdentifierMap &identifier_map, Buffer &buffer, std::conditional_t<target_defined, const StructDefinition&, estd::empty> target) {
+[[nodiscard]] inline const StructDefinition& lex (
+    const char* YYCURSOR,
+    IdentifierMap &identifier_map,
+    Buffer &buffer,
+    std::conditional_t<target_defined, const StructDefinition&, estd::empty> target [[clang::lifetimebound]]) {
     loop: {
     /*!local:re2c
 

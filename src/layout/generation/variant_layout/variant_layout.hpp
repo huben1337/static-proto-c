@@ -300,7 +300,7 @@ template <SIZE alignment, bool has_pre_selected>
                 const uint64_t target,
                 FieldConsumer field_consumer,
                 VariantLeafMeta& meta,
-                const pre_selected_range_t<has_pre_selected> pre_selected,
+                const pre_selected_range_t<has_pre_selected> pre_selected [[maybe_unused]] ,
                 const std::unique_ptr<const uint16_t[]>& sum_chains
             ) {
                 if constexpr (has_pre_selected) {

@@ -72,7 +72,8 @@ struct OffsetsAccessor {
         const uint16_t map_idx = (*current_map_idx)++;
         // console.debug("next_map_idx: ", map_idx);
         const uint16_t idx = idx_map[map_idx];
-        BSSERT(idx != static_cast<uint16_t>(-1), "next_map_idx: ", map_idx);
+        assert(map_idx != static_cast<uint16_t>(-1));
+        // BSSERT(idx != static_cast<uint16_t>(-1), "next_map_idx: ", map_idx);
         return idx;
     }
 
@@ -329,7 +330,7 @@ template <
 >
 requires(!std::is_reference_v<F>)
 [[nodiscard]] constexpr auto get_unique_name (const GenFixedArrayLeafArgs& /*unused*/, F&& on_element) {
-    return on_element();
+    return std::forward<F>(on_element)();
 }
 
 template <StringLiteral element_name>
@@ -346,7 +347,7 @@ template <
 >
 requires(!std::is_reference_v<F>)
 [[nodiscard]] constexpr auto get_unique_name (const GenArrayLeafArgs& /*unused*/, F&& on_element) {
-    return on_element();
+    return std::forward<F>(on_element)();
 }
 
 template <StringLiteral element_name = string_literal::empty, typename F = estd::empty>
@@ -811,7 +812,7 @@ struct TypeVisitor {
             .field("uint32_t", codegen::StringParts{"idx_", i});
         }
         if constexpr (is_dynamic_variant_element<Args>) {
-            BSSERT(level_size_leafs.size() == 0, "Unexpected state");
+            BSSERT(level_size_leafs.empty(), "Unexpected state");
         }
 
         if constexpr (is_array_element<Args>) {
@@ -945,7 +946,7 @@ struct TypeVisitor {
             .field("uint32_t", codegen::StringParts{"idx_", i});
         }
         if constexpr (is_dynamic_variant_element<Args>) {
-            BSSERT(level_size_leafs.size() == 0, "Unexpected state");
+            BSSERT(level_size_leafs.empty(), "Unexpected state");
         }
         
         if constexpr (is_array_element<Args>) {
@@ -1116,7 +1117,7 @@ struct TypeVisitor {
         }
     }
 
-    [[nodiscard]] codegen::UnknownStructBase&& on_packed_variant (const lexer::PackedVariantType& /*unused*/, codegen::UnknownStructBase&& /*unused*/) const {
+    [[nodiscard]] codegen::UnknownStructBase&& on_packed_variant (const lexer::PackedVariantType& /*unused*/, const codegen::UnknownStructBase& /*unused*/) const {
         error_exit("Packed variant not supported");
     }
 
@@ -1300,7 +1301,7 @@ struct TypeVisitor {
         }
     }
 
-    [[nodiscard]] codegen::UnknownStructBase&& on_enum (const lexer::EnumDefinition&, codegen::UnknownStructBase&&) const {
+    [[nodiscard]] codegen::UnknownStructBase&& on_enum (const lexer::EnumDefinition& /*unused*/, const codegen::UnknownStructBase& /*unused*/) const {
         error_exit("not implemented");
     }
 };

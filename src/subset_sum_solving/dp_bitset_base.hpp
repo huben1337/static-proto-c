@@ -62,7 +62,7 @@ constexpr uint32_t WORD_LANE_COUNT = WORD_BYTES / LANE_BYTES;
     return (estd::trivial_ptr_cast<uint8_t>(words)[target / 8] & (uint8_t{1} << (target % 8))) != 0;
 }
 
-enum OnesStrategys : uint8_t {
+enum class OnesStrategys : uint8_t {
     FULL_LUT,
     HYBRID_LUT_SCALAR,
     HYBRID_LUT_VECTOR,
@@ -70,7 +70,7 @@ enum OnesStrategys : uint8_t {
     ARITHMETIC_VECTOR
 };
 
-enum FillDirection : uint8_t {
+enum class FillDirection : uint8_t {
     TO,
     FROM
 };
@@ -79,7 +79,7 @@ namespace detail {
     template <FillDirection direction>
     [[nodiscard, gnu::always_inline]] constexpr slane_t make_partial_lane (const uint16_t n) {
         const uint8_t remaining = n % LANE_BITS;
-        if constexpr (direction == TO) {
+        if constexpr (direction == FillDirection::TO) {
             return std::bit_cast<slane_t>((lane_t{1} << remaining) - 1);
         } else {
             return std::bit_cast<slane_t>(-(lane_t{1} << remaining));
@@ -88,7 +88,7 @@ namespace detail {
 
     template <FillDirection direction>
     [[nodiscard, gnu::always_inline]] constexpr __mmask8 make_lane_value_mask (const __mmask8 full_lane_mask) {
-        if constexpr (direction == TO) {
+        if constexpr (direction == FillDirection::TO) {
             return full_lane_mask - 1;
         } else {
             return 0 - full_lane_mask;
@@ -98,14 +98,15 @@ namespace detail {
 
 
 // 0 <= n < WORD_BITS
-template <FillDirection direction, OnesStrategys strategy = HYBRID_LUT_VECTOR>
+template <FillDirection direction, OnesStrategys strategy = OnesStrategys::HYBRID_LUT_VECTOR>
 [[nodiscard, gnu::always_inline]] constexpr word_t ones (const uint16_t n) {
-    if constexpr (strategy == FULL_LUT) {
+    if constexpr (strategy == OnesStrategys::FULL_LUT) {
         struct Table {
             word_t data[WORD_BITS];
+            // NOLINTNEXTLINE(cppcoreguidelines-pro-type-member-init)
             consteval Table () {
                 for (size_t i = 0; i < WORD_BITS; i++) {
-                    data[i] = ones<direction, HYBRID_LUT_VECTOR>(i);
+                    data[i] = ones<direction, OnesStrategys::HYBRID_LUT_VECTOR>(i);
                 }
             }
         };
@@ -115,15 +116,16 @@ template <FillDirection direction, OnesStrategys strategy = HYBRID_LUT_VECTOR>
     } else {
         const uint16_t lane_idx = n / LANE_BITS;
 
-        if constexpr (strategy == HYBRID_LUT_SCALAR || strategy == HYBRID_LUT_VECTOR) {
+        if constexpr (strategy == OnesStrategys::HYBRID_LUT_SCALAR || strategy == OnesStrategys::HYBRID_LUT_VECTOR) {
             struct Table {
                 word_t data[WORD_LANE_COUNT];
+                // NOLINTNEXTLINE(cppcoreguidelines-pro-type-member-init)
                 consteval Table () {
                     for (size_t i = 0; i < WORD_LANE_COUNT; i++) {
                         word_t word {};
                         for (
-                            size_t j = direction == TO ? 0 : i;
-                            j < (direction == TO ? i : WORD_LANE_COUNT);
+                            size_t j = direction == FillDirection::TO ? 0 : i;
+                            j < (direction == FillDirection::TO ? i : WORD_LANE_COUNT);
                             j++
                         ) {
                             word[j] = -1;
@@ -136,7 +138,7 @@ template <FillDirection direction, OnesStrategys strategy = HYBRID_LUT_VECTOR>
 
             #define MAKE_WORD() full_lane_words.data[lane_idx]
 
-            if constexpr (strategy == HYBRID_LUT_SCALAR) {
+            if constexpr (strategy == OnesStrategys::HYBRID_LUT_SCALAR) {
                 return mmXXX_mask_set1_epi64(
                     MAKE_WORD(),
                     __mmask8{1} << lane_idx,
@@ -154,7 +156,7 @@ template <FillDirection direction, OnesStrategys strategy = HYBRID_LUT_VECTOR>
 
             #define MAKE_WORD() mmXXX_movm_epi64(detail::make_lane_value_mask<direction>(full_words_mask))
 
-            if constexpr (strategy == ARITHMETIC_SCALAR) {
+            if constexpr (strategy == OnesStrategys::ARITHMETIC_SCALAR) {
                 return mmXXX_mask_set1_epi64(
                     MAKE_WORD(),
                     full_words_mask,
@@ -186,7 +188,7 @@ inline void and_merge (word_t* const bigger_bits, word_t* const smaller_bits, co
 
         bigger_bits[j] = mmXXX_and_siXXX(
             bigger_bits[j],
-            mmXXX_or_siXXX(smaller_bits[i], ones<FROM>(left_over_bits))
+            mmXXX_or_siXXX(smaller_bits[i], ones<FillDirection::FROM>(left_over_bits))
         );
     }
 }
@@ -208,6 +210,7 @@ inline void and_merge (word_t* const bigger_bits, word_t* const smaller_bits, co
 #if __AVX512DQ__
 
 constexpr __m512i mm512_lsl_epi64_idxs[9] {
+    // NOLINTBEGIN(misc-redundant-expression)
     {0|0, 1|0, 2|0, 3|0, 4|0, 5|0, 6|0, 7|0},
     {7|8, 0|0, 1|0, 2|0, 3|0, 4|0, 5|0, 6|0},
     {6|8, 7|8, 0|0, 1|0, 2|0, 3|0, 4|0, 5|0},
@@ -217,6 +220,7 @@ constexpr __m512i mm512_lsl_epi64_idxs[9] {
     {2|8, 3|8, 4|8, 5|8, 6|8, 7|8, 0|0, 1|0},
     {1|8, 2|8, 3|8, 4|8, 5|8, 6|8, 7|8, 0|0},
     {0|8, 1|8, 2|8, 3|8, 4|8, 5|8, 6|8, 7|8}
+    // NOLINTEND(misc-redundant-expression)
 };
 
 #define mm512_lsl_epi64_(A, B, N) _mm512_permutex2var_epi64(A, mm512_lsl_epi64_idxs[N], B)
@@ -235,7 +239,7 @@ constexpr __m512i mm512_lsl_epi64_idxs[9] {
     word_t next_lane_bit_shifted = _mm512_slli_epi64(last_in, bit_shift);
 
     if (last_in_idx >= 1) {
-        for (num_t out_word_idx = last_out_idx; ; out_word_idx--) {
+        for (num_t out_word_idx = last_out_idx; out_word_idx > word_shift; out_word_idx--) {
             const num_t prev_idx = out_word_idx - word_shift - 1;
 
             word_t prev = words[prev_idx];
@@ -262,8 +266,6 @@ constexpr __m512i mm512_lsl_epi64_idxs[9] {
                 out_word_ptr[0],
                 mm512_lsl_epi64_(curr_bit_shifted, prev_bit_shifted, lane_shift)
             );
-
-            if (prev_idx == 0) break;
         }
     }
     {

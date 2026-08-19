@@ -1,6 +1,7 @@
 #pragma once
 
 #include "../../estd/empty.hpp"
+#include "../../estd/class_constraints.hpp"
 #include "../../estd/vector.hpp"
 #include "../../core/SIZE.hpp"
 #include "../../core/AlignMembersBase.hpp"
@@ -70,7 +71,7 @@ inline void add_to_align (
     } else {
         AlignedFields& target = fields.template get<to_align>();
         if (target.size_sum == 0) {
-            BSSERT(target.idxs.size() == 0);
+            BSSERT(target.idxs.empty());
             if constexpr (sizeof...(T) > 0) {
                 estd::move_append(first.idxs, 1, rest.idxs...);
                 first.size_sum += (rest.size_sum + ...);
@@ -80,7 +81,7 @@ inline void add_to_align (
             std::swap(target.idxs, first.idxs);
             std::swap(target.size_sum, first.size_sum);
         } else {
-            BSSERT(target.idxs.size() != 0);
+            BSSERT(!target.idxs.empty());
             add_to_align<to_align.next_bigger()>(level, i, fields, target, first, rest...);
         }
     }

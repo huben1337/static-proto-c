@@ -351,13 +351,13 @@ template <std::unsigned_integral T, const T max, const T min, bool get_digits>
     #pragma unroll
     for (size_t i = 1; i < max_digits; i++) {
         /*!local:re2c
-            [0-9]       { value = value * 10 + CHAR_TO_DIGIT('0');  continue;   }
+            [0-9]       { value = (value * 10) + CHAR_TO_DIGIT('0');  continue; }
             *           { RETURN_VALUE_CHECKED(10, i)                           }
         */
     }
     /*!local:re2c
-        [0-9]       { T new_value = value * 10 + CHAR_TO_DIGIT('0');    if (new_value < value) { UNEXPECTED_INPUT("value overflow"); }     value = new_value; goto expect_end;  }
-        *           { RETURN_VALUE_CHECKED(10, max_digits - 1)                                                                                                                  }
+        [0-9]       { T new_value = (value * 10) + CHAR_TO_DIGIT('0');    if (new_value < value) { UNEXPECTED_INPUT("value overflow"); }     value = new_value; goto expect_end; }
+        *           { RETURN_VALUE_CHECKED(10, max_digits - 1)                                                                                                                   }
     */
     expect_end:
     /*!local:re2c
@@ -372,12 +372,12 @@ template <std::signed_integral T, const T max, const T min, bool get_digits>
     #pragma unroll
     for (size_t i = 1; i < max_digits; i++) {
         /*!local:re2c
-            [0-9]       { value = value * 10 + CHAR_TO_DIGIT('0');  continue;   }
+            [0-9]       { value = (value * 10) + CHAR_TO_DIGIT('0');  continue; }
             *           { RETURN_VALUE_CHECKED(10, i)                           }
         */
     }
     /*!local:re2c
-        [0-9]       { T new_value = value * 10 + CHAR_TO_DIGIT('0');  if (new_value < value) { UNEXPECTED_INPUT("value overflow"); } else { value = new_value; goto expect_end; }   }
+        [0-9]       { T new_value = (value * 10) + CHAR_TO_DIGIT('0');  if (new_value < value) { UNEXPECTED_INPUT("value overflow"); } else { value = new_value; goto expect_end; } }
         *           { RETURN_VALUE_CHECKED(10, max_digits - 1)                                                                                                                      }
     */
     expect_end:
@@ -393,12 +393,12 @@ template <std::signed_integral T, const T max, const T min, bool get_digits>
     #pragma unroll
     for (size_t i = 1; i < max_digits; i++) {
         /*!local:re2c
-            [0-9]       { value = value * 10 - CHAR_TO_DIGIT('0');  continue;   }
+            [0-9]       { value = (value * 10) - CHAR_TO_DIGIT('0');  continue; }
             *           { RETURN_VALUE_CHECKED(10, i)                           }
         */
     }
     /*!local:re2c
-        [0-9]       { T new_value = value * 10 - CHAR_TO_DIGIT('0');  if (new_value > value) { UNEXPECTED_INPUT("value overflow"); } else { value = new_value; goto expect_end; }   }
+        [0-9]       { T new_value = (value * 10) - CHAR_TO_DIGIT('0');  if (new_value > value) { UNEXPECTED_INPUT("value overflow"); } else { value = new_value; goto expect_end; } }
         *           { RETURN_VALUE_CHECKED(10, max_digits - 1)                                                                                                                      }
     */
     expect_end:
@@ -414,7 +414,7 @@ template <std::unsigned_integral T, const T max, const T min, bool get_digits>
     #pragma unroll
     for (size_t i = 1; i < ce::log10<max> + 2; i++) {
         /*!local:re2c
-            [0-9]       { T new_value = value * 10 + CHAR_TO_DIGIT('0');    if (new_value < value) { UNEXPECTED_INPUT("value overflow"); }     value = new_value;  continue;    }
+            [0-9]       { T new_value = (value * 10) + CHAR_TO_DIGIT('0');    if (new_value < value) { UNEXPECTED_INPUT("value overflow"); }     value = new_value;  continue;  }
             *           { RETURN_VALUE_CHECKED(10, i)                                                                                                                           }
         */
     }

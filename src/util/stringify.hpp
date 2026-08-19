@@ -68,9 +68,9 @@ namespace stringify {
     constexpr size_t get_str_size (const uint64_t value) {
         if (value == 0) {
             return 1;
-        } else {
-            return fast_math::log_unsafe<10>(value) + 1;
         }
+
+        return fast_math::log_unsafe<10>(value) + 1;
     }
 
     template <StringLiteral seperator, typename ...T, size_t... Indices>
@@ -125,18 +125,18 @@ namespace stringify {
         if (value == 0) {
             *dst = '0';
             return dst + 1;
-        } else {
-            const uint32_t i = fast_math::log_unsafe<10>(value);
-            char* const end = dst + i + 1;
-            dst += i;
+        }
+
+        const uint32_t i = fast_math::log_unsafe<10>(value);
+        char* const end = dst + i + 1;
+        dst += i;
+        *(dst--) = gsl::narrow_cast<char>('0' + (value % 10));
+        value /= 10;
+        while (value > 0) {
             *(dst--) = gsl::narrow_cast<char>('0' + (value % 10));
             value /= 10;
-            while (value > 0) {
-                *(dst--) = gsl::narrow_cast<char>('0' + (value % 10));
-                value /= 10;
-            }
-            return end;
         }
+        return end;
     }
 
     template <typename T>

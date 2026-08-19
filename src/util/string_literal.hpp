@@ -52,11 +52,7 @@ private:
     )
         : data{str1[Indecies1]..., str2[Indecies2]..., '\0'} {}
 
-    // template<size_t M, size_t ...Indecies>
-    // consteval StringLiteral(const char (&str)[M], estd::variadic_v<Indecies...> /*unused*/)
-    //     : data{str[Indecies]..., '\0'} {}
-
-    template<size_t ...Indecies>
+    template<size_t... Indecies>
     consteval StringLiteral(const char* str, estd::variadic_v<Indecies...> /*unused*/)
         : data{str[Indecies]..., '\0'} {}
 
@@ -317,11 +313,4 @@ namespace string_literal {
 
     template<uint16_t N>
     struct is_nameof_cstring<nameof::cstring<N>> : std::true_type {};
-
-    // template <typename T>
-    // requires (estd::invocable_r<T, is_nameof_cstring>)
-    // consteval auto from_ (T provider) {
-    //     constexpr auto str = provider();
-    //     return StringLiteral<str.size()>{str};
-    // }
 }

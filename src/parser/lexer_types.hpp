@@ -12,7 +12,6 @@
 #include <utility>
 #include <boost/unordered/unordered_flat_map.hpp>
 
-#include "../base.hpp"
 #include "../container/memory.hpp"
 #include "./memory_helpers.hpp"
 #include "../estd/utility.hpp"
@@ -22,12 +21,12 @@
 
 namespace lexer {
 
-enum KEYWORDS : uint8_t {
+enum class KEYWORDS : uint8_t {
     STRUCT,
     ENUM,
 };
 
-enum FIELD_TYPE : uint8_t {
+enum class FIELD_TYPE : uint8_t {
     BOOL,
     UINT8,
     UINT16,
@@ -49,36 +48,34 @@ enum FIELD_TYPE : uint8_t {
     IDENTIFIER
 };
 
-namespace {
-    template <FIELD_TYPE field_type>
-    constexpr SIZE type_alignment {};
+template <FIELD_TYPE field_type>
+constexpr SIZE type_alignment {};
 
-    template <>
-    constexpr SIZE type_alignment<FIELD_TYPE::UINT8  > = SIZE::SIZE_1;
-    template <>
-    constexpr SIZE type_alignment<FIELD_TYPE::INT8   > = SIZE::SIZE_1;
-    template <>
-    constexpr SIZE type_alignment<FIELD_TYPE::BOOL   > = SIZE::SIZE_1;
+template <>
+inline constexpr SIZE type_alignment<FIELD_TYPE::UINT8  > = SIZE::SIZE_1;
+template <>
+inline constexpr SIZE type_alignment<FIELD_TYPE::INT8   > = SIZE::SIZE_1;
+template <>
+inline constexpr SIZE type_alignment<FIELD_TYPE::BOOL   > = SIZE::SIZE_1;
 
-    template <>
-    constexpr SIZE type_alignment<FIELD_TYPE::UINT16 > = SIZE::SIZE_2;
-    template <>
-    constexpr SIZE type_alignment<FIELD_TYPE::INT16  > = SIZE::SIZE_2;
+template <>
+inline constexpr SIZE type_alignment<FIELD_TYPE::UINT16 > = SIZE::SIZE_2;
+template <>
+inline constexpr SIZE type_alignment<FIELD_TYPE::INT16  > = SIZE::SIZE_2;
 
-    template <>
-    constexpr SIZE type_alignment<FIELD_TYPE::UINT32 > = SIZE::SIZE_4;
-    template <>
-    constexpr SIZE type_alignment<FIELD_TYPE::INT32  > = SIZE::SIZE_4;
-    template <>
-    constexpr SIZE type_alignment<FIELD_TYPE::FLOAT32> = SIZE::SIZE_4;
+template <>
+inline constexpr SIZE type_alignment<FIELD_TYPE::UINT32 > = SIZE::SIZE_4;
+template <>
+inline constexpr SIZE type_alignment<FIELD_TYPE::INT32  > = SIZE::SIZE_4;
+template <>
+inline constexpr SIZE type_alignment<FIELD_TYPE::FLOAT32> = SIZE::SIZE_4;
 
-    template <>
-    constexpr SIZE type_alignment<FIELD_TYPE::UINT64 > = SIZE::SIZE_8;
-    template <>
-    constexpr SIZE type_alignment<FIELD_TYPE::INT64  > = SIZE::SIZE_8;
-    template <>
-    constexpr SIZE type_alignment<FIELD_TYPE::FLOAT64> = SIZE::SIZE_8;
-}
+template <>
+inline constexpr SIZE type_alignment<FIELD_TYPE::UINT64 > = SIZE::SIZE_8;
+template <>
+inline constexpr SIZE type_alignment<FIELD_TYPE::INT64  > = SIZE::SIZE_8;
+template <>
+inline constexpr SIZE type_alignment<FIELD_TYPE::FLOAT64> = SIZE::SIZE_8;
 
 
 
@@ -237,6 +234,15 @@ public:
         
         cont_next_type_t& next_type;
         ValueT value;
+
+        VisitResult(const VisitResult& other) = delete;
+        VisitResult(VisitResult&& other) = delete;
+
+        constexpr ~VisitResult() = default;
+
+        VisitResult& operator=(const VisitResult& other) = delete;
+        VisitResult& operator=(VisitResult&& other) = delete;
+
     };
 
     template <typename NextTypeT>
@@ -292,7 +298,7 @@ struct StringType {
     [[nodiscard]] static Buffer::Index<Type> create (Buffer &buffer, uint32_t min_length, SIZE stored_size_size, SIZE size_size) {
         return create_with_header<Type, StringType>(
             buffer,
-            Type{STRING},
+            Type{FIELD_TYPE::STRING},
             StringType{
                 min_length,
                 stored_size_size,
@@ -321,7 +327,7 @@ struct IdentifiedType {
 
     [[nodiscard]] static Buffer::Index<Type> create (Buffer &buffer, IdentifedDefinitionIndex identifier_idx) {
         auto created = create_with_header<Type, IdentifiedType>(buffer);
-        buffer.get(created.header) = Type{IDENTIFIER},
+        buffer.get(created.header) = Type{FIELD_TYPE::IDENTIFIER},
         buffer.get(created.extended) = IdentifiedType{created.extended.value - identifier_idx.value};
         return created.header;
     }
@@ -467,9 +473,7 @@ struct EnumField {
             if (is_negative) {
                 if (value == 1) {
                     is_negative = false;
-                } /*else if (value == 0) {
-                    INTERNAL_ERROR("[set_member_value] value would underflow");
-                }*/ // this state should never happen since we dont call set_member_value with "-0"
+                }
                 value--;
             } else {
                 if (value == std::numeric_limits<uint64_t>::max()) {
@@ -565,25 +569,25 @@ using IdentifierMap = boost::unordered::unordered_flat_map<std::string_view, Ide
 template <typename T>
 [[nodiscard]] inline T& Type::skip () const {
     switch (type) {
-        case STRING_FIXED:      return as_fixed_string().after<T>();
-        case STRING:            return as_string().after<T>();
-        case ARRAY_FIXED:
-        case ARRAY:             return as_array().inner_type().skip<T>();
-        case FIXED_VARIANT:     return as_fixed_variant().after<T>();
-        case PACKED_VARIANT:    return as_packed_variant().after<T>();
-        case DYNAMIC_VARIANT:   return as_dynamic_variant().after<T>();
-        case IDENTIFIER:        return as_identifier().after<T>();
-        case BOOL:
-        case UINT8:
-        case UINT16:
-        case UINT32:
-        case UINT64:
-        case INT8:
-        case INT16:
-        case INT32:
-        case INT64:
-        case FLOAT32:
-        case FLOAT64:           return *estd::ptr_cast<T>(this + 1);
+        case FIELD_TYPE::STRING_FIXED:      return as_fixed_string().after<T>();
+        case FIELD_TYPE::STRING:            return as_string().after<T>();
+        case FIELD_TYPE::ARRAY_FIXED:
+        case FIELD_TYPE::ARRAY:             return as_array().inner_type().skip<T>();
+        case FIELD_TYPE::FIXED_VARIANT:     return as_fixed_variant().after<T>();
+        case FIELD_TYPE::PACKED_VARIANT:    return as_packed_variant().after<T>();
+        case FIELD_TYPE::DYNAMIC_VARIANT:   return as_dynamic_variant().after<T>();
+        case FIELD_TYPE::IDENTIFIER:        return as_identifier().after<T>();
+        case FIELD_TYPE::BOOL:
+        case FIELD_TYPE::UINT8:
+        case FIELD_TYPE::UINT16:
+        case FIELD_TYPE::UINT32:
+        case FIELD_TYPE::UINT64:
+        case FIELD_TYPE::INT8:
+        case FIELD_TYPE::INT16:
+        case FIELD_TYPE::INT32:
+        case FIELD_TYPE::INT64:
+        case FIELD_TYPE::FLOAT32:
+        case FIELD_TYPE::FLOAT64:           return *estd::ptr_cast<T>(this + 1);
         default:
             std::unreachable();
     }
