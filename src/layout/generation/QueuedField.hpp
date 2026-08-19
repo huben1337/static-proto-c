@@ -4,13 +4,13 @@
 #include <gsl/util>
 #include <variant>
 
-#include "../../parser/lexer_types.hpp"
 #include "../../estd/ranges.hpp"
+#include "../../core/SIZE.hpp"
 
 namespace layout::generation {
 
 struct SimpleField {
-    uint16_t map_idx;
+    uint16_t map_idx = static_cast<uint16_t>(-1);
     SIZE alignment;
 
     [[nodiscard]] SIZE get_alignment () const { return alignment; }

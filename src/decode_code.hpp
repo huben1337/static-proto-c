@@ -39,8 +39,8 @@
 namespace decode_code {
 
 struct SizeLeaf {
-    uint64_t min_size;
-    uint16_t idx;
+    uint64_t min_size = static_cast<uint64_t>(-1);
+    uint16_t idx = static_cast<uint16_t>(-1);
     SIZE size_size;
     SIZE stored_size_size;
 };
