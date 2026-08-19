@@ -1,5 +1,6 @@
 #pragma once
 
+#include <cassert>
 #include <cerrno>
 #include <cstddef>
 #include <cstdint>
@@ -7,6 +8,7 @@
 #include <cstdlib>
 #include <cstring>
 #include <gsl/util>
+#include <source_location>
 #include <string_view>
 #include <utility>
 #include <type_traits>
@@ -17,7 +19,6 @@
 
 #include "../util/string_literal.hpp"
 #include "../fast_math/log.hpp"
-#include "../estd/class_constraints.hpp"
 #include "../estd/type_traits.hpp"
 #include "./escape_sequences.hpp"
 
@@ -34,7 +35,7 @@ concept trivially_loggable =
     || is_string_literal_v<T>;
 
 
-class logger : estd::unique_only {
+class logger {
 public:
 
     /* Example implementation of loggable
@@ -118,11 +119,17 @@ public:
     explicit logger (const char* const output_path)
         : logger{open_output_file(output_path)} {}
 
+    logger(const logger&) = delete;
+    logger(logger&&) = delete;
+
     ~logger() {
         if (output_pollfd.fd < 0) return;
         ::close(output_pollfd.fd);
-        output_pollfd.fd = 0;
+        output_pollfd.fd = -1;
     }
+
+    logger& operator=(const logger&) = delete;
+    logger& operator=(logger&&) = delete;
 
 private:
     void _handled_write_stdout (const char* src, size_t left) {
@@ -450,30 +457,58 @@ concept loggable = trivially_loggable<T> || custom_loggable<T>;
 
 static logger console {"/dev/stdout"}; // TODO Static might cause probelms when switching to multiple TUs
 
-template <StringLiteral auto_msg, typename... ArgsT>
-[[noreturn, gnu::noinline, gnu::cold]] void bssert_fail (ArgsT&&... args) {
-    if constexpr (sizeof...(ArgsT) > 0) {
-        console.error<false, auto_msg + " with "_sl>(std::forward<ArgsT>(args)...);
-    } else {
-        console.error<false, auto_msg>();
-    }
+namespace detail {
+
+[[gnu::noinline, gnu::cold]] static void assert_fail_message_begin (
+    const std::source_location& loc,
+    const std::string_view& expr,
+    const std::string_view& end
+) {
+    console.log<true, true, logger::error_prefix>(
+        "Assertion `", expr, "` at ",
+        loc.file_name(), ":", loc.line(), ":", loc.column(),
+        end);
+}
+
+}
+
+template <typename... ArgsT>
+[[noreturn, gnu::noinline, gnu::cold]] void bssert_fail (
+    const std::source_location loc,
+    const std::string_view expr,
+    ArgsT&&... args
+) {
+    constexpr std::string_view end = sizeof...(ArgsT) > 0
+        ? std::string_view{" failed with "}
+        : std::string_view{" failed"};
+
+    detail::assert_fail_message_begin(loc, expr, end);
+    console.log(std::forward<ArgsT>(args)...);
+
     std::abort();
 }
 
-#define BSSERT(EXPR, ...)                                                                                       \
-/* NOLINTNEXTLINE(readability-simplify-boolean-expr) */                                                         \
-if (!(EXPR)) {                                                                                                  \
-    bssert_fail<"Assertion `" #EXPR "` at " __FILE__ ":" BOOST_PP_STRINGIZE(__LINE__) " failed">(__VA_ARGS__);  \
-}
+#define BSSERT(EXPR, ...)                                                           \
+(static_cast<bool>(EXPR)                                                            \
+    ? void()                                                                        \
+    : bssert_fail(std::source_location::current(), #EXPR __VA_OPT__(,) __VA_ARGS__) \
+)                                             \
 
-template<StringLiteral auto_msg, StringLiteral op, typename T, typename U, typename... ArgsT>
-[[noreturn, gnu::noinline, gnu::cold]] void cssert_fail (T&& lhs, U&& rhs, ArgsT&&... args) {
-    console.log<true, true, logger::error_prefix + auto_msg>();
+template<typename T, typename U, typename... ArgsT>
+[[noreturn, gnu::noinline, gnu::cold]] void cssert_fail (
+    const std::string_view expr,
+    const std::string_view op_expr,
+    const std::source_location loc,
+    T&& lhs,
+    U&& rhs,
+    ArgsT&&... args
+) {
+    detail::assert_fail_message_begin(loc, expr, " failed with `");
     if constexpr (loggable<std::remove_cvref_t<T>>) {
-        console.log<true, true>(std::forward<T>(lhs), op);
+        console.log<true, true>(std::forward<T>(lhs), op_expr);
     } else {
-        static constexpr auto lhs_type_name = string_literal::from_([](){ return nameof::nameof_type<T>(); });
-        console.log<true, true, string_literal::concat_v<lhs_type_name, "{?}"_sl, op>>();
+        static constexpr StringLiteral lhs_type_name {nameof::nameof_type<T>()};
+        console.log<true, true>(lhs_type_name + "{?}"_sl, op_expr);
     }
     if constexpr (loggable<std::remove_cvref_t<U>>) {
         if constexpr (sizeof...(ArgsT) > 0) {
@@ -482,18 +517,18 @@ template<StringLiteral auto_msg, StringLiteral op, typename T, typename U, typen
             console.log<true, false>(std::forward<U>(rhs), "`\n");
         }
     } else {
-        static constexpr auto rhs_type_name = string_literal::from_([](){ return nameof::nameof_type<U>(); });
+        static constexpr StringLiteral rhs_type_name {nameof::nameof_type<U>()};
         if constexpr (sizeof...(ArgsT) > 0) {
-            console.log<false, false, rhs_type_name + "{?}` and "_sl>(std::forward<ArgsT>(args)...);
+            console.log<false, false>(rhs_type_name + "{?}` and "_sl, std::forward<ArgsT>(args)...);
         } else {
-            console.log<true, false, rhs_type_name + "{?}`\n"_sl>();
+            console.log<true, false>(rhs_type_name + "{?}`\n"_sl);
         }
     }
     std::abort();
 }
 
-#define CSSERT(LHS, OP, RHS, ...)                                                                                                                                           \
-/* NOLINTNEXTLINE(readability-simplify-boolean-expr) */                                                                                                                     \
-if (!(LHS OP RHS)) {                                                                                                                                                        \
-    cssert_fail<"Assertion `" #LHS " " #OP " " #RHS "` at " __FILE__ ":" BOOST_PP_STRINGIZE(__LINE__) " failed with `", " " #OP " ">(LHS, RHS __VA_OPT__(,) __VA_ARGS__);   \
-}
+#define CSSERT(LHS, OP, RHS, ...)                                                                                   \
+(static_cast<bool>(LHS OP RHS)                                                                                      \
+    ? void()                                                                                                        \
+    : cssert_fail(#LHS " " #OP " " #RHS, #OP, std::source_location::current(), LHS, RHS __VA_OPT__(,) __VA_ARGS__)  \
+)

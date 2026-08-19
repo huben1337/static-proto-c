@@ -578,7 +578,7 @@ requires (alignment != SIZE::SIZE_1)
     const std::span<VariantLeafMeta> variant_leaf_metas,
     const uint16_t fixed_offset_idx_begin
 ) {
-    BSSERT(variant_leaf_metas.size() >= 2, "find_perfect_variant_layout_st: variant_count shouldn't be less than 2")
+    BSSERT(variant_leaf_metas.size() >= 2, "find_perfect_variant_layout_st: variant_count shouldn't be less than 2");
     VariantLeafMeta biggest_variant_leaf_meta = variant_leaf_metas[0];
 
     auto biggest_word_count = dp_bitset_base::bitset_word_count(biggest_variant_leaf_meta.used_space);

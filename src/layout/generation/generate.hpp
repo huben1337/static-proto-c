@@ -270,7 +270,7 @@ struct TypeVisitor : TypeVisitorBase<State> {
             return a.used_space > b.used_space;
         });
         console.debug("max_used_space: ", max_used_space);
-        BSSERT(variant_leaf_metas[0].used_space == max_used_space, "Sorting of variants' leaf metadata invalid")
+        BSSERT(variant_leaf_metas[0].used_space == max_used_space, "Sorting of variants' leaf metadata invalid");
           
 
         BSSERT(state.get_fixed_offset_idx() == fixed_offset_idx_begin_bak); // Inside variants no fixed_offsets should be added directy.
