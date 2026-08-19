@@ -430,8 +430,8 @@ public:
                 return result >= 0;
             }
 
-            [[nodiscard]] static constexpr ssize_t get_value (const ssize_t& result) {
-                return result;
+            [[nodiscard]] static constexpr size_t get_value (const ssize_t& result) {
+                return gsl::narrow_cast<size_t>(result);
             }
 
             [[nodiscard]] static constexpr ReadError get_error (const ssize_t& /*unused*/) {
@@ -461,8 +461,8 @@ public:
                 return result >= 0;
             }
 
-            [[nodiscard]] static constexpr ssize_t get_value (const ssize_t& result) {
-                return result;
+            [[nodiscard]] static constexpr size_t get_value (const ssize_t& result) {
+                return gsl::narrow_cast<size_t>(result);
             }
 
             [[nodiscard]] static constexpr WriteError get_error (const ssize_t& /*unused*/) {
