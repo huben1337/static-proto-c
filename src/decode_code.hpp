@@ -174,7 +174,15 @@ private:
     layout::ArrayPackInfo pack_info;
     uint8_t array_depth;
 
-    [[nodiscard]] static uint32_t estimate_size (const uint8_t array_depth) {
+    [[nodiscard]] static constexpr uint32_t estimate_expression_size (const uint8_t array_depth) {
+        if constexpr (last_is_direct) {
+            return ((array_depth - 1) * (" + idx_"_sl.size() + " * "_sl.size() + 19)) + "idx"_sl.size() + fast_math::sum_of_digits_unsafe<uint8_t, uint32_t>(gsl::narrow_cast<uint8_t>(array_depth - 1));
+        } else {
+            return (array_depth * " + idx_"_sl.size()) + ((array_depth - 1) * (" * "_sl.size() + 19)) + fast_math::sum_of_digits_unsafe<uint8_t, uint32_t>(array_depth);
+        }
+    }
+
+    [[nodiscard]] static constexpr uint32_t estimate_size (const uint8_t array_depth) {
         BSSERT(array_depth > 0);
         if (array_depth == 1) {
             if constexpr (last_is_direct) {
@@ -184,19 +192,13 @@ private:
             }
         }
 
-        uint32_t size;
+        const uint32_t estimated_expression_size = estimate_expression_size(array_depth);
 
-        if constexpr (last_is_direct) {
-            size = ((array_depth - 1) * (" + idx_"_sl.size() + " * "_sl.size() + 19)) + "idx"_sl.size() + fast_math::sum_of_digits_unsafe<uint8_t, uint32_t>(gsl::narrow_cast<uint8_t>(array_depth - 1));
+        if constexpr (no_multiply) {
+            return estimated_expression_size;
         } else {
-            size = (array_depth * " + idx_"_sl.size()) + ((array_depth - 1) * (" * "_sl.size() + 19)) + fast_math::sum_of_digits_unsafe<uint8_t, uint32_t>(array_depth);
+            return estimated_expression_size + "("_sl.size() + ")"_sl.size();
         }
-
-        if constexpr (!no_multiply) {
-            size += "("_sl.size() + ")"_sl.size();
-        }
-
-        return size;
     }
 
     IdxCalcCodeGenerator (const std::span<const layout::ArrayPackInfo>& pack_infos, const layout::ArrayPackInfo& pack_info, const uint8_t array_depth)
@@ -899,16 +901,16 @@ struct TypeVisitor {
 
         const ArrayCtorStrs array_ctor_strs = ArrayCtorStrs::make(array_depth);
 
-        uint16_t depth;
-        if constexpr (std::is_same_v<Args, GenFixedArrayLeafArgs>) {
-            // only fixed arrays can be nested
-            depth = additional_args.depth + 1;
-        } else {
-            depth = 0;
-        }
+        const uint16_t depth = [&] -> uint16_t {
+            if constexpr (std::is_same_v<Args, GenFixedArrayLeafArgs>) {
+                // only fixed arrays can be nested
+                return additional_args.depth + 1;
+            } else {
+                return 0;
+            }
+        }();
 
-        auto unique_name = get_unique_name(additional_args, [&depth]() { return codegen::StringParts{"Array_"_sl, depth}; });
-
+        auto unique_name = get_unique_name(additional_args, [depth]() { return codegen::StringParts{"Array_", depth}; });
         result_t result = fixed_array_type.inner_type().visit(
             TypeVisitor<
                 next_type_t,
@@ -1054,12 +1056,13 @@ struct TypeVisitor {
 
         const lexer::Type* type = &fixed_variant_type.first_variant();
 
-        uint16_t variant_depth;
-        if constexpr (is_variant_element<Args>) {
-            variant_depth = additional_args.variant_depth + 1;
-        } else {
-            variant_depth = 0;
-        }
+        uint16_t variant_depth = [&] -> uint16_t {
+            if constexpr (is_variant_element<Args>) {
+                return additional_args.variant_depth + 1;
+            } else {
+                return 0;
+            }
+        }();
         
         for (uint16_t i = 0; i < variant_count; i++) {            
             lexer::Type::VisitResult<lexer::Type, codegen::UnknownStructBase&&> result = type->visit(TypeVisitor<
@@ -1155,12 +1158,14 @@ struct TypeVisitor {
 
             const lexer::Type* type = &dynamic_variant_type.first_variant();
 
-            uint16_t variant_depth;
-            if constexpr (is_variant_element<Args>) {
-                variant_depth = additional_args.variant_depth + 1;
-            } else {
-                variant_depth = 0;
-            }
+            uint16_t variant_depth = [&] -> uint16_t {
+                if constexpr (is_variant_element<Args>) {
+                    return additional_args.variant_depth + 1;
+                } else {
+                    return 0;
+                }
+            }();
+
             uint16_t max_level_size_leafs = 0;
             for (uint16_t i = 0; i < variant_count; i++) {
                 max_level_size_leafs = std::max(
@@ -1237,12 +1242,13 @@ struct TypeVisitor {
             .ctor(array_ctor_strs.ctor_args, array_ctor_strs.ctor_inits).end();
 
         struct_definition.visit([&](const lexer::StructField& field_data) -> const std::byte& {
-            uint16_t struct_depth;
-            if constexpr (std::is_same_v<Args, GenStructLeafArgs>) {
-                struct_depth = additional_args.depth + 1;
-            } else {
-                struct_depth = 0;
-            }
+            uint16_t struct_depth = [&] -> uint16_t {
+                if constexpr (std::is_same_v<Args, GenStructLeafArgs>) {
+                    return additional_args.depth + 1;
+                } else {
+                    return 0;
+                }
+            }();
 
             lexer::Type::VisitResult<std::byte, codegen::UnknownStructBase&&> result = field_data.type().visit(TypeVisitor<
                 std::byte,

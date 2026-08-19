@@ -468,8 +468,7 @@ requires (alignment != SIZE::SIZE_1)
     // TODO: In here sums of not already generated bitsets need to be corrected for,
     // since some values fields get their size set to 0
     // Solution: and_merge at an offset so that the highest reached sum is flush with meta.used_space. 
-    uint64_t layout_end;
-    std::tie(applied_variants, layout_end) = variant_layout::perfect::find_st<alignment>(
+    auto found = variant_layout::perfect::find_st<alignment>(
         current_bits,
         to_apply_bits,
         applied_variants,
@@ -478,6 +477,8 @@ requires (alignment != SIZE::SIZE_1)
         max_used_space,
         prev_layout_end + min_space
     );
+    applied_variants = found.first;
+    uint64_t layout_end = found.second;
 
     BSSERT(layout_end != 0, "Non perfect variant layouts disabled for now!");
 
