@@ -72,17 +72,17 @@ namespace estd {
 
     public:
         template <
-            typename Iterable,
+            std::ranges::contiguous_range Range,
             std::same_as<template_guard> = template_guard,
-            typename With = std::span<std::ranges::range_value_t<Iterable>>
+            typename With = std::span<std::ranges::range_value_t<Range>>
         >
-        [[nodiscard]] constexpr With access_subspan (Iterable& i) const {    
-            using iterable_difference_t = std::ranges::range_difference_t<Iterable>;
+        [[nodiscard]] constexpr With access_subspan (Range& i) const {    
+            using range_difference_t = std::ranges::range_difference_t<Range>;
 
             assert(to <= std::ranges::size(i));
 
             return With{
-                i.begin() + gsl::narrow_cast<iterable_difference_t>(from),
+                std::ranges::data(i) + gsl::narrow_cast<range_difference_t>(from),
                 size()
             };
         }
@@ -102,20 +102,20 @@ namespace estd {
         }
 
         template <
-            typename Iterable,
+            std::ranges::contiguous_range Range,
             std::same_as<template_guard> = template_guard,
-            typename With = std::ranges::subrange<std::ranges::iterator_t<Iterable>>
+            typename With = std::ranges::subrange<std::ranges::iterator_t<Range>>
         >
-        [[nodiscard]] constexpr With access_subrange (Iterable& i) const {
-            using iterable_difference_t = std::ranges::range_difference_t<Iterable>;
+        [[nodiscard]] constexpr With access_subrange (Range& i) const {
+            using range_difference_t = std::ranges::range_difference_t<Range>;
             
             assert(to <= std::ranges::size(i));
 
-            auto begin = i.begin();
+            auto begin = std::ranges::begin(i);
 
             return With{
-                begin + gsl::narrow_cast<iterable_difference_t>(from),
-                begin + gsl::narrow_cast<iterable_difference_t>(to)
+                begin + gsl::narrow_cast<range_difference_t>(from),
+                begin + gsl::narrow_cast<range_difference_t>(to)
             };
         }
 
