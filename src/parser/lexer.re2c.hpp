@@ -342,13 +342,13 @@ template <bool is_dynamic, bool expect_fixed, typename BufferedTypeMeta>
 
     if constexpr (is_dynamic) {
         console.debug("Lexer found DYNAMIC_VARIANT");
-        buffer.get(created_variant_type.header) = Type{DYNAMIC_VARIANT};
+        buffer.get(created_variant_type.header) = Type{FIELD_TYPE::DYNAMIC_VARIANT};
     } else {
         if ((inner_max_byte_size - inner_min_byte_size) > max_wasted_bytes) {
             console.debug("Packing variant to satisfy size requirements");
-            buffer.get(created_variant_type.header) = Type{PACKED_VARIANT};
+            buffer.get(created_variant_type.header) = Type{FIELD_TYPE::PACKED_VARIANT};
         } else {
-            buffer.get(created_variant_type.header) = Type{FIXED_VARIANT};
+            buffer.get(created_variant_type.header) = Type{FIELD_TYPE::FIXED_VARIANT};
         }
     }
 
@@ -832,7 +832,7 @@ lex_type (const char* YYCURSOR, Buffer &buffer, IdentifierMap &identifier_map) {
                     Buffer::Index<Type> type_header_idx,
                     Buffer::Index<ArrayType> extended_idx
                 )->LexTypeResult {
-                    buffer.get(type_header_idx) = Type{ARRAY_FIXED};
+                    buffer.get(type_header_idx) = Type{FIELD_TYPE::ARRAY_FIXED};
                     buffer.get(extended_idx) = {
                         result.level_fixed_leafs,
                         length,
@@ -869,7 +869,7 @@ lex_type (const char* YYCURSOR, Buffer &buffer, IdentifierMap &identifier_map) {
                     Buffer::Index<Type> type_header_idx,
                     Buffer::Index<ArrayType> extended_idx
                 )->LexTypeResult {
-                    buffer.get(type_header_idx) = Type{ARRAY};
+                    buffer.get(type_header_idx) = Type{FIELD_TYPE::ARRAY};
                     uint32_t delta = max_length - min_length;
 
                     LeafCounts level_fixed_leafs;
@@ -954,7 +954,7 @@ lex_type (const char* YYCURSOR, Buffer &buffer, IdentifierMap &identifier_map) {
                     Buffer::Index<Type> type_header_idx,
                     Buffer::Index<ArrayType> extended_idx
                 )->LexFixedTypeResult {
-                    buffer.get(type_header_idx) = Type{ARRAY_FIXED};
+                    buffer.get(type_header_idx) = Type{FIELD_TYPE::ARRAY_FIXED};
                     buffer.get(extended_idx) = ArrayType{
                         result.level_fixed_leafs,
                         length,
