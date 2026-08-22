@@ -163,6 +163,8 @@ if(HAS_PP_OUT)
     set(MAIN_SRC ${PP_OUT_DIR}/${MAIN_REL_APTH})
 endif()
 
+add_custom_target(pp ALL DEPENDS ${PP_OUT_FILES})
+
 ############ SHARED CONFIG TARGET ############
 # Define the INTERFACE library that holds all shared build flags, features, and includes
 add_library(spc_options INTERFACE)
@@ -254,8 +256,8 @@ set_target_properties(
 )
 
 ############ DEBUG ############
-debug_target(spc_options)
-debug_target(spc)
+# debug_target(spc_options)
+# debug_target(spc)
 
 ############ TESTS SUBDIRECTORY ############
 option(BUILD_TESTS "Build unit tests" ON)
