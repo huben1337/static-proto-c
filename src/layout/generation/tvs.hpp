@@ -60,7 +60,7 @@ struct ConstStateBase {
             std::span<FixedOffset>                      tmp_fixed_offsets,
             std::span<estd::integral_range<uint64_t>>   var_offsets,
             std::span<uint16_t>                         idx_map,
-            std::span<ArrayPackInfo>                    pack_infos
+            ArrayPackInfosSpan                          pack_infos
         ) : fixed_offsets     (fixed_offsets),
             tmp_fixed_offsets (tmp_fixed_offsets),
             var_offset_idx_ranges       (var_offsets),
@@ -72,7 +72,7 @@ struct ConstStateBase {
         std::span<estd::integral_range<uint64_t>>   var_offset_idx_ranges;  // Idx ranges into the var_offset_buffer to access segements of number[] for every variable sized leaf.
                                                                             // Each segement holds the elment sizes for all variable sized leafes which come before in the layout.
         std::span<uint16_t>                         idx_map;                // Maps occurence in the AST to a stored leaf
-        std::span<ArrayPackInfo>                    pack_infos;
+        ArrayPackInfosSpan                          pack_infos;
     };
 };
 
@@ -81,7 +81,7 @@ struct MutableStateBase {
         std::vector<uint64_t> var_offset_buffer;             // Stores the size chains for variable size leaf offsets
         // uint16_t fixed_offset_idx_base = 0;  // The current base index for fixed sized leafs (maybe can be moved into LevelConstState if we know the total fixed leaf count including nested levels)
         uint16_t current_map_idx = 0;           // The current index into ConstState::idx_map
-        uint16_t current_pack_info_idx = 0;
+        ArrayPackInfoBaseIdx current_pack_info_base_idx = ArrayPackInfoBaseIdx::zero();
 
         constexpr explicit Shared (
             std::vector<uint64_t>&& var_offset_buffer
@@ -161,11 +161,8 @@ public:
         return mutable_state.shared().current_map_idx++;
     }
 
-    [[nodiscard]] uint16_t next_pack_info_base_idx () const {
-        uint16_t& current_pack_info_idx = mutable_state.shared().current_pack_info_idx;
-        const uint16_t& base_idx = current_pack_info_idx;
-        current_pack_info_idx +=4;
-        return base_idx;
+    [[nodiscard]] ArrayPackInfoBaseIdx next_pack_info_base_idx () const {
+        return mutable_state.shared().current_pack_info_base_idx.advance();
     }
 
     template <SIZE alignment>
@@ -173,7 +170,7 @@ public:
         this const auto& self,
         const uint64_t size,
         const estd::integral_range<uint16_t> fixed_offset_idxs,
-        const uint16_t pack_info_idx
+        const ArrayPackInfoBaseIdx pack_info_base_idx
     ) {
         if (size == 0) {
             BSSERT(fixed_offset_idxs.size() == 0);
@@ -181,10 +178,18 @@ public:
             return;
         }
 
+        ArrayPackInfoIdx pack_info_idx = pack_info_base_idx.get_sub_idx(alignment);
+
         ArrayPackInfo& pack_info = self.const_state.shared().pack_infos[pack_info_idx];
         pack_info.size = size;
 
-        self.template enqueue<alignment>(QueuedField{size, ArrayFieldPack{self.template move_to_tmp<alignment>(fixed_offset_idxs), pack_info_idx}});
+        self.template enqueue<alignment>(QueuedField{
+            size,
+            ArrayFieldPack{
+                self.template move_to_tmp<alignment>(fixed_offset_idxs),
+                pack_info_idx
+            }
+        });
     }
 
 private:
@@ -426,9 +431,9 @@ public:
                 if constexpr (std::is_same_v<ArrayFieldPack, T>) {
                     ArrayPackInfo& pack_info = shared_const_state.pack_infos[arg.pack_info_idx];
                     if constexpr (state_type == STATE_TYPE::TOP_LEVEL) {
-                        pack_info.parent_idx = static_cast<uint16_t>(-1);
+                        pack_info.parent_idx = ArrayPackInfoIdx::invalid();
                     } else {
-                        pack_info.parent_idx = const_state.level().pack_info_base_idx + target_align.ordinal();
+                        pack_info.parent_idx = const_state.level().pack_info_base_idx.get_sub_idx(target_align);
                     }
                 }
                 const estd::integral_range<uint16_t>& tmp_fixed_offset_idxs = arg.tmp_fixed_offset_idxs;
@@ -527,8 +532,8 @@ struct TopLevel {
             std::span<uint64_t> var_leaf_sizes;
             std::span<uint16_t> size_leafe_idxs;    // Since varirable sized leafs also are sorted by alignment we need this mapping to their insertion order
 
-            [[nodiscard]] static constexpr uint16_t get_pack_info_base_idx() {
-                return static_cast<uint16_t>(-1);
+            [[nodiscard]] static constexpr ArrayPackInfoBaseIdx get_pack_info_base_idx() {
+                return ArrayPackInfoBaseIdx::invalid(); // TOOD: Is that correct?
             }
         };
     private:
@@ -627,9 +632,9 @@ struct TopLevel {
 struct FixedArrayLevel {
     struct ConstState : ConstStateBase {
         struct Level {
-            uint16_t pack_info_base_idx;
+            ArrayPackInfoBaseIdx pack_info_base_idx;
 
-            [[nodiscard]] const uint16_t& get_pack_info_base_idx() const {
+            [[nodiscard]] const ArrayPackInfoBaseIdx& get_pack_info_base_idx() const {
                 return pack_info_base_idx;
             }
         };
@@ -688,9 +693,9 @@ struct FixedVariantLevel {
         struct Level {
             std::span<QueuedField> queued; // Only used in variants
             uint16_t fixed_offset_idx;
-            uint16_t pack_info_base_idx;
+            ArrayPackInfoBaseIdx pack_info_base_idx;
 
-            [[nodiscard]] const uint16_t& get_pack_info_base_idx() const {
+            [[nodiscard]] const ArrayPackInfoBaseIdx& get_pack_info_base_idx() const {
                 return pack_info_base_idx;
             }
         };

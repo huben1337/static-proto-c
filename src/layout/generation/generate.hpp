@@ -96,7 +96,7 @@ struct TypeVisitor : TypeVisitorBase<State> {
     template <SIZE alignment>
     void add_fixed_array_packs(
         const FixedArrayLevel::State& level_state,
-        const uint16_t pack_info_base_idx,
+        const ArrayPackInfoBaseIdx pack_info_base_idx,
         const uint16_t fixed_offset_idx_begin,
         const uint64_t last_offset,
         const uint32_t array_length
@@ -111,7 +111,7 @@ struct TypeVisitor : TypeVisitorBase<State> {
         state.template next_array_pack<alignment>(
             (current_offfset - last_offset) * array_length,
             {fixed_offset_idx_begin, fixed_offset_idx_end},
-            pack_info_base_idx + alignment.ordinal()
+            pack_info_base_idx
         );
 
         if constexpr (alignment != SIZE::SIZE_1) {
@@ -129,7 +129,7 @@ struct TypeVisitor : TypeVisitorBase<State> {
     }
 
     [[nodiscard]] result_t on_fixed_array(lexer::ArrayType& fixed_array_type) const {
-        const uint16_t pack_info_base_idx = state.next_pack_info_base_idx();
+        const ArrayPackInfoBaseIdx pack_info_base_idx = state.next_pack_info_base_idx();
         fixed_array_type.pack_info_base_idx = pack_info_base_idx;
         
         const uint16_t fixed_offset_idx_begin = state.get_fixed_offset_idx();
@@ -329,7 +329,7 @@ struct GenerateResult {
     const std::span<FixedOffset> fixed_offsets,
     const std::span<estd::integral_range<uint64_t>> var_offset_idx_ranges,
     const std::span<uint16_t> idx_map,
-    const std::span<ArrayPackInfo> pack_infos,
+    const ArrayPackInfosSpan pack_infos,
     std::vector<uint64_t>&& var_offset_buffer,
     const lexer::LeafCounts& level_fixed_leafs,
     const AlignCounts& var_leaf_counts,

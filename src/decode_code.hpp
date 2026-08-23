@@ -33,6 +33,7 @@
 #include "./sys/fs.hpp"
 #include "estd/array.hpp"
 #include "estd/ranges.hpp"
+#include "layout/ArrayPackInfo.hpp"
 #include "util/multi_alloc.hpp"
 #include "util/stringify.hpp"
 
@@ -50,7 +51,7 @@ struct OffsetsAccessor {
         std::span<const layout::FixedOffset> fixed_offsets,
         std::span<const std::span<const uint64_t>> var_offsets,
         std::span<const uint16_t> idx_map,
-        std::span<const layout::ArrayPackInfo> pack_infos,
+        layout::ReadOnlyArrayPackInfosSpan pack_infos,
         uint64_t var_leafs_start,
         gsl::not_null<uint16_t*> current_map_idx
     ) :
@@ -64,7 +65,7 @@ struct OffsetsAccessor {
     std::span<const layout::FixedOffset> fixed_offsets;
     std::span<const std::span<const uint64_t>> var_offsets;
     std::span<const uint16_t> idx_map;
-    std::span<const layout::ArrayPackInfo> pack_infos;
+    layout::ReadOnlyArrayPackInfosSpan pack_infos;
     uint64_t var_leafs_start;
     gsl::not_null<uint16_t*> current_map_idx;
 
@@ -77,19 +78,19 @@ struct OffsetsAccessor {
         return idx;
     }
 
-    [[nodiscard]] uint64_t next_fixed_offset () const {
+    [[nodiscard]] const uint64_t& next_fixed_offset () const {
         return next_fixed_leaf().offset;
     }
 
-    [[nodiscard]] layout::FixedOffset next_fixed_leaf () const {
-        const layout::FixedOffset offset = fixed_offsets[next_map_idx()];
+    [[nodiscard]] const layout::FixedOffset& next_fixed_leaf () const {
+        const layout::FixedOffset& offset = fixed_offsets[next_map_idx()];
         assert(offset != layout::FixedOffset::empty());
         return offset;
     }
 
-    [[nodiscard]] std::span<const uint64_t> next_var_offset () const {
+    [[nodiscard]] const std::span<const uint64_t>& next_var_offset () const {
         const uint16_t idx = next_map_idx();
-        const std::span<const uint64_t> offset = var_offsets[idx];
+        const std::span<const uint64_t>& offset = var_offsets[idx];
         assert(offset.data() != nullptr);
         // console.debug("next_var_offset at: ", idx, ", start_idx: ", offset.start_idx.value, ", length: ", offset.length);
         return offset;
@@ -110,7 +111,7 @@ private:
         static constexpr size_t value = (size_type_str_v<sizes>.size() + ...);
     };
 
-    static constexpr size_t types_count = SIZE::MAX.ordinal() + 2;
+    static constexpr size_t types_count = SIZE::MAX.ordinal() + 1;
 
     char data[SIZE::enums::template apply<size_type_strs_size>::value];
     std::string_view views[types_count];
@@ -171,8 +172,8 @@ struct SizeChainCodeGenerator {
 template <bool no_multiply, bool last_is_direct = false>
 struct IdxCalcCodeGenerator {
 private:
-    std::span<const layout::ArrayPackInfo> pack_infos;
-    layout::ArrayPackInfo pack_info;
+    layout::ReadOnlyArrayPackInfosSpan pack_infos;
+    layout::ArrayPackInfoIdx pack_info_idx;
     uint8_t array_depth;
 
     [[nodiscard]] static constexpr uint32_t estimate_expression_size (const uint8_t array_depth) {
@@ -202,14 +203,17 @@ private:
         }
     }
 
-    IdxCalcCodeGenerator (const std::span<const layout::ArrayPackInfo>& pack_infos, const layout::ArrayPackInfo& pack_info, const uint8_t array_depth)
-        : pack_infos(pack_infos),
-        pack_info(pack_info),
-        array_depth(array_depth) {}
+    
 
 public:
-    IdxCalcCodeGenerator (const std::span<const layout::ArrayPackInfo>& pack_infos, const uint16_t pack_info_idx, const uint8_t array_depth)
-        : IdxCalcCodeGenerator{pack_infos, pack_infos[pack_info_idx], array_depth} {}
+    IdxCalcCodeGenerator (
+        const layout::ReadOnlyArrayPackInfosSpan& pack_infos,
+        const layout::ArrayPackInfoIdx pack_info_idx,
+        const uint8_t array_depth
+    ) : pack_infos(pack_infos),
+        pack_info_idx(pack_info_idx),
+        array_depth(array_depth)
+    {}
     
     stringify::Dst&& write (stringify::Dst&& dst) const {
         if (array_depth == 1) {
@@ -225,7 +229,7 @@ public:
                 dst.write("(");
             }
 
-            layout::ArrayPackInfo last_pack_info = pack_info;
+            layout::ArrayPackInfo last_pack_info = pack_infos[pack_info_idx];
     
             uint32_t n = array_depth - 1;
             for (uint32_t i = 0; i < n; i++) {
@@ -388,7 +392,7 @@ template <typename Name>
         const layout::FixedOffset& offset = fixed_offsets[idx];
         struct_code = std::move(struct_code)
             .method(codegen::Attributes{"static"}, SizeTypeStrs::get(size_size), codegen::StringParts{"size", i}, codegen::Args{"size_t base"})
-                .line("return *reinterpret_cast<", SizeTypeStrs::get(stored_size_size), "*>(base + ", offset.get_offset(), ");")
+                .line("return *reinterpret_cast<", SizeTypeStrs::get(stored_size_size), "*>(base + ", offset.offset, ");")
             .end();
     }
     return std::move(struct_code);
@@ -436,12 +440,12 @@ template <bool is_array_element, StringLiteral type_name, SIZE type_size, bool i
 [[nodiscard]] inline codegen::UnknownStructBase&& gen_fixed_value_leaf_in_array (
     codegen::UnknownMethod&& get_method,
     const OffsetsAccessor& offsets_accessor,
-    const uint16_t pack_info_idx,
+    const layout::ArrayPackInfoBaseIdx pack_info_base_idx,
     const uint8_t array_depth,
     direct_pack_legnth_arg_t<is_direct_pack> direct_pack_length
 ) {
-    const layout::FixedOffset fo = offsets_accessor.next_fixed_leaf();
-    const uint64_t offset = fo.get_offset();
+    const auto [offset, map_idx, pack_align] = offsets_accessor.next_fixed_leaf();
+    const layout::ArrayPackInfoIdx pack_info_idx = pack_info_base_idx.get_sub_idx(pack_align);
     if constexpr (type_size == SIZE::SIZE_1 && !is_direct_pack) {
         if (offset == 0) {
             return std::move(get_method)
@@ -490,7 +494,7 @@ template <
     codegen::UnknownStructBase&& code,
     const OffsetsAccessor& offsets_accessor,
     ArgsT&& name_providing_args,
-    const uint16_t pack_info_idx,
+    const layout::ArrayPackInfoBaseIdx pack_info_base_idx,
     const uint8_t array_depth,
     direct_pack_legnth_arg_t<is_direct_pack> direct_pack_length = estd::empty{}
 ) {
@@ -499,7 +503,7 @@ template <
             std::move(code)
                 .method(type_name, "get", codegen::Args{"uint32_t idx"}),
             offsets_accessor,
-            pack_info_idx,
+            pack_info_base_idx,
             array_depth,
             direct_pack_length
         );
@@ -511,7 +515,7 @@ template <
             return gen_fixed_value_leaf_in_array<false, type_name, type_size, is_direct_pack>(
                 std::move(get_method),
                 offsets_accessor,
-                pack_info_idx,
+                pack_info_base_idx,
                 array_depth,
                 direct_pack_length
             );
@@ -546,7 +550,7 @@ requires(is_fixed)
     Code&& code,
     const OffsetsAccessor& offsets_accessor,
     ArgsT&& name_providing_args,
-    const uint16_t pack_info_idx,
+    const layout::ArrayPackInfoBaseIdx pack_info_idx,
     const uint8_t array_depth,
     direct_pack_legnth_arg_t<is_direct_pack> direct_pack_length = estd::empty{}
 ) {
@@ -564,12 +568,13 @@ template <bool is_array_element, StringLiteral type_name, SIZE type_size, bool i
 [[nodiscard]] inline codegen::UnknownStructBase&& gen_var_value_leaf_in_array (
     codegen::UnknownMethod&& get_method,
     const OffsetsAccessor& offsets_accessor,
-    const uint16_t pack_info_idx,
+    const layout::ArrayPackInfoBaseIdx pack_info_base_idx,
     const uint8_t array_depth,
     direct_pack_legnth_arg_t<is_direct_pack> direct_pack_length
 ) {
     const uint64_t& var_leafs_start = offsets_accessor.var_leafs_start;
     const auto size_chain = offsets_accessor.next_var_offset();
+    const layout::ArrayPackInfoIdx pack_info_idx = pack_info_base_idx.get_sub_idx(type_size); // TODO: Are variable sized layouts never packed on other alignment sections?
 
     if constexpr (type_size == SIZE::SIZE_1 && !is_direct_pack) {
         if (size_chain.empty()) {
@@ -619,7 +624,7 @@ template <
     codegen::UnknownStructBase&& code,
     const OffsetsAccessor& offsets_accessor,
     ArgsT&& name_providing_args,
-    const uint16_t pack_info_idx,
+    const layout::ArrayPackInfoBaseIdx pack_info_base_idx,
     const uint8_t array_depth,
     direct_pack_legnth_arg_t<is_direct_pack> direct_pack_length = estd::empty{}
 ) {
@@ -628,7 +633,7 @@ template <
             std::move(code)
                 .method(type_name, "get", codegen::Args{"uint32_t idx"}),
             offsets_accessor,
-            pack_info_idx,
+            pack_info_base_idx,
             array_depth,
             direct_pack_length
         );
@@ -638,7 +643,7 @@ template <
 
         if constexpr (in_array) {
             return gen_var_value_leaf_in_array<false, type_name, type_size, is_direct_pack>(
-                std::move(get_method), offsets_accessor, pack_info_idx, array_depth, direct_pack_length);
+                std::move(get_method), offsets_accessor, pack_info_base_idx, array_depth, direct_pack_length);
         } else {
             static_assert(!is_direct_pack);
             // _gen_var_value_leaf_default
@@ -672,7 +677,7 @@ requires(!is_fixed)
     Code&& code,
     const OffsetsAccessor& offsets_accessor,
     ArgsT&& name_providing_args,
-    const uint16_t pack_info_idx,
+    const layout::ArrayPackInfoBaseIdx pack_info_base_idx,
     const uint8_t array_depth,
     direct_pack_legnth_arg_t<is_direct_pack> direct_pack_length = estd::empty{}
 ) {
@@ -680,7 +685,7 @@ requires(!is_fixed)
         std::move(code).template as<codegen::UnknownStructBase>(),
         offsets_accessor,
         std::forward<ArgsT>(name_providing_args),
-        pack_info_idx,
+        pack_info_base_idx,
         array_depth,
         direct_pack_length
     ).template as<Code>();
@@ -739,7 +744,8 @@ struct TypeVisitor {
         const gsl::not_null<uint16_t*> current_size_leaf_idx,
         const Args& additional_args,
         const uint8_t array_depth,
-        const AlignSizes pack_sizes
+        const AlignSizes pack_sizes,
+        const layout::ArrayPackInfoBaseIdx pack_info_idx
     )
         : base_name(std::forward<BaseNameArg>(base_name)),
         offsets_accessor(offsets_accessor),
@@ -747,7 +753,9 @@ struct TypeVisitor {
         current_size_leaf_idx(current_size_leaf_idx),
         additional_args(additional_args),
         array_depth(array_depth),
-        pack_sizes(pack_sizes) {}
+        pack_sizes(pack_sizes),
+        pack_info_base_idx(pack_info_idx)
+    {}
 
     using next_type_t = NextTypeT;
     using result_t = lexer::Type::VisitResult<next_type_t, codegen::UnknownStructBase&&>;
@@ -759,12 +767,18 @@ struct TypeVisitor {
     Args additional_args;
     uint8_t array_depth;
     AlignSizes pack_sizes;
-    uint16_t pack_info_idx = 0;
+    layout::ArrayPackInfoBaseIdx pack_info_base_idx;
 
     template <lexer::FIELD_TYPE field_type, StringLiteral type_name>
     [[nodiscard]] codegen::UnknownStructBase&& on_simple (codegen::UnknownStructBase&& code) const {
         constexpr SIZE alignment = lexer::type_alignment<field_type>;
-        return gen_value_leaf<is_fixed, is_array_element<Args>, in_array, type_name, alignment>(std::move(code), offsets_accessor, additional_args, pack_info_idx, array_depth);
+        return gen_value_leaf<is_fixed, is_array_element<Args>, in_array, type_name, alignment>(
+            std::move(code),
+            offsets_accessor,
+            additional_args,
+            pack_info_base_idx,
+            array_depth
+        );
        
     }
 
@@ -794,7 +808,7 @@ struct TypeVisitor {
                     .ctor(array_ctor_strs.ctor_args, array_ctor_strs.ctor_inits).end(),
             offsets_accessor,
             "c_str"_sl,
-            pack_info_idx,
+            pack_info_base_idx,
             array_depth,
             length
         )
@@ -926,7 +940,8 @@ struct TypeVisitor {
                 current_size_leaf_idx,
                 GenFixedArrayLeafArgs{depth},
                 gsl::narrow_cast<uint8_t>(array_depth + 1),
-                pack_sizes
+                pack_sizes,
+                fixed_array_type.pack_info_base_idx
             },
             std::move(code)
                 ._struct(unique_name)
@@ -998,7 +1013,8 @@ struct TypeVisitor {
                     current_size_leaf_idx,
                     GenArrayLeafArgs{},
                     1,
-                    pack_sizes
+                    pack_sizes,
+                    array_type.pack_info_base_idx
                 },
                 std::move(code)
                     ._struct(unique_name)
@@ -1050,9 +1066,9 @@ struct TypeVisitor {
             .ctor(array_ctor_strs.ctor_args, array_ctor_strs.ctor_inits).end();
 
         if (variant_count <= UINT8_MAX) {
-            variant_struct = gen_value_leaf<is_fixed, false, in_array, "uint8_t", SIZE::SIZE_1>(std::move(variant_struct), offsets_accessor, "id"_sl, pack_info_idx, array_depth);
+            variant_struct = gen_value_leaf<is_fixed, false, in_array, "uint8_t", SIZE::SIZE_1>(std::move(variant_struct), offsets_accessor, "id"_sl, pack_info_base_idx, array_depth);
         } else {
-            variant_struct = gen_value_leaf<is_fixed, false, in_array, "uint16_t", SIZE::SIZE_2>(std::move(variant_struct), offsets_accessor, "id"_sl, pack_info_idx, array_depth);
+            variant_struct = gen_value_leaf<is_fixed, false, in_array, "uint16_t", SIZE::SIZE_2>(std::move(variant_struct), offsets_accessor, "id"_sl, pack_info_base_idx, array_depth);
         }              
 
         const lexer::Type* type = &fixed_variant_type.first_variant();
@@ -1081,7 +1097,8 @@ struct TypeVisitor {
                     {i, variant_depth}
                 },
                 array_depth,
-                AlignSizes::zero()
+                AlignSizes::zero(),
+                pack_info_base_idx
             }, std::move(variant_struct).template as<codegen::UnknownStructBase>());
 
             type = &result.next_type;
@@ -1136,9 +1153,9 @@ struct TypeVisitor {
                 .ctor(array_ctor_strs.ctor_args, array_ctor_strs.ctor_inits).end();
             
             if (variant_count <= UINT8_MAX) {
-                variant_struct = gen_value_leaf<is_fixed, false, in_array, "uint8_t", SIZE::SIZE_1>(std::move(variant_struct), offsets_accessor, "id"_sl, pack_info_idx, array_depth);
+                variant_struct = gen_value_leaf<is_fixed, false, in_array, "uint8_t", SIZE::SIZE_1>(std::move(variant_struct), offsets_accessor, "id"_sl, pack_info_base_idx, array_depth);
             } else {
-                variant_struct = gen_value_leaf<is_fixed, false, in_array, "uint16_t", SIZE::SIZE_2>(std::move(variant_struct), offsets_accessor, "id"_sl, pack_info_idx, array_depth);
+                variant_struct = gen_value_leaf<is_fixed, false, in_array, "uint16_t", SIZE::SIZE_2>(std::move(variant_struct), offsets_accessor, "id"_sl, pack_info_base_idx, array_depth);
             }
 
             const uint16_t size_leaf_idx = (*current_size_leaf_idx)++;
@@ -1201,7 +1218,8 @@ struct TypeVisitor {
                         {i, variant_depth}
                     },
                     array_depth,
-                    pack_sizes
+                    pack_sizes,
+                    pack_info_base_idx
                 }, std::move(variant_struct).template as<codegen::UnknownStructBase>());
                 type = &result.next_type;
                 variant_struct = std::move(result.value).template as<codegen::NestedStruct<codegen::UnknownStructBase>>();
@@ -1264,7 +1282,8 @@ struct TypeVisitor {
                 current_size_leaf_idx,
                 GenStructLeafArgs{field_data.name, struct_depth},
                 array_depth,
-                pack_sizes
+                pack_sizes,
+                pack_info_base_idx
             }, std::move(struct_code).template as<codegen::UnknownStructBase>());
 
             struct_code = std::move(result.value).template as<codegen::NestedStruct<codegen::UnknownStructBase>>();
@@ -1363,14 +1382,14 @@ inline void generate (
         std::ranges::fill(fixed_offsets, layout::FixedOffset::empty());
         std::ranges::fill(var_offset_idx_ranges, estd::integral_range<uint64_t>{});
         std::ranges::fill(idx_map, static_cast<uint16_t>(-1));
-        std::ranges::fill(pack_infos, layout::ArrayPackInfo{0, static_cast<uint16_t>(-1)});
+        std::ranges::fill(pack_infos, layout::ArrayPackInfo{});
         var_offset_buffer.clear();
         auto generate_offsets_result = layout::generation::generate(
             target_struct,
             fixed_offsets,
             var_offset_idx_ranges,
             idx_map,
-            pack_infos,
+            layout::ArrayPackInfosSpan{pack_infos},
             std::move(var_offset_buffer),
             level_fixed_leafs,
             var_leaf_counts,
@@ -1411,7 +1430,7 @@ inline void generate (
         fixed_offsets,
         var_offsets,
         idx_map,
-        pack_infos,
+        layout::ReadOnlyArrayPackInfosSpan{pack_infos},
         var_leafs_start,
         &current_map_idx
     };
@@ -1419,7 +1438,7 @@ inline void generate (
     uint16_t current_size_leaf_idx = 0;
 
     const auto codegen_start_ts = std::chrono::high_resolution_clock::now();
-    constexpr size_t codegen_bench_iterations = 1;
+    constexpr size_t codegen_bench_iterations = 100'000;
 
     for (size_t i = 0; ; i++) {
         auto code = codegen::create_code(std::move(code_buffer))
@@ -1446,7 +1465,8 @@ inline void generate (
                 &current_size_leaf_idx,
                 GenStructLeafArgs{name, 0},
                 0,
-                AlignSizes::zero()
+                AlignSizes::zero(),
+                layout::ArrayPackInfoBaseIdx::invalid()
             }, std::move(struct_code).template as<codegen::UnknownStructBase>());
 
             struct_code = std::move(result.value).template as<std::remove_reference_t<decltype(struct_code)>>();

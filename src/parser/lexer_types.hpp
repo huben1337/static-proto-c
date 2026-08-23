@@ -18,6 +18,7 @@
 #include "../util/logger.hpp"
 #include "../core/SIZE.hpp"
 #include "../core/AlignCounts.hpp"
+#include "../layout/ArrayPackInfo.hpp"
 
 namespace lexer {
 
@@ -363,7 +364,7 @@ struct ArrayType {
 
     LeafCounts level_fixed_leafs;
     uint32_t length;
-    uint16_t pack_info_base_idx;
+    layout::ArrayPackInfoBaseIdx pack_info_base_idx;
     SIZE stored_size_size;
     SIZE size_size;
 

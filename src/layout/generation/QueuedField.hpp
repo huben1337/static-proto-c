@@ -6,6 +6,7 @@
 
 #include "../../estd/ranges.hpp"
 #include "../../core/SIZE.hpp"
+#include "../ArrayPackInfo.hpp"
 
 namespace layout::generation {
 
@@ -13,7 +14,7 @@ struct SimpleField {
     uint16_t map_idx = static_cast<uint16_t>(-1);
     SIZE alignment;
 
-    [[nodiscard]] SIZE get_alignment () const { return alignment; }
+    [[nodiscard]] constexpr SIZE get_alignment () const { return alignment; }
 
 };
 
@@ -21,15 +22,16 @@ struct VariantFieldPack {
     estd::integral_range<uint16_t> tmp_fixed_offset_idxs;
     SIZE alignment;
 
-    [[nodiscard]] SIZE get_alignment () const { return alignment; }
+    [[nodiscard]] constexpr SIZE get_alignment () const { return alignment; }
 };
+
 
 struct ArrayFieldPack {
     estd::integral_range<uint16_t> tmp_fixed_offset_idxs;
-    uint16_t pack_info_idx;
+    ArrayPackInfoIdx pack_info_idx;
 
-    [[nodiscard]] SIZE get_alignment () const {
-        return SIZE::from_integral(pack_info_idx);
+    [[nodiscard]] constexpr SIZE get_alignment () const {
+        return pack_info_idx.get_alignment();
     }
 };
 
@@ -56,7 +58,7 @@ struct QueuedField {
     uint64_t size = static_cast<uint64_t>(-1);
     Info info;
 
-    consteval QueuedField () = default;
+    constexpr QueuedField () = default;
 
     constexpr QueuedField (uint64_t size, Info info) : size(size), info(info) {}
 };

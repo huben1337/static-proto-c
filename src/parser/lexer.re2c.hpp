@@ -836,7 +836,7 @@ lex_type (const char* YYCURSOR, Buffer &buffer, IdentifierMap &identifier_map) {
                     buffer.get(extended_idx) = {
                         result.level_fixed_leafs,
                         length,
-                        static_cast<uint16_t>(-1),
+                        layout::ArrayPackInfoBaseIdx::invalid(),
                         SIZE::SIZE_0,
                         get_size_size(length)
                     };
@@ -916,7 +916,7 @@ lex_type (const char* YYCURSOR, Buffer &buffer, IdentifierMap &identifier_map) {
                     buffer.get(extended_idx) = {
                         result.level_fixed_leafs,
                         min_length,
-                        static_cast<uint16_t>(-1),
+                        layout::ArrayPackInfoBaseIdx::invalid(),
                         stored_size_size,
                         size_size
                     };
@@ -958,7 +958,7 @@ lex_type (const char* YYCURSOR, Buffer &buffer, IdentifierMap &identifier_map) {
                     buffer.get(extended_idx) = ArrayType{
                         result.level_fixed_leafs,
                         length,
-                        static_cast<uint16_t>(-1),
+                        layout::ArrayPackInfoBaseIdx::invalid(),
                         SIZE::SIZE_0,
                         get_size_size(length)
                     };

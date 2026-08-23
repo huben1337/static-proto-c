@@ -108,8 +108,6 @@ public:
         w.template write<true, true>(type_name + "_"_sl, byte_size());
     }
 
-    struct next;
-
     struct enums;
 };
 
