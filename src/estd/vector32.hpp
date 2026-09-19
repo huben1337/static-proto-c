@@ -48,6 +48,16 @@ struct vector32 {
             }
         }
 
+        [[nodiscard]] static constexpr gsl::owner<T*> allocate (const uint32_t capacity) {
+            if constexpr (use_c_style_allocation) {
+                const gsl::owner<T*> data = static_cast<gsl::owner<T*>>(std::malloc(sizeof(T) * capacity));
+                assert(data != nullptr);
+                return data;
+            } else {
+                return allocate_with_new_operator(capacity);
+            }
+        }
+
         static constexpr void free_with_delete_operator(const gsl::owner<T*> data) {
             static_assert(!use_c_style_allocation);
             if constexpr (alignof(T) <= __STDCPP_DEFAULT_NEW_ALIGNMENT__) {
@@ -63,6 +73,10 @@ struct vector32 {
             } else {
                 free_with_delete_operator(_data);
             }
+        }
+
+        [[nodiscard]] static constexpr uint32_t min_size(uint32_t n) {
+            return std::max(n, 8U);
         }
 
         [[nodiscard]] static constexpr uint32_t growth(uint32_t n)
@@ -127,7 +141,17 @@ struct vector32 {
 
         constexpr explicit vector32(const uint32_t n)
         {
-            resize(n);
+            if (n == 0) return;
+
+            const auto capacity = min_size(n);
+            const gsl::owner<T*> data = allocate(capacity);
+
+            std::uninitialized_value_construct(data, data + n);
+
+            _data = data;
+            _capacity = capacity;
+            _position = n;
+
         }
 
         vector32(const vector32& other) = delete;
@@ -310,7 +334,7 @@ struct vector32 {
             }
 
             if (n > _capacity) {
-                reallocate(std::max(n, 8U));
+                reallocate(min_size(n));
             }
 
 
