@@ -70,7 +70,7 @@ struct vector32 {
             return n < 8 ? 8 : n + (n / 2);
         }
 
-        constexpr void reallocate(const uint32_t new_capacity)
+        constexpr void reallocate(const uint32_t new_capacity) noexcept
         {
             if (new_capacity > 0) {
                 if constexpr (use_c_style_allocation) {
@@ -108,7 +108,7 @@ struct vector32 {
             _capacity = new_capacity;
         }
 
-        constexpr void destroy() {
+        constexpr void destroy() noexcept {
             if constexpr (!std::is_trivially_destructible_v<T>) {
                 std::destroy_n(_data, _position);
             }
@@ -123,7 +123,6 @@ struct vector32 {
         }
 
     public:
-
         constexpr vector32() = default;
 
         constexpr explicit vector32(const uint32_t n)
@@ -133,7 +132,7 @@ struct vector32 {
 
         vector32(const vector32& other) = delete;
 
-        constexpr vector32(vector32&& other)
+        constexpr vector32(vector32&& other) noexcept
             : _data(other._data),
             _capacity(other._capacity),
             _position(other._position)
@@ -141,7 +140,7 @@ struct vector32 {
             other.reset();
         }
 
-        constexpr ~vector32()
+        constexpr ~vector32() noexcept
         {
             if (_data != nullptr) {
                 destroy();
@@ -151,7 +150,7 @@ struct vector32 {
 
         vector32& operator=(const vector32& other) = delete;
 
-        constexpr vector32& operator=(vector32&& other)
+        constexpr vector32& operator=(vector32&& other) noexcept
         {
             if (this == &other) {
                 return *this;
@@ -170,7 +169,7 @@ struct vector32 {
             return *this;
         }
 
-        constexpr void swap(vector32& other)
+        constexpr void swap(vector32& other) noexcept
         {
             std::swap(_data, other._data);
             std::swap(_capacity, other._capacity);
@@ -245,7 +244,7 @@ struct vector32 {
         [[nodiscard]] constexpr const_iterator cbegin() const { return begin(); }
         [[nodiscard]] constexpr const_iterator cend() const { return end(); }
 
-        void clear()
+        void clear() noexcept
         {
             if constexpr (!std::is_trivially_destructible_v<T>) {
                 std::destroy_n(_data, _position);
@@ -266,6 +265,8 @@ struct vector32 {
                 std::forward<Args>(args)...
             );
 
+            ++_position;
+
             return result;
         }
 
@@ -279,7 +280,7 @@ struct vector32 {
             emplace_back(std::move(x));
         }
 
-        void pop_back()
+        void pop_back() noexcept
         {
             --_position;
 
