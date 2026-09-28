@@ -156,7 +156,13 @@ template <SIZE alignment, bool has_pre_selected>
         BSSERT(pre_selected_begin != pre_selected_end);
     }
 
-    pre_selected_t<has_pre_selected> next_pre_selected = *pre_selected_begin;
+    pre_selected_t<has_pre_selected> next_pre_selected = [=]{
+        if constexpr (has_pre_selected) {
+            return *pre_selected_begin;
+        } else {
+            return estd::empty{};
+        }
+    }();
 
     do {
         // std::cout << "chain_idx: " << chain_idx << "\n";
