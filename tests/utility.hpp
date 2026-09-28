@@ -20,7 +20,22 @@ struct Tracked {
 
     int value{-1};
 
-    static void reset() { stats = {}; }
+    static void reset(
+        const boost::ut::reflection::source_location& sl = boost::ut::reflection::source_location::current()
+    ) {
+        boost::ut::expect(stats.alive == 0, sl);
+        stats = {};
+    }
+
+    static void reset_ops() {
+        stats.default_ctor = 0;
+        stats.value_ctor = 0;
+        stats.copy_ctor = 0;
+        stats.move_ctor = 0;
+        stats.copy_assign = 0;
+        stats.move_assign = 0;
+        stats.dtor = 0;
+    }
 
     Tracked() {
         ++stats.default_ctor;
@@ -72,10 +87,11 @@ struct NonCopyable {
     NonCopyable() = default;
     explicit NonCopyable(int v) : value(v) {}
 
-    NonCopyable(const NonCopyable&) = delete;
+    NonCopyable (const NonCopyable&) = delete;
     NonCopyable& operator=(const NonCopyable&) = delete;
-    NonCopyable(NonCopyable&&) noexcept = default;
+    NonCopyable (NonCopyable&&) noexcept=default;
     NonCopyable& operator=(NonCopyable&&) noexcept = default;
+    ~NonCopyable() = default;
 };
 
 struct NonMovable {
@@ -88,6 +104,7 @@ struct NonMovable {
     NonMovable& operator=(const NonMovable&) = default;
     NonMovable(NonMovable&&) = delete;
     NonMovable& operator=(NonMovable&&) = delete;
+    ~NonMovable() = default;
 };
 
 struct TrivialValue {
