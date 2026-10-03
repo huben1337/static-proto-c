@@ -70,7 +70,7 @@ namespace stringify {
             return 1;
         }
 
-        return fast_math::log_unsafe<10>(value) + 1;
+        return fast_math::log<10>(value) + 1;
     }
 
     template <StringLiteral seperator, typename ...T, size_t... Indices>
@@ -127,7 +127,7 @@ namespace stringify {
             return dst + 1;
         }
 
-        const uint32_t i = fast_math::log_unsafe<10>(value);
+        const uint32_t i = fast_math::log<10>(value);
         char* const end = dst + i + 1;
         dst += i;
         *(dst--) = gsl::narrow_cast<char>('0' + (value % 10));

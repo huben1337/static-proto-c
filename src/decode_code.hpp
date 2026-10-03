@@ -123,10 +123,10 @@ struct SizeChainCodeGenerator {
     }
 
     [[nodiscard]] size_t get_size() const {
-        size_t offset_str_size = ( size_chain.size() * (" + size"_sl.size() + "(base)"_sl.size()) ) + fast_math::sum_of_digits_unsafe(size_chain.size());
+        size_t offset_str_size = ( size_chain.size() * (" + size"_sl.size() + "(base)"_sl.size()) ) + fast_math::sum_of_digits(size_chain.size());
         for (const uint64_t size : size_chain) {
-             if (size != 1) {
-                offset_str_size += " * "_sl.size() + fast_math::log_unsafe<10>(size) + 1;
+            if (size != 1) {
+                offset_str_size += " * "_sl.size() + fast_math::log<10>(size) + 1;
             }
         }
         return offset_str_size;
@@ -142,9 +142,9 @@ private:
 
     [[nodiscard]] static constexpr uint32_t estimate_expression_size (const uint8_t array_depth) {
         if constexpr (last_is_direct) {
-            return ((array_depth - 1) * (" + idx_"_sl.size() + " * "_sl.size() + 19)) + "idx"_sl.size() + fast_math::sum_of_digits_unsafe<uint8_t, uint32_t>(gsl::narrow_cast<uint8_t>(array_depth - 1));
+            return ((array_depth - 1) * (" + idx_"_sl.size() + " * "_sl.size() + 19)) + "idx"_sl.size() + fast_math::sum_of_digits<uint8_t, uint32_t>(gsl::narrow_cast<uint8_t>(array_depth - 1));
         } else {
-            return (array_depth * " + idx_"_sl.size()) + ((array_depth - 1) * (" * "_sl.size() + 19)) + fast_math::sum_of_digits_unsafe<uint8_t, uint32_t>(array_depth);
+            return (array_depth * " + idx_"_sl.size()) + ((array_depth - 1) * (" * "_sl.size() + 19)) + fast_math::sum_of_digits<uint8_t, uint32_t>(array_depth);
         }
     }
 

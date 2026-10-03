@@ -1,5 +1,6 @@
 #pragma once
 
+#include <cassert>
 #include <cstddef>
 #include <cstdint>
 #include <gsl/util>
@@ -34,7 +35,9 @@ namespace fast_math {
     }
 
     template <size_t base, std::unsigned_integral T>
-    constexpr uint32_t log_unsafe (const T value) {
+    constexpr uint32_t log (const T value) {
+        assert(value != 0);
+
         using limit_t = std::numeric_limits<T>;
         static_assert(base <= limit_t::max(), "max input smaller then base");
 
@@ -67,4 +70,6 @@ namespace fast_math {
             return estimate + (value > next_pow_minus_one_table[estimate]);
         }
     }
+
+    // constexpr auto unnnnn = log_unsafe<10>(0u);
 }

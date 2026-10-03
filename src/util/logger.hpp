@@ -266,7 +266,7 @@ private:
 
     template <bool is_first, bool is_last, bool is_negative, std::unsigned_integral T>
     void write_nonzero (T value) {
-        auto log10_of_value = fast_math::log_unsafe<10>(value);
+        auto log10_of_value = fast_math::log<10>(value);
         constexpr size_t sign_size = is_negative ? 1 : 0;
         if constexpr (is_negative) {
             *(buffer_dst++) = '-';

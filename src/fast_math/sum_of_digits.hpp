@@ -12,8 +12,8 @@ namespace fast_math {
 
     /* Sums up excluding value */
     template <std::unsigned_integral T, std::unsigned_integral U = size_t>
-    constexpr U sum_of_digits_unsafe (T value) {
-        uint32_t c = log_unsafe<10>(value);
+    constexpr U sum_of_digits (T value) {
+        uint32_t c = log<10>(value);
 
         // 10ULL
         // 190ULL
