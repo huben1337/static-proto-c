@@ -67,6 +67,7 @@ private:
         return std::copy_n(str, M - 1, pos);
     }
 
+public:
     consteval ArrayCtorStrsData () {
         char* data_pos = strs_data.data();
         ce::for_([&]<size_t i>() {
@@ -122,15 +123,15 @@ private:
     }
 };
 
+constexpr size_t array_ctor_strs_count = 64;
+constexpr ArrayCtorStrsData<array_ctor_strs_count> array_ctor_strs_table {};
+
 } // namespace detail
 
 
 
 [[nodiscard]] constexpr ArrayCtorStrs ArrayCtorStrs::make (const uint8_t array_depth) {
-    static constexpr size_t array_ctor_strs_count = 64;
-    static constexpr auto array_ctor_strs = detail::ArrayCtorStrsData<array_ctor_strs_count>{};
-
-    return array_ctor_strs.strs_views[array_depth];
+    return detail::array_ctor_strs_table.strs_views[array_depth];
 }
 
 } // namespace code_generation_static_data
