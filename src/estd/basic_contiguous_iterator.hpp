@@ -307,39 +307,36 @@ static_assert(std::contiguous_iterator<basic_contiguous_iterator<const volatile 
 static_assert(std::is_convertible_v<basic_contiguous_iterator<int>, basic_contiguous_iterator<int>>);
 static_assert(std::is_convertible_v<basic_contiguous_iterator<int>, basic_contiguous_iterator<const int>>);
 
-using test_iterator = estd::basic_contiguous_iterator<int>;
-using test_const_iterator = estd::basic_contiguous_iterator<const int>;
+static_assert(std::random_access_iterator<estd::basic_contiguous_iterator<int>>);
+static_assert(std::bidirectional_iterator<estd::basic_contiguous_iterator<int>>);
+static_assert(std::forward_iterator<estd::basic_contiguous_iterator<int>>);
 
-static_assert(std::random_access_iterator<test_iterator>);
-static_assert(std::bidirectional_iterator<test_iterator>);
-static_assert(std::forward_iterator<test_iterator>);
-
-static_assert(std::contiguous_iterator<test_iterator>);
-static_assert(std::contiguous_iterator<test_const_iterator>);
+static_assert(std::contiguous_iterator<estd::basic_contiguous_iterator<int>>);
+static_assert(std::contiguous_iterator<estd::basic_contiguous_iterator<const int>>);
 
 static_assert(std::constructible_from<
-    test_const_iterator,
-    const test_iterator&
+    estd::basic_contiguous_iterator<const int>,
+    const estd::basic_contiguous_iterator<int>&
 >);
 
-static_assert(std::copy_constructible<test_const_iterator>);
+static_assert(std::copy_constructible<estd::basic_contiguous_iterator<const int>>);
 
 static_assert(!std::constructible_from<
-    test_iterator,
-    const test_const_iterator&
+    estd::basic_contiguous_iterator<int>,
+    const estd::basic_contiguous_iterator<const int>&
 >);
 
 static_assert(std::convertible_to<
-    test_iterator,
-    test_const_iterator
+    estd::basic_contiguous_iterator<int>,
+    estd::basic_contiguous_iterator<const int>
 >);
 
 static_assert(!std::convertible_to<
-    test_const_iterator,
-    test_iterator
+    estd::basic_contiguous_iterator<const int>,
+    estd::basic_contiguous_iterator<int>
 >);
 
-static_assert(requires(test_iterator i, test_const_iterator ci) {
+static_assert(requires(estd::basic_contiguous_iterator<int> i, estd::basic_contiguous_iterator<const int> ci) {
     i == ci;
     ci == i;
     i <=> ci;
