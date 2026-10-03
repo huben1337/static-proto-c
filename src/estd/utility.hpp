@@ -343,9 +343,7 @@ namespace estd {
 
     namespace _detail {
         template<std::integral T, T N, T... seq>
-        consteval variadic_v<N + seq ...> make_integer_range(std::integer_sequence<T, seq...> /*unused*/) {
-            static_assert(false);
-        }
+        variadic_v<N + seq ...> make_integer_range(std::integer_sequence<T, seq...> /*unused*/);
     } // namespace _detail
 
     template<typename T, T min, T max>
