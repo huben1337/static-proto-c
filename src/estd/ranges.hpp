@@ -2,6 +2,7 @@
 
 #include <cassert>
 #include <concepts>
+#include <gsl/pointers>
 #include <gsl/util>
 #include <iterator>
 #include <ranges>
@@ -21,10 +22,13 @@ namespace estd {
         template <std::integral>
         friend struct integral_range;
     private:
-        T value;
+        T _value;
+
     public:
         explicit constexpr integral_range_size (T value)
-            : value(value) {}
+            : _value(value) {}
+
+        [[nodiscard]] constexpr const T& get() const { return _value; }
     };
 
     template <std::integral T>
@@ -42,7 +46,10 @@ namespace estd {
             assert(from <= to);
         }
         
-        constexpr integral_range (T from, integral_range_size<unsigned_type> size) : from(from), to(from + size.value) {}
+        constexpr integral_range (T from, integral_range_size<unsigned_type> size) :
+            from(from),
+            to(from + gsl::narrow_cast<T>(size._value))
+        {}
 
         struct iterator {
         private:
@@ -65,71 +72,55 @@ namespace estd {
         [[nodiscard]] constexpr iterator end () const { return iterator{to}; }
 
     private:
-        struct template_guard {};
-
         template <typename R>
         using iterator_from_begin_t = decltype(std::declval<R&>().begin());
 
     public:
-        template <
-            std::ranges::contiguous_range Range,
-            std::same_as<template_guard> = template_guard,
-            typename With = std::span<std::ranges::range_value_t<Range>>
-        >
-        [[nodiscard]] constexpr With access_subspan (Range& i) const {    
+        template <std::ranges::contiguous_range Range>
+        requires (std::is_unsigned_v<T>)
+        [[nodiscard]] constexpr auto access_subspan (Range& i) const {
+            using range_reference_t = std::ranges::range_reference_t<Range>;
             using range_difference_t = std::ranges::range_difference_t<Range>;
 
             assert(to <= std::ranges::size(i));
 
-            return With{
+            return std::span<std::remove_reference_t<range_reference_t>>{
                 std::ranges::data(i) + gsl::narrow_cast<range_difference_t>(from),
                 size()
             };
         }
 
-        template <
-            typename U,
-            std::same_as<template_guard> = template_guard,
-            typename With = std::span<U>
-        >
-        [[nodiscard]] constexpr With access_subspan (U* const p) const {
-            assert(p != nullptr);
-
-            return With{
-                p + from,
+        template <typename U>
+        requires (std::is_unsigned_v<T>)
+        [[nodiscard]] constexpr auto access_subspan (gsl::not_null<U*> const p) const {
+            return std::span<U>{
+                p.get() + from,
                 size()
             };
         }
 
-        template <
-            std::ranges::contiguous_range Range,
-            std::same_as<template_guard> = template_guard,
-            typename With = std::ranges::subrange<std::ranges::iterator_t<Range>>
-        >
-        [[nodiscard]] constexpr With access_subrange (Range& i) const {
+        template <std::ranges::contiguous_range Range>
+        requires (std::is_unsigned_v<T>)
+        [[nodiscard]] constexpr auto access_subrange (Range& i) const {
             using range_difference_t = std::ranges::range_difference_t<Range>;
             
             assert(to <= std::ranges::size(i));
 
             auto begin = std::ranges::begin(i);
 
-            return With{
+            return std::ranges::subrange<std::ranges::iterator_t<Range>>{
                 begin + gsl::narrow_cast<range_difference_t>(from),
                 begin + gsl::narrow_cast<range_difference_t>(to)
             };
         }
 
-        template <
-            typename U,
-            std::same_as<template_guard> = template_guard,
-            typename With = std::ranges::subrange<U*>
-        >
-        [[nodiscard]] constexpr With access_subrange (U* const p) const {
-            assert(p != nullptr);
+        template <typename U>
+        requires (std::is_unsigned_v<T>)
+        [[nodiscard]] constexpr auto access_subrange (gsl::not_null<U*> const p) const {
 
-            return With{
-                p + from,
-                p + to
+            return std::ranges::subrange<U*>{
+                p.get() + from,
+                p.get() + to
             };
         }
     };
