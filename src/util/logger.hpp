@@ -507,7 +507,7 @@ template<typename T, typename U, typename... ArgsT>
     if constexpr (loggable<std::remove_cvref_t<T>>) {
         console.log<true, true>(std::forward<T>(lhs), op_expr);
     } else {
-        static constexpr StringLiteral lhs_type_name {nameof::nameof_type<T>()};
+        constexpr StringLiteral lhs_type_name {nameof::nameof_type<T>()};
         console.log<true, true>(lhs_type_name + "{?}"_sl, op_expr);
     }
     if constexpr (loggable<std::remove_cvref_t<U>>) {
@@ -517,7 +517,7 @@ template<typename T, typename U, typename... ArgsT>
             console.log<true, false>(std::forward<U>(rhs), "`\n");
         }
     } else {
-        static constexpr StringLiteral rhs_type_name {nameof::nameof_type<U>()};
+        constexpr StringLiteral rhs_type_name {nameof::nameof_type<U>()};
         if constexpr (sizeof...(ArgsT) > 0) {
             console.log<false, false>(rhs_type_name + "{?}` and "_sl, std::forward<ArgsT>(args)...);
         } else {

@@ -169,7 +169,7 @@ namespace fast_math {
             #if __SIZEOF_INT128__ == 16
             case 19: {
                 if constexpr (sizeof(U) >= 9) {
-                    static constexpr __uint128_t base = (static_cast<__uint128_t>(1888888888888888888ULL) * 100) + 90;
+                    constexpr __uint128_t base = (static_cast<__uint128_t>(1888888888888888888ULL) * 100) + 90;
                     return base + ((static_cast<__uint128_t>(value) - 10000000000000000000ULL) * 20);
                 }
                 break;

@@ -599,7 +599,7 @@ template <typename VisitorT, typename... ArgsT>
     using visitor_t = std::remove_cvref_t<VisitorT>;
     using result_t = visitor_t::result_t;
     using const_next_type_t = const visitor_t::next_type_t;
-    static constexpr bool no_value = std::is_same_v<typename result_t::value_t, void>;
+    constexpr bool no_value = std::is_same_v<typename result_t::value_t, void>;
 
     switch (type) {
         case FIELD_TYPE::BOOL: {
