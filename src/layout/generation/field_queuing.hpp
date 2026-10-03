@@ -39,9 +39,7 @@ public:
 };
 
 template<>
-struct Fields<SIZE::SIZE_1> : estd::empty {
-    using empty::empty;
-};
+struct Fields<SIZE::SIZE_1> {};
 
 template <SIZE target_align>
 void enqueueing_for_level (auto& level, const uint16_t idx) {
