@@ -106,7 +106,7 @@ private:
 
     static constexpr bool default_construct_requires_guard = ((
         !Allocs::fill &&
-        !std::is_trivially_destructible_v<typename Allocs::type>
+        !std::is_trivially_default_constructible_v<typename Allocs::type>
     ) || ...);
 
     static constexpr bool requires_guard = fill_requires_guard || default_construct_requires_guard;
@@ -201,7 +201,7 @@ private:
         destruction_guard& operator=(const destruction_guard&) = delete;
         destruction_guard& operator=(destruction_guard&&) = delete;
 
-        ~destruction_guard() {
+        ~destruction_guard() noexcept {
             if (_constructed == allocs_count) return;
             destroy_constructed_allocations(std::make_index_sequence<allocs_count - 1>{});
         }
@@ -229,7 +229,7 @@ private:
         };
     }
 
-    constexpr explicit multi_alloc(std::pair<const Allocs&, size_t>... allocs, estd::empty /*unused*/) :
+    constexpr explicit multi_alloc(std::pair<const Allocs&, size_t>... allocs) :
         _data(estd::array<Allocated>{(allocs.second + ...)}),
         _allocated(make_allocated_tuple(_data.data(), allocs...))
     {
@@ -247,7 +247,7 @@ public:
         multi_alloc{std::pair<const Allocs&, size_t>{
             allocs,
             ((allocs.size() * sizeof(typename Allocs::type)) + sizeof(Allocated) - 1) / sizeof(Allocated)
-        } ..., estd::empty{}}
+        } ...}
     {}
     
     constexpr multi_alloc(const multi_alloc&) = delete;
@@ -269,7 +269,7 @@ public:
         return *this;
     }
 
-    constexpr ~multi_alloc() {
+    constexpr ~multi_alloc() noexcept {
         if (_data.data() != nullptr) {
             destroy_allocations(_allocated, indecies);
         }
