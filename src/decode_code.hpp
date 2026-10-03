@@ -27,6 +27,7 @@
 #include "./estd/meta.hpp"
 #include "./fast_math/sum_of_digits.hpp"
 #include "./fast_math/log.hpp"
+#include "./code/SizeTypeStrs.hpp"
 #include "./code_generation_static_data.hpp"
 #include "./layout/generation/generate.hpp"
 #include "./estd/empty.hpp"
@@ -97,43 +98,6 @@ struct OffsetsAccessor {
     }
 };
 
-
-
-
-struct SizeTypeStrs {
-private:
-
-    template <SIZE size>
-    static constexpr StringLiteral size_type_str_v = string_literal::concat_v<"uint"_sl, size.byte_size() * 8, "_t"_sl>;
-
-    template <SIZE... sizes>
-    struct size_type_strs_size {
-        static constexpr size_t value = (size_type_str_v<sizes>.size() + ...);
-    };
-
-    static constexpr size_t types_count = SIZE::MAX.ordinal() + 1;
-
-    char data[SIZE::enums::template apply<size_type_strs_size>::value];
-    std::string_view views[types_count];
-
-    // NOLINTNEXTLINE(cppcoreguidelines-pro-type-member-init)
-    consteval SizeTypeStrs () {
-        char* data_pos = data;
-        SIZE::enums::foreach([&, this]<SIZE size>() {
-            constexpr StringLiteral type_str = size_type_str_v<size>;
-            std::copy_n(type_str.begin(), type_str.size(), data_pos);
-            views[size.ordinal()] = {data_pos, type_str.size()};
-            data_pos += type_str.size();
-        });
-    }
-
-public:
-    [[nodiscard]] static constexpr std::string_view get (const SIZE size) {
-        BSSERT(size <= SIZE::MAX);
-        static constexpr SizeTypeStrs instance = SizeTypeStrs{};
-        return instance.views[size.ordinal()];
-    }
-};
 
 struct SizeChainCodeGenerator {
     explicit SizeChainCodeGenerator(
